@@ -555,3 +555,26 @@ A second reviewer gave the v9.5 fresh run a green light (internal consistency 9.
 **v9.7 test status:** py_compile + `test_review_v97.py` green (allowlist-configured-but-empty is fail-open → strays unclassified, denylist not used; default denylist back-compat; warning path; `_class_matches` deployed-image semantics).
 
 **Freeze declaration:** with v9.7 the measurement framework is frozen unless a genuine bug surfaces. Remaining work is experiments, not metrics: (1) repeatability validation — `SAQEF_REPEAT=10 ./run_saqef.sh bench` on Fn, check `cp_dynamic_share_pct` within ±2%, both KPIs stable, CP energy ∝ CP CPU; (2) cross-platform discrimination — OpenFaaS (then Knative/OpenWhisk) with the identical protocol, `cp_dynamic_share_pct` vs Fn's ~24%; (3) bare metal — RAPL ground truth + the native→Docker→containerd→FaaS decomposition the reviewer proposed.
+
+## 21. v9.7 Fn validation run — the repeatability gate (2026-08-04)
+
+`./run_saqef.sh all` from a fresh session, deployed image bumped to `hello:0.0.15`. Median of 5×3000 (c=20, cgroup + delta-check). **All gates pass on every run:**
+
+| run | delta% | cp_cpu_s | fn_cpu_s | plausible | host_sat% | host_plausible | coverage% |
+|---|---|---|---|---|---|---|---|
+| 1 | 0.01 | 3.65 | 11.22 | True | 100.2 | True | 100.0 |
+| 2 | 0.01 | 3.62 | 11.38 | True | 100.2 | True | 100.0 |
+| 3 | 0.01 | 3.68 | 11.39 | True | 99.9 | True | 100.0 |
+| 4 | 0.00 | 3.60 | 11.37 | True | 100.1 | True | 100.0 |
+| 5 | 0.00 | 3.66 | 11.35 | True | 100.2 | True | 100.0 |
+
+**This directly answers the second reviewer's repeatability gate** (stability across runs):
+- `cp_dynamic_share_pct` median **24.38**, spread **24.07–24.54**, CV **0.83%**, IQR 0.30 → well inside ±2%.
+- fn CPU/inv 11.22–11.39 s ÷ 3000 = **3.74–3.80 ms**, consistent with both prior sessions (3.83, 3.80) and `--verify` (3.56 ms, budget "MATCHES") — session-stable.
+- Between-session: `cp_dynamic_share_pct` 24.38 vs 23.88 (0.5 pp); the between-session spread is now resolved.
+- **Coverage 100.0% on all 5 runs** — the v9.6 stop-time flush landed; the reviewer's only earlier data concern is gone.
+- **Allowlist now genuinely exercised:** all 12 fn containers are image `hello:0.0.15`, matched by the v9.7 default `--fn-images hello`; no fail-open warning fired; `unclassified_cpu_s: 0.0` is now enforced, not coincidental.
+
+**hey diagnosis (v9.6 diagnostics paid off):** every run printed `hey: JSON parse failed (Expecting value: line 1 column 1 (char 0)): json` — i.e. the `hey` binary ran with rc=0 but its stdout was the literal string `json`, not a JSON report. `/go/bin/hey` is **not behaving as rakyll/hey** (a real hey prints a full report). `env` now records the truth (`loadgen: "py"`, `loadgen_requested: "hey"`, `loadgen_fallback: true`), so the QoS numbers (p50 55.6, p99 140.1 ms) are Python-generator measurements, container-level metrics are loadgen-agnostic and unaffected. Action before cross-platform runs: `hey -h` + `ls -la json` to identify the binary, reinstall the official release, and fix the generator once so the same generator is used across platforms.
+
+**KPI (median):** op 0.0093 gCO₂/inv, dynamic 0.000838 gCO₂/inv; `verify.json` function_cpu_ms_per_inv 3.56 (MATCHES). Results committed to `results/fn_cpubound_v9/`.
