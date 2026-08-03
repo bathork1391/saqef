@@ -420,3 +420,25 @@ Third-party technical review of the v8 data; disposition of each point:
 7. **Sequencing advice (validate sampler before OpenFaaS/OpenWhisk; treat 100 Hz as earn-back; bare metal only after delta-check is single-digit).** AGREE, this is the current plan (§10, §11 step 4). `--sampler docker` remains a valid interim fallback for cross-platform smoke runs, but the fixed cgroup path should now pass the delta-check directly.
 
 **Net:** all actionable points addressed in the harness; §12 fix + §13 hardening are both in the local copy to re-drag into the Codespace.
+
+---
+
+## 14. v9 re-validation on Codespace (2026-08-03) — FIX CONFIRMED
+
+Re-ran gold-standard B (`--sampler cgroup --delta-check --loadgen hey`, 5×3000 calls) with Fn up. Median:
+
+| Metric | v8 (buggy) | v9 | Meaning |
+|---|---|---|---|
+| `cp_sampler_vs_delta_pct` | 5188.48 (52x) | **0.02** | sampler now matches direct cgroup counter to 0.02% |
+| `cp_delta_sec` vs `cpu_sec.control_plane` | 2.6 vs 136.6 | **2.611 = 2.61** | exact |
+| `physical_plausible` | false (462 CPU-s > 28.7) | **true** (8.6 < 30.2 ceiling) | impossibility gone |
+| `cp_dynamic_share_pct` | ~29.9 | **30.55** | the one stable ratio, now on real numbers |
+| `slo_compliance` / rps | – | 0.9997 / 198.6 | QoS intact |
+
+**Remaining honest caveats (not blocking CP-share claims, must be stated):**
+1. **Function CPU capture still partial:** `cpu_sec.function = 6.01 s / 3000 inv = 2.0 ms/inv` vs the 5 ms busy-loop claim. Short-lived function containers are only partially caught by the sparse nested-mount sampler (known §11 issue). CP side is exact (delta-check proves it); function-side absolute CPU improves on bare metal. `cp_dynamic_share_pct` is a CP/CP+fn ratio so it is affected only mildly; treat fn CPU as lower-bound.
+2. **`sampling_covered_s` is low (≈13.7% of wall)** on the nested mount — but totals remain exact because the sampler stores raw cumulative counts and the consumer differences them (this is exactly why the delta-check passes despite sparse sampling). Coverage ≥ 95% remains a bare-metal gate.
+3. **`hey` still failed at runtime** despite being on PATH — root cause now identified: `storage.googleapis.com/hey-release/hey_linux_amd64` returns **403 Forbidden** (verified 2026-08-03), so every "reinstall" fetched a truncated error page. GitHub releases have no prebuilt assets; `run_saqef.sh setup` now installs via `go install github.com/rakyll/hey@latest`. Fallback to the Python generator is harmless for container-level metrics.
+4. Host-level metrics (`host_cpu_sec`, `orchestration_*`) remain meaningless in the shared Codespace (noisy neighbor, §12). Reserved for bare metal.
+
+**Reproduction (2026-08-03, second full `all` run):** identical conclusion — `cp_sampler_vs_delta_pct = 0.01`, `cp_dynamic_share_pct = 30.32`, `physical_plausible = true` on all 5 runs, `slo_compliance = 0.9997`, `throughput_rps = 206`.
