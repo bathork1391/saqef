@@ -211,11 +211,39 @@ The idle-dominance is itself a result: at this light load, **~94% of operational
 
 ---
 
-## 8. The validation method caught a real bug (methodological evidence)
+## 8. Measurement-validation discipline (methodological contribution)
 
-During development, the sampler overcounted control-plane CPU by **52× under load** (5188% vs the direct counter; 462 CPU-seconds attributed to a machine physically capable of 28.7 — a hard physical impossibility). Root cause: the sampler computed a *percent rate* with its own internal dt, which the reducer then re-multiplied by a different dt; under thread contention, scheduling jitter produced spurious rate spikes. The built-in delta-check flagged it immediately. Fix: store raw cumulative counters + difference with true timestamps (exact by construction). Post-fix delta-check: **0.01%**.
+The central methodological claim is not a number; it is that **every reported quantity has an independent cross-check, and the harness actively validates itself** rather than assuming its own correctness. Each measurement threat discovered during development produced a fix plus a gate that proves the fix, and the gates are now part of the output (a failed gate fails the run, not the narrative). This section is the paper's "how we know" appendix — it is what separates this framework from a script that prints plausible-looking numbers.
 
-**Why this belongs in the paper:** it demonstrates that (a) self-validation is not decorative — it caught a data-corrupting bug that would have silently poisoned every platform's numbers; (b) the raw-cumulative design is cadence-immune, which is what makes sparse sampling on constrained environments still produce exact totals.
+### 8.1 The validation gates (each number is double-checked)
+
+| # | Reported quantity | Independent cross-check | Current status |
+|---|---|---|---|
+| G1 | control-plane CPU | cgroup **delta-check**: direct before/after counter of the CP container vs the sampler's sum | **0.00–0.01%** across all v9.7 runs |
+| G2 | host busy accounting | `host_plausible = host_cpu_sec ≤ cpu_count × wall × 1.05`; `host_saturation_pct = host/wall` per core | 99.9–100.3%, plausible=true (saturated but *reproducibly*) |
+| G3 | sampling coverage | `sampling_covered_s / wall_s`; stop-time flush + clamp so it cannot exceed 100% | **100.0% on all 5** v9.7 runs |
+| G4 | function classification | allowlist (names + image + label keys) with a logged **unclassified bucket**; fail-open (a configured-but-matching-nothing allowlist warns instead of reverting to the denylist) | `unclassified_cpu_s = 0.0` with 12/12 fn containers matched by image; no warning fired |
+| G5 | load-generator identity | `env.loadgen` records the **actual** generator (`py`/`hey`), plus `loadgen_requested` and `loadgen_fallback` | v9.6+ truthful; a silent fallback is impossible |
+| G6 | cross-session repeatability | multi-session median discipline; `cv_pct`/`iqr`/`bootstrap_ci` within a session, session medians across sessions | `cp_dynamic_share_pct` = 23.88 / 24.38 / 24.59 across three clean sessions (≤0.7 pp drift) |
+| G7 | KPI wall-independence | marginal (idle-excluded) KPI vs operational KPI; busy-power sensitivity band (2/3.5/5 W) | dynamic KPI invariant to window; share invariant to busy power |
+
+### 8.2 What the discipline caught (bug taxonomy → fix)
+
+1. **Rate-based CPU sampling was cadence-corruptible (the flagship bug).** The sampler computed percent rates with its own internal dt; the reducer re-multiplied by a different dt, and scheduling jitter produced spurious spikes — the control plane was attributed **5188% of a 2-core host's budget** (a hard physical impossibility, 52× overcount). The delta-check flagged it immediately. Fix: store raw cumulative counters and difference with true timestamps — **exact by construction, cadence-immune**. Post-fix delta-check: 0.01%. This is why sparse sampling on constrained environments still yields exact totals, and why the framework can run on a shared VM.
+2. **Host accounting silently bled past the window.** The host counter was read *after* stopping the sampler thread; on a saturated box the thread can be starved up to the join timeout, inflating host CPU by up to 10 s. Fix: read the host counter before `stop`/`join`. Gate: G2 now reads 99.9–100.3% with zero >100.0% outliers, not the earlier 104–107% spread.
+3. **Leftover containers folded into function CPU (between-session corruption).** Reused `fnserver` + orphaned warm fn containers inflated `fn_cpu` 4.2× (16.05 → 3.83 ms/inv). Fix: fresh-session protocol — every `all` removes the control plane and *all* deployed-image containers before starting. Gate: G6 (session medians now agree within noise).
+4. **Denylist classification silently mis-attributes strays.** Without an allowlist, any stray container becomes "function." Fix: allowlist (names/images/labels) + unclassified bucket; plus **fail-open**: an allowlist that matches nothing warns and sends strays to unclassified rather than reverting. Gate: G4.
+5. **Wrong allowlist default was *invisible*.** The default referenced the base runtime image while Fn's running containers carry the deployed image — the allowlist matched nothing and silently deactivated. Fix: default to the deployed image name + fail-open warning. Gate: G4 (no warning; 12/12 matched by image).
+6. **Load-generator identity could lie.** The summary recorded the *requested* generator while the runs silently fell back. Fix: record actual + requested + fallback flag, and make every hey failure path print a reason. Gate: G5.
+7. **Coverage tail truncated the window.** The sampler's last scheduled rescan could be starved past the window end (93.6%/92.9% coverage on two runs). Fix: stop-time flush + clamp. Gate: G3 (100% ×5).
+
+### 8.3 Why this belongs in the paper
+
+- **Self-validation is not decorative**: it caught a data-corrupting bug (G1) and four silent mis-attribution bugs (G3–G6) that would have polluted every platform's numbers with a clean-looking output.
+- **Honesty is enforced by construction**: an unvalidated number cannot be emitted — if a gate fails, the run is flagged, not silently accepted. Remaining uncertainty is *named* (RAPL absent, host saturated, single platform), not hidden.
+- **Reproducibility is checkable**: a reader with `run_saqef.sh all` gets the same gates, the same audit trail (`container_inventory`, `container_labels`, per-run `summary.json`), and can reject any run whose gates fail.
+
+The framework was **frozen at v9.7**; further development stops unless a genuine bug surfaces. Everything measured after the freeze is comparable by construction.
 
 ---
 
