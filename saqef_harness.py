@@ -93,16 +93,20 @@ def rapl_energy():
 
 
 # ---------------------------------------------------------------------------
-def run_load(url, total, concurrency, timeout_s=10):
-    """Fire `total` requests with `concurrency` threads. Returns list of (ok, latency_s)."""
+def run_load(url, total, concurrency, timeout_s=10, deadline_s=None):
+    """Fire `total` requests with `concurrency` threads, hard-stopped at deadline_s.
+    Returns list of (ok, latency_s)."""
     per = total // concurrency
     results = []
+    start = time.perf_counter()
 
     def worker(base):
         n = per
         if base == 0:
             n += total % concurrency
         for _ in range(n):
+            if deadline_s is not None and time.perf_counter() - start > deadline_s:
+                break
             t0 = time.perf_counter()
             ok = True
             try:
@@ -118,35 +122,13 @@ def run_load(url, total, concurrency, timeout_s=10):
     return results
 
 
-# ---------------------------------------------------------------------------
-def main():
-    ap = argparse.ArgumentParser(description="SAQEF measurement harness")
-    ap.add_argument("--check", action="store_true", help="verify docker + RAPL availability")
-    ap.add_argument("--url", default="http://localhost:8080/r/app/hello")
-    ap.add_argument("--platform", default="unknown", help="label, e.g. fn, openfaas, openwhisk")
-    ap.add_argument("--cp-containers", default="", help="comma-separated substrings of control-plane containers")
-    ap.add_argument("--total", type=int, default=2000, help="total requests")
-    ap.add_argument("--concurrency", type=int, default=10)
-    ap.add_argument("--duration", type=int, default=60, help="window seconds (also a hard stop)")
-    ap.add_argument("--outdir", default="results")
-    ap.add_argument("--slo-ms", type=float, default=500.0, help="SLO latency target in ms")
-    ap.add_argument("--idle-w", type=float, default=P_IDLE_BASE_W)
-    ap.add_argument("--ci", type=float, default=CI_GCO2_PER_KWH, help="grid carbon intensity gCO2/kWh")
-    args = ap.parse_args()
+def run_once(args, cp_sub):
+    """One full measurement window (warmup + sampler + load). Returns summary dict."""
+    if args.warmup > 0:
+        run_load(args.url, args.warmup, min(args.concurrency, args.warmup))
+        time.sleep(2)  # let the hot function container register in docker stats
 
-    if args.check:
-        ds = docker_stats_once()
-        r = rapl_energy()
-        print("docker stats :", "OK" if ds is not None else "NOT AVAILABLE",
-              "(%d containers seen)" % len(ds) if ds is not None else "")
-        print("RAPL         :", ("OK %.0f J" % r) if r else "NOT AVAILABLE (CPU-time model only)")
-        sys.exit(0)
-
-    os.makedirs(args.outdir, exist_ok=True)
-    cp_sub = [s.strip().lower() for s in args.cp_containers.split(",") if s.strip()]
-
-    # --- sampler thread (streaming `docker stats`, ~1 Hz full-window coverage) -
-    samples, rapl_log = [], []
+    samples = []
     stop = threading.Event()
     rapl_start = rapl_energy()
 
@@ -199,9 +181,8 @@ def main():
     th = threading.Thread(target=sampler, daemon=True)
     th.start()
 
-    # --- load generation -----------------------------------------------------
     t0 = time.perf_counter()
-    reqs = run_load(args.url, args.total, args.concurrency)
+    reqs = run_load(args.url, args.total, args.concurrency, deadline_s=args.duration)
     wall = time.perf_counter() - t0
     stop.set()
     th.join(timeout=10)
@@ -282,24 +263,124 @@ def main():
         "rapl_validation_err_pct": round(rapl_validation, 2) if rapl_validation is not None else None,
         "rapl_available": rapl_start is not None,
     }
+    return summary, all_snaps, reqs
 
-    # --- write outputs ----------------------------------------------------------
-    with open(os.path.join(args.outdir, "summary.json"), "w") as f:
+
+def write_run(outdir, summary, all_snaps, reqs):
+    os.makedirs(outdir, exist_ok=True)
+    with open(os.path.join(outdir, "summary.json"), "w") as f:
         json.dump(summary, f, indent=2)
-    with open(os.path.join(args.outdir, "samples.csv"), "w", newline="") as f:
+    with open(os.path.join(outdir, "samples.csv"), "w", newline="") as f:
         w = csv.writer(f)
         w.writerow(["t", "container", "cpu_pct", "mem_mb"])
         for t, snap, _ in all_snaps:
             for name, (cpu, mem) in (snap or {}).items():
                 w.writerow([round(t, 2), name, cpu, mem])
-    with open(os.path.join(args.outdir, "requests.csv"), "w", newline="") as f:
+    with open(os.path.join(outdir, "requests.csv"), "w", newline="") as f:
         w = csv.writer(f)
         w.writerow(["ok", "latency_ms"])
         for o, l in reqs:
             w.writerow([int(o), round(1000 * l, 3)])
 
-    print(json.dumps(summary, indent=2))
-    print(f"\nSaved to {os.path.abspath(args.outdir)}/")
+
+def median_summary(summaries):
+    """Median of numeric leaves; first value for strings/None."""
+    def med(vals):
+        s = sorted(vals)
+        return s[len(s) // 2]
+    def rec(items):
+        if isinstance(items[0], dict):
+            out = {}
+            for k in items[0]:
+                if not all(k in it for it in items):
+                    continue
+                if isinstance(items[0][k], dict):
+                    out[k] = rec([it[k] for it in items])
+                elif isinstance(items[0][k], (int, float)):
+                    out[k] = med([it[k] for it in items])
+                else:
+                    out[k] = items[0][k]
+            return out
+        return items[0]
+    return rec(summaries)
+
+
+def spread_of(summaries, paths):
+    res = {}
+    for path in paths:
+        vals = []
+        for s in summaries:
+            cur = s
+            ok = True
+            for p in path:
+                if isinstance(cur, dict) and p in cur:
+                    cur = cur[p]
+                else:
+                    ok = False
+                    break
+            if ok and isinstance(cur, (int, float)) and cur == cur:
+                vals.append(cur)
+        if vals:
+            res[".".join(path)] = [round(min(vals), 4), round(max(vals), 4)]
+    return res
+
+
+# ---------------------------------------------------------------------------
+def main():
+    ap = argparse.ArgumentParser(description="SAQEF measurement harness")
+    ap.add_argument("--check", action="store_true", help="verify docker + RAPL availability")
+    ap.add_argument("--url", default="http://localhost:8080/r/app/hello")
+    ap.add_argument("--platform", default="unknown", help="label, e.g. fn, openfaas, openwhisk")
+    ap.add_argument("--cp-containers", default="", help="comma-separated substrings of control-plane containers")
+    ap.add_argument("--total", type=int, default=2000, help="total requests")
+    ap.add_argument("--concurrency", type=int, default=10)
+    ap.add_argument("--duration", type=int, default=60, help="window seconds (hard stop)")
+    ap.add_argument("--warmup", type=int, default=10, help="requests fired before the measured window")
+    ap.add_argument("--repeat", type=int, default=1, help="measurement repetitions")
+    ap.add_argument("--outdir", default="results")
+    ap.add_argument("--slo-ms", type=float, default=500.0, help="SLO latency target in ms")
+    ap.add_argument("--idle-w", type=float, default=P_IDLE_BASE_W)
+    ap.add_argument("--ci", type=float, default=CI_GCO2_PER_KWH, help="grid carbon intensity gCO2/kWh")
+    args = ap.parse_args()
+
+    if args.check:
+        ds = docker_stats_once()
+        r = rapl_energy()
+        print("docker stats :", "OK" if ds is not None else "NOT AVAILABLE",
+              "(%d containers seen)" % len(ds) if ds is not None else "")
+        print("RAPL         :", ("OK %.0f J" % r) if r else "NOT AVAILABLE (CPU-time model only)")
+        sys.exit(0)
+
+    cp_sub = [s.strip().lower() for s in args.cp_containers.split(",") if s.strip()]
+
+    if args.repeat > 1:
+        os.makedirs(args.outdir, exist_ok=True)
+        summaries = []
+        for i in range(1, args.repeat + 1):
+            print(f"--- run {i}/{args.repeat} ---")
+            summary, all_snaps, reqs = run_once(args, cp_sub)
+            write_run(os.path.join(args.outdir, "run_%d" % i), summary, all_snaps, reqs)
+            summaries.append(summary)
+        with open(os.path.join(args.outdir, "runs.json"), "w") as f:
+            json.dump(summaries, f, indent=2)
+        med = median_summary(summaries)
+        med["repetitions"] = args.repeat
+        med["spread_min_max"] = spread_of(summaries, [
+            ("throughput_rps",), ("slo_compliance",),
+            ("latency_ms", "p50"), ("latency_ms", "p99"),
+            ("cp_dynamic_share_pct",), ("cp_share_pct",),
+            ("energy_J", "dynamic"), ("kpi_gco2_per_slo_compliant_inv",),
+        ])
+        with open(os.path.join(args.outdir, "summary.json"), "w") as f:
+            json.dump(med, f, indent=2)
+        print("=== MEDIAN over %d runs ===" % args.repeat)
+        print(json.dumps(med, indent=2))
+        print("\nSaved runs to", os.path.abspath(args.outdir), "/")
+    else:
+        summary, all_snaps, reqs = run_once(args, cp_sub)
+        write_run(args.outdir, summary, all_snaps, reqs)
+        print(json.dumps(summary, indent=2))
+        print(f"\nSaved to {os.path.abspath(args.outdir)}/")
 
 
 if __name__ == "__main__":
