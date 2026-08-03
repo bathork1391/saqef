@@ -4,9 +4,16 @@
 #   setup  -> start Fn server, (re)install hey, register function + trigger, sanity curl
 #   check  -> environment sanity (docker, RAPL, cgroup map, hey)
 #   verify -> confirm the deployed function really burns ~5 ms CPU/invocation
-#   bench  -> gold-standard run B (cgroup sampler + delta-check + hey, 5 repeats)
+#   bench  -> gold-standard run B (cgroup sampler + delta-check + hey; count-bound:
+#             exactly $TOTAL requests, --duration is a SAFETY cap, not a hard stop)
 #   gates  -> print the accept/reject table for the runs
 #   all    -> setup, check, verify, bench, gates (full pipeline)
+#
+# Env overrides for faster iteration:
+#   SAQEF_TOTAL SAQEF_CONCURRENCY SAQEF_DURATION SAQEF_WARMUP SAQEF_REPEAT
+#   e.g.  SAQEF_TOTAL=600 SAQEF_REPEAT=1 ./run_saqef.sh bench
+#   If SAQEF_REPEAT < 5, results go to results/<name>_quick (never the final
+#   outdir), so a 1-run pass cannot be mistaken for the 5-run publication set.
 set -uo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -15,14 +22,16 @@ cd "$REPO"
 URL="http://localhost:8080/t/app1/hello"
 PLATFORM="fn"
 CP="fnserver"
+FN=""
 OUT="results/fn_cpubound_v9"
 VERIFY_N=100
 VERIFY_BUDGET_MS=5
-TOTAL=3000
-CONCURRENCY=20
-DURATION=60
-WARMUP=20
-REPEAT=5
+TOTAL="${SAQEF_TOTAL:-3000}"
+CONCURRENCY="${SAQEF_CONCURRENCY:-20}"
+DURATION="${SAQEF_DURATION:-60}"
+WARMUP="${SAQEF_WARMUP:-20}"
+REPEAT="${SAQEF_REPEAT:-5}"
+FULL_REPEAT=5
 
 setup_fn() {
   echo "=== [setup] Fn server ==="
@@ -94,24 +103,45 @@ run_verify() {
 }
 
 run_bench() {
-  python3 saqef_harness.py --url "$URL" --platform "$PLATFORM" --cp-containers "$CP" \
-    --total "$TOTAL" --concurrency "$CONCURRENCY" --duration "$DURATION" \
-    --warmup "$WARMUP" --repeat "$REPEAT" \
-    --sampler cgroup --delta-check --loadgen hey --outdir "$OUT"
+  if [ "$REPEAT" -lt "$FULL_REPEAT" ]; then
+    echo ""
+    echo "#######################################################################"
+    echo "# QUICK/ITERATION RUN: SAQEF_REPEAT=$REPEAT < $FULL_REPEAT             #"
+    echo "# Results written to results/..._quick - NOT for publication.          #"
+    echo "# Run 'SAQEF_REPEAT=$FULL_REPEAT ./run_saqef.sh bench' for final numbers. #"
+    echo "#######################################################################"
+    echo ""
+    python3 saqef_harness.py --url "$URL" --platform "$PLATFORM" --cp-containers "$CP" \
+      --fn-containers "$FN" \
+      --total "$TOTAL" --concurrency "$CONCURRENCY" --duration "$DURATION" \
+      --warmup "$WARMUP" --repeat "$REPEAT" \
+      --sampler cgroup --delta-check --loadgen hey --outdir "${OUT}_quick"
+  else
+    python3 saqef_harness.py --url "$URL" --platform "$PLATFORM" --cp-containers "$CP" \
+      --fn-containers "$FN" \
+      --total "$TOTAL" --concurrency "$CONCURRENCY" --duration "$DURATION" \
+      --warmup "$WARMUP" --repeat "$REPEAT" \
+      --sampler cgroup --delta-check --loadgen hey --outdir "$OUT"
+  fi
 }
 
 run_gates() {
-  python3 - "$OUT" <<'PY'
+  GATES_OUT="$OUT"
+  if [ "$REPEAT" -lt "$FULL_REPEAT" ]; then
+    GATES_OUT="${OUT}_quick"
+  fi
+  python3 - "$GATES_OUT" <<'PY'
 import json, glob, sys
 out = sys.argv[1]
-print("per-run gate table (pass: delta% ~ 0, plausible=true, coverage% >= 95):")
+print("per-run gate table (pass: delta% ~ 0, plausible=true, host_plausible=true, coverage% >= 95):")
 for p in sorted(glob.glob(out + "/run_*")):
     s = json.load(open(p + "/summary.json"))
     cov = round(100 * s["sampling_covered_s"] / s["wall_s"], 1) if s["wall_s"] else 0.0
-    print("  %-7s delta%%: %-7s fn_cpu_s: %-6s cp_cpu_s: %-6s ceiling: %-6s plausible: %-5s coverage%%: %s"
+    print("  %-7s delta%%: %-7s cp_cpu_s: %-6s fn_cpu_s: %-6s plausible: %-5s host_sat%%: %-5s host_plausible: %-5s coverage%%: %s"
           % (p.split("/")[-1], s.get("cp_sampler_vs_delta_pct"),
-             s["cpu_sec"]["function"], s["cpu_sec"]["control_plane"],
-             s.get("cpu_sec_ceiling"), s.get("physical_plausible"), cov))
+             s["cpu_sec"]["control_plane"], s["cpu_sec"]["function"],
+             s.get("physical_plausible"), s.get("host_saturation_pct"),
+             s.get("host_plausible"), cov))
 med = json.load(open(out + "/summary.json"))
 print("median: cp_dynamic_share_pct=%s  slo_compliance=%s  throughput_rps=%s"
       % (med.get("cp_dynamic_share_pct"), med.get("slo_compliance"), med.get("throughput_rps")))

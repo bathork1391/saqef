@@ -442,3 +442,44 @@ Re-ran gold-standard B (`--sampler cgroup --delta-check --loadgen hey`, 5×3000 
 4. Host-level metrics (`host_cpu_sec`, `orchestration_*`) remain meaningless in the shared Codespace (noisy neighbor, §12). Reserved for bare metal.
 
 **Reproduction (2026-08-03, second full `all` run):** identical conclusion — `cp_sampler_vs_delta_pct = 0.01`, `cp_dynamic_share_pct = 30.32`, `physical_plausible = true` on all 5 runs, `slo_compliance = 0.9997`, `throughput_rps = 206`.
+
+## 15. External expert review — verdicts & fixes (v9.2, 2026-08-04)
+
+An expert review of the v9 `summary.json` (carried in the peer conversation) found 3 real defects plus 2 methodology asks. Disposition and code changes below. **All v9 results remain valid for everything that does not touch the three fixed fields; the three fixed fields must be re-measured on a v9.2 run.**
+
+| # | Review point | Disposition | Fix (in `saqef_harness.py` v9.2) |
+|---|---|---|---|
+| 1 | Availability/throughput/QoS/energy/carbon fine | Accepted | none |
+| 2 | `host_cpu_sec` 29.97 vs CP 2.6 implausible | **Agreed — real bug** | `host_cpu_ticks()` now sums **busy** ticks only (`total − idle − iowait`, excluding guest double-count); previously it returned total machine time ≈ wall×cores, which inflated `orchestration_*` ~5×. |
+| 3 | `orchestration_cpu_sec = host − fn` double-counts host incl. loadgen/idle | **Agreed — real bug** | Host metrics are now a honest *busy* integral; the residual (host − cp − fn) is genuinely attributable to loadgen + kernel/idle-checks, so it is flagged as "host incl. loadgen" rather than called pure orchestration. Bare-metal-only claim unchanged. |
+| 4 | `cp_peak_mem_mb: 0.0` — sampler returns `(cum, 0.0)` | **Agreed — real bug** | `container_mem_cgroup_dir()` + `read_mem_mb()` (v2 `memory.current`, v1 `memory.usage_in_bytes`); `cgroup_sampler` now stores `(cum, mem)` and `sample_totals` returns peak CP mem. Unit-tested (v2/v1/missing→0.0). |
+| 5 | `sampling_covered_s` 2.07/14.6 — "sample time" vs "coverage" confusion | Accepted (documentation) | Now documented as *cgroup-read time*, not an inclusion window; coverage% derives from first–last sample timestamps. |
+| 6 | KPI label wrong: 22.39 g labeled per-invocation | **Agreed — real bug** | `kpi = op_gco2 / n_compliant` (per SLO-compliant invocation, incl. idle base) → ≈7.5 mg. CP-only per-inv is the separate ≈145 µg dynamic figure. Unit-tested. |
+| 7 | CPU accounting 2.6 CP vs 6 fn "makes sense"; 467 J/30 W idle realistic | Accepted | none — confirms 94% idle dominance is a real, publishable finding. |
+| 8 | Partial sampling / sampler cadence concerns | Accepted (documentation) | unchanged design; exact by construction (cumulative differencing, §12). |
+
+**v9.2 harness changes (all unit-tested locally, `test_review_fixes.py`):** `host_cpu_ticks` busy-only; `container_mem_cgroup_dir` + `read_mem_mb`; `cgroup_sampler` emits `(cum, mem)`; `sample_totals` peak-mem; `kpi` per-invocation. Re-drag `saqef_harness.py` + `run_saqef.sh` to Codespace and re-run `all` before quoting any of the three fixed fields.
+
+## 16. v9.3 — sensitivity band, orchestration definition, quick-run guard (2026-08-04)
+
+1. **`sensitivity` block in `summary.json`:** recomputes `cp_dynamic_share_pct`, dynamic energy (J), and operational carbon (gCO₂) at busy-core **2.0 / 3.5 / 5.0 W** (mirrors the existing `idle_band` 15/30/45 W for carbon). Expected property: the dynamic share is *identical* across the band (the W constant cancels in the ratio) — proving the headline is model-robust; absolute energy/carbon scale linearly and are bounded by the band until RAPL.
+2. **`orchestration_*` defined, not claimed:** `orchestration_cpu_sec = host_cpu_sec − cpu_sec.function` (CP + dockerd/containerd + loadgen + co-tenant + kernel). Documented in §7.3 of the draft; excluded from claims. Only the cgroup-exact control-plane container share is presented as orchestration cost.
+3. **Quick-run guard in `run_saqef.sh`:** env overrides `SAQEF_TOTAL/SAQEF_CONCURRENCY/SAQEF_DURATION/SAQEF_WARMUP/SAQEF_REPEAT`. If `SAQEF_REPEAT < 5`, the bench + gates write to `<outdir>_quick` with a loud banner — a 1-run pass cannot be mistaken for (or overwrite) the 5-run publication set.
+4. **v9.2→v9.3 test status:** py_compile + `test_review_fixes.py` (host_cpu busy arithmetic, mem v2/v1/missing, KPI arithmetic, sample_totals mem flow, clean_json) all green. Sensitivity-dict median path covered by `median_summary` recursion (numeric leaves only).
+
+## 17. Independent review of `results/fn_cpubound_v9/summary.json` — v9.4 findings (2026-08-04)
+
+A second independent expert review of the v9.2 `summary.json` (the 39.9 rps / 75.19 s run). Verdict: methodology B+, results B−, publishability B; bottom line "nothing here says throw out the harness — delta-check, sensitivity band, median-of-ratios are the right calls." Six points, all addressed in v9.4 (below); three were already handled by v9.2/v9.3 fixes (marked ✓), the rest are new gates.
+
+| # | Review point | Disposition | Fix (in `saqef_harness.py` v9.4) |
+|---|---|---|---|
+| 1 | `host_cpu_sec` 150.48 > ceiling 150.37 — hard physical impossibility; `physical_plausible` checks only cp+fn, never host | **Agreed — real gap** | `--check` now prints `cgroup quota` via new `cgroup_cpu_quota()` (v2 `cpu.max`, v1 `cfs_quota/period`); every summary gains `host_saturation_pct` (host_cpu ÷ cores×wall) and `host_plausible` (host_cpu ≤ cores×wall×1.05). |
+| 2 | CPU-saturated environment (~100%) undermines QoS claims (p50 85 ms not representative) | **Agreed — new gate** | `host_saturation_pct` is reported per run; a run ≥85% must be flagged as contention-contaminated (QoS claim caveat); publication runs on bare metal must keep concurrency < cpu_count. |
+| 3 | Function classification is a **denylist** — anything not matching `--cp-containers` silently folds into `fn_cpu` | **Agreed — real bug** | `sample_totals(samples, cp_sub, fn_sub="")` returns a 6-tuple ending `unclass_cpu_s`; new `--fn-containers` allowlist; non-matching names go to an `unclassified_cpu_s` bucket (warning if >0.5 CPU-s) and `container_inventory` (docker ps names) is embedded in every summary. Default `fn_sub=""` preserves prior denylist behavior. |
+| 4 | hey `-z`/`-n` precedence — `-n` is ignored when `-z` is given; v9.2 run hit exactly 3000 and ran 75.19 s (> its 60 s `-z`) | **Agreed — real bug** | Runs are now **count-bound** (`-n total` only; exactly N requests, identical windows across platforms); `--duration` is a safety cap only (subprocess timeout + post-run warning when `wall > duration×1.1`). Isolate-test `hey -n 10 -z 2s -c 2` documented in the draft to confirm build precedence. |
+| 5 | Coverage 80.4% < 95% gate; 1 s docker rescans blind to containers born and dying within one scan | **Agreed — new parameter** | `--rescan-s` (default 0.25) threaded through `cgroup_sampler` → `start_sampler` → both callers; shrinks the blind spot for scale-to-zero churn. Coverage ≥95% remains a bare-metal gate. |
+| 6 | n=5 is thin for bootstrap CI (resampling combinatorics artifact, not honest uncertainty) | **Agreed — reporting** | `summary.json` now also reports `iqr` (Q3−Q1) next to `bootstrap_ci` and `cv_pct`; n=5 is an *iteration* setting, n≥10 for the paper (report both the CI and the IQR). |
+
+**v9.4 test status:** py_compile clean; `test_review_v94.py` green (denylist default + fn allowlist split, host saturation/plausibility math 97.5% vs 107.5%, iqr, `median_summary` recursion over the new fields). Re-drag `saqef_harness.py` + `run_saqef.sh` to the Codespace and re-run `all` before quoting any host-level or classification field.
+
+**Honest framing carried forward into the draft (not new results):** `cp_dynamic_share_pct` is an upper bound on CP share because `cpu_sec.function` is a lower bound (sparse capture of short-lived fn containers); QoS from the shared Codespace is contention-contaminated (governor/frequency/steal uncontrolled); the KPI is window-dependent (per SLO-compliant invocation); host-level metrics are bare-metal-only claims.
