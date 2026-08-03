@@ -32,6 +32,7 @@ import json
 import math
 import os
 import random
+import re
 import shutil
 import statistics
 import subprocess
@@ -295,6 +296,7 @@ def run_hey(url, total, concurrency, deadline_s=None, headers=None, timeout_ms=3
     post-run wall assertion), because hey's -z/-n precedence varies by build and
     must not silently truncate a window."""
     if shutil.which("hey") is None:
+        print("hey: binary not found on PATH (wanted --loadgen hey); falling back")
         return None
     cmd = ["hey", "-n", str(total), "-c", str(concurrency),
            "-t", str(timeout_ms), "-o", "json"]
@@ -305,7 +307,8 @@ def run_hey(url, total, concurrency, deadline_s=None, headers=None, timeout_ms=3
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True,
                               timeout=(deadline_s or 0) + 120)
-    except Exception:
+    except Exception as e:
+        print("hey: subprocess failed (%s); falling back" % e)
         return None
     if proc.returncode != 0:
         print("hey failed (rc=%d): %s" % (
@@ -313,8 +316,16 @@ def run_hey(url, total, concurrency, deadline_s=None, headers=None, timeout_ms=3
             (proc.stderr or proc.stdout)[-300:].strip() or "(no output)"))
         return None
     try:
-        d = json.loads(proc.stdout)
-    except Exception:
+        # Go's encoding/json emits BARE NaN/Inf for non-finite floats (e.g. an
+        # empty latency percentile). Python's json.loads happens to accept those
+        # tokens, but they poison downstream percentiles (NaN comparisons) and
+        # make hey.json INVALID for strict consumers (R/JS). Sanitize to null so
+        # hey.json stays spec-valid and NaN can never leak into KPIs.
+        raw = re.sub(r"\b(NaN|Inf|Infinity)\b", "null", proc.stdout)
+        d = json.loads(raw)
+    except Exception as e:
+        print("hey: JSON parse failed (%s): %.200s" % (
+            e, (proc.stdout or "(no output)").strip()))
         return None
     tot = d.get("total", {})
     wall = tot.get("duration", 0.0)
@@ -535,6 +546,18 @@ def cgroup_sampler(samples, stop, first_sample, rescan_s=0.25):
             samples.append((t, snap, "cum"))
             first_sample.set()
         stop.wait(0.01)
+    # Flush a final sample at stop time: on a saturated host the last scheduled
+    # rescan can be starved past the window end, which truncated coverage on
+    # fresh-reset runs (93.6%/92.9% on runs 1-2). A final read closes the gap
+    # so the sampled span reaches the window end.
+    snap = {}
+    for cname, (cdir, mdir) in dirs.items():
+        cum = read_cpu_cumulative(cdir)
+        if cum is None:
+            continue
+        snap[cname] = (cum, read_mem_mb(mdir) if mdir else 0.0)
+    if snap:
+        samples.append((time.time(), snap, "cum"))
 
 
 def sample_totals(samples, cp_sub, fn_sub="", cp_members=None, fn_members=None):
@@ -674,6 +697,10 @@ def run_once(args, cp_sub):
                   if _class_matches(n, img, lbls, (), args.fn_images, args.fn_labels)}
     cp_cpu_s, fn_cpu_s, cp_peak_mem_mb, covered_s, csv_rows, unclass_cpu_s = sample_totals(
         samples, cp_sub, args.fn_containers, cp_members, fn_members)
+    # Clamp covered to the window: the final-sample tail (SAMPLE_S) plus the
+    # stop-time flush can extend the sampled span just past wall; coverage must
+    # not read >100%.
+    covered_s = min(covered_s, wall)
     if unclass_cpu_s > 0.5:
         print("WARNING: %.1f CPU-s fell outside both cp and fn containers "
               "(stray container?) - see container_inventory / container_labels" % unclass_cpu_s)
@@ -840,7 +867,10 @@ def run_once(args, cp_sub):
         "env": {"cpu_count": cpu_count(), "governor": governor,
                 "freq_mhz_before": round(freq_before, 1) if freq_before else None,
                 "freq_mhz_after": round(freq_after, 1) if freq_after else None,
-                "sampler": args.sampler, "loadgen": args.loadgen},
+                "sampler": args.sampler,
+                "loadgen": "hey" if ld is not None else "py",
+                "loadgen_requested": args.loadgen,
+                "loadgen_fallback": bool(args.loadgen == "hey" and ld is None)},
         "rapl_validation_err_pct": round(rapl_validation, 2) if rapl_validation is not None else None,
         "rapl_available": rapl_start is not None,
     }

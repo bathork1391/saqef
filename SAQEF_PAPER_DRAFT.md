@@ -219,16 +219,16 @@ During development, the sampler overcounted control-plane CPU by **52× under lo
 
 ## 9. Reproducibility
 
-One-command pipeline (`run_saqef.sh`): `setup → check → verify → bench → gates`.
+One-command pipeline (`run_saqef.sh`): `setup → check → verify → bench → gates`. Every `all` starts from a fresh session (`reset` removes a reused `fnserver` and orphaned function containers), so leftover-container pollution cannot recur.
 
 ```bash
 chmod +x run_saqef.sh
 ./run_saqef.sh all
 ```
 
-Artifacts per run: `summary.json`, `samples.csv`, `requests.csv`, `verify.json`, `runs.json` (median + bootstrap CI + CV + IQR + spread). Environment snapshot (cpu_count, governor, freq, sampler, loadgen, container inventory/labels) recorded inside each summary. Stdlib-only Python; no pip installs. Full command log and historical decisions: `SAQEF_TECHNICAL_REPORT.md` §§3, 4, 11–18.
+Artifacts per run: `summary.json`, `samples.csv`, `requests.csv`, `verify.json`, `runs.json` (median + bootstrap CI + CV + IQR + spread). Environment snapshot (cpu_count, governor, freq, sampler, loadgen — including `loadgen_requested`/`loadgen_fallback`, container inventory/labels) recorded inside each summary. Stdlib-only Python; no pip installs. `verify.json` is a CPU-budget sanity check (`function_cpu_ms_per_inv` vs the deployed handler's spin), not a QoS measurement — its tail latency (cold first calls right after `fn deploy`) is not representative and must not be quoted.
 
-Full command log and historical decisions: `SAQEF_TECHNICAL_REPORT.md` §§3, 4, 11–14.
+Full command log and historical decisions: `SAQEF_TECHNICAL_REPORT.md` §§3, 4, 11–19.
 
 ---
 
