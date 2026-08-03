@@ -483,3 +483,27 @@ A second independent expert review of the v9.2 `summary.json` (the 39.9 rps / 75
 **v9.4 test status:** py_compile clean; `test_review_v94.py` green (denylist default + fn allowlist split, host saturation/plausibility math 97.5% vs 107.5%, iqr, `median_summary` recursion over the new fields). Re-drag `saqef_harness.py` + `run_saqef.sh` to the Codespace and re-run `all` before quoting any host-level or classification field.
 
 **Honest framing carried forward into the draft (not new results):** `cp_dynamic_share_pct` is an upper bound on CP share because `cpu_sec.function` is a lower bound (sparse capture of short-lived fn containers); QoS from the shared Codespace is contention-contaminated (governor/frequency/steal uncontrolled); the KPI is window-dependent (per SLO-compliant invocation); host-level metrics are bare-metal-only claims.
+
+## 18. v9.5 — the between-session finding, fresh-session protocol, exercised allowlist (2026-08-04)
+
+A follow-up expert review of the v9.4 run flagged a **new, higher-priority finding** than any of the original four: two nominally identical sessions do not agree.
+
+| Metric | prior run | v9.4 run | ratio |
+|---|---|---|---|
+| `wall_s` | 75.19 | 23.24 | 3.2× |
+| `throughput_rps` | 39.9 | 129.07 | 3.2× |
+| `cpu_sec.function` / inv | 16.05 ms | 3.83 ms | 4.2× |
+| `kpi_gco2_per_slo_compliant_inv` | 0.0396 | 0.012 | 3.3× |
+
+This is **between-session spread**, not the within-session `cv_pct`/`iqr` (which only cover one `all` invocation). Two plausible causes, both now addressed in the harness/runner:
+
+1. **Leftover containers from the prior session.** `setup` reused a running `fnserver` and never cleaned orphaned function containers; under the old denylist those leftovers folded into `fn_cpu`, inflating the 16 ms/inv figure and host CPU. One bug, two symptoms.
+2. **Genuine shared-VM contention.** Consistent with the report's own "Codespaces VM burns background CPU" note.
+
+**Dispositions (all in v9.5):**
+- **Fresh-session protocol:** new `reset` action + `setup` now always restarts `fnserver` from scratch and removes orphaned `fnproject/python:3.12` containers (image is the only reliable handle — Fn names containers with opaque ULIDs). `all` runs the full pipeline from a fresh server. *Benchmarking from a reused fnserver is no longer possible via the runner.*
+- **Classification allowlist now exercised, not just wired:** the reviewer correctly noted `unclassified_cpu_s: 0.0` was guaranteed (nothing was given a chance to fail) because `run_saqef.sh` never passed `--fn-containers`. v9.5 adds **image/label** signals (`--fn-images`, `--fn-labels`, `--cp-images`, `--cp-labels`) and `run_saqef.sh` now passes `--fn-images fnproject/python:3.12` by default — so any container not running the function image and not CP lands in `unclassified_cpu_s` for real. `container_labels` (name → image + labels) is embedded in every summary for audit.
+- **Wall-independent marginal KPI:** the operational KPI is ~93% idle-power-dominated (`energy_J.dynamic 54.9` of `total 752.4`), so it inherits the 3.2× wall swing. New `kpi_gco2_per_inv_dynamic` reports *load-created* carbon per SLO-compliant invocation only (idle baseline excluded) — a per-invocation cost that is stable across window durations.
+- **Honest status of both runs:** per the reviewer, neither session's absolute numbers should be quoted in isolation. The path forward is bare metal (controlled environment), where the fresh-restart protocol + exercised allowlist + both KPIs will let a multi-session median (≥2 independent `all` runs) be reported.
+
+**v9.5 test status:** py_compile + `test_review_v95.py` green (members-based allowlist folds strays to unclassified; denylist default preserved; image/label matching; `docker_inventory` parsing; marginal-KPI arithmetic). Re-drag `saqef_harness.py` + `run_saqef.sh` and re-run `all` from a fresh server before quoting any fn-CPU or KPI number.

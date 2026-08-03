@@ -179,6 +179,37 @@ def docker_container_names():
     return []
 
 
+def docker_inventory():
+    """{name: (image, [labels])} for running containers (audit trail + allowlist
+    classification), or {} if docker fails. Labels are parsed as a list of
+    'key=value' strings from docker's {{.Labels}} (a,b=c format)."""
+    out = run("docker ps --format '{{.Names}}\t{{.Image}}\t{{.Labels}}'")
+    if out.returncode != 0:
+        return {}
+    inv = {}
+    for line in out.stdout.splitlines():
+        parts = line.strip().split("\t")
+        if len(parts) < 2 or not parts[0]:
+            continue
+        image = parts[1] if len(parts) > 1 else ""
+        labels = [x.strip() for x in parts[2].split(",")] if len(parts) > 2 and parts[2] else []
+        inv[parts[0]] = (image, labels)
+    return inv
+
+
+def _class_matches(name, image, labels, subs, img_subs, lbl_keys):
+    """True if a container matches ANY of the name/image/label signals."""
+    if subs and any(s in name.lower() for s in subs):
+        return True
+    if img_subs and image and any(s in image.lower() for s in img_subs):
+        return True
+    if lbl_keys:
+        for k in lbl_keys:
+            if any(lbl.split("=", 1)[0] == k for lbl in labels):
+                return True
+    return False
+
+
 def iqr(values):
     """Interquartile range (Q3-Q1, linear interpolation), or None for <4 points."""
     if not values or len(values) < 4:
@@ -506,18 +537,22 @@ def cgroup_sampler(samples, stop, first_sample, rescan_s=0.25):
         stop.wait(0.01)
 
 
-def sample_totals(samples, cp_sub, fn_sub=""):
+def sample_totals(samples, cp_sub, fn_sub="", cp_members=None, fn_members=None):
     """Reduce raw samples to (cp_cpu_s, fn_cpu_s, cp_peak_mem_mb, covered_s, csv_rows, unclass_cpu_s).
     'cum' samples (cgroup): exact — consecutive cumulative deltas; the rate/dt
     normalization is irrelevant to the total, so irregular cadence cannot bias it.
     'pct' samples (docker stats): rate x elapsed as before.
     csv_rows normalize everything to percent-rate for samples.csv.
-    Classification: control-plane = names matching cp_sub; function = names matching
-    fn_sub (or ALL non-cp names when fn_sub is empty); anything else goes to an
-    unclassified bucket so a stray container can never silently inflate fn_cpu."""
+    Classification: control-plane = names matching cp_sub (or in cp_members);
+    function = names matching fn_sub / fn_members; when NEITHER fn allowlist is
+    given, ALL non-cp names are function (denylist default, back-compat); when
+    an fn allowlist IS given, non-matching names go to an unclassified bucket so
+    a stray container can never silently inflate fn_cpu. cp_members/fn_members
+    are sets of container names matched by image/label allowlists in run_once."""
     cp_cpu = fn_cpu = unclass = 0.0
     cp_mem = 0.0
     covered = 0.0
+    fn_allow_active = bool(fn_sub or fn_members)
     prev = {}
     csv_rows = []
     for i, (t, snap, mode) in enumerate(samples):
@@ -537,13 +572,19 @@ def sample_totals(samples, cp_sub, fn_sub=""):
                 cpu_sec = (pct / 100.0) * dt
             csv_rows.append((t, name, pct, mem))
             name_l = name.lower()
-            if any(s in name_l for s in cp_sub):
+            if cp_members and name in cp_members:
                 cp_cpu += cpu_sec
                 cp_mem = max(cp_mem, mem)
-            elif not fn_sub or any(s in name_l for s in fn_sub):
-                fn_cpu += cpu_sec
+            elif any(s in name_l for s in cp_sub):
+                cp_cpu += cpu_sec
+                cp_mem = max(cp_mem, mem)
+            elif fn_allow_active:
+                if (fn_members and name in fn_members) or any(s in name_l for s in fn_sub):
+                    fn_cpu += cpu_sec
+                else:
+                    unclass += cpu_sec
             else:
-                unclass += cpu_sec
+                fn_cpu += cpu_sec
     return cp_cpu, fn_cpu, cp_mem, covered, csv_rows, unclass
 
 
@@ -620,10 +661,22 @@ def run_once(args, cp_sub):
     cp_cum_after = cp_read() if cp_read else None
 
     # --- energy attribution (Kepler-style CPU-time proportional) -------------
-    cp_cpu_s, fn_cpu_s, cp_peak_mem_mb, covered_s, csv_rows, unclass_cpu_s = sample_totals(samples, cp_sub, args.fn_containers)
+    # Classification members: any container matching the cp/fn name substring,
+    # image, or label allowlists. Image/label signals are what make the fn
+    # allowlist MEANINGFUL on platforms whose fn containers have opaque names
+    # (Fn = ULIDs) - otherwise unclassified_cpu_s is guaranteed 0.0 regardless
+    # of what is running. Defaults preserve denylist behavior when no fn
+    # allowlist is configured (back-compat, documented).
+    inv = docker_inventory()
+    cp_members = {n for n, (img, lbls) in inv.items()
+                  if _class_matches(n, img, lbls, (), args.cp_images, args.cp_labels)}
+    fn_members = {n for n, (img, lbls) in inv.items()
+                  if _class_matches(n, img, lbls, (), args.fn_images, args.fn_labels)}
+    cp_cpu_s, fn_cpu_s, cp_peak_mem_mb, covered_s, csv_rows, unclass_cpu_s = sample_totals(
+        samples, cp_sub, args.fn_containers, cp_members, fn_members)
     if unclass_cpu_s > 0.5:
         print("WARNING: %.1f CPU-s fell outside both cp and fn containers "
-              "(stray container?) - see container_inventory" % unclass_cpu_s)
+              "(stray container?) - see container_inventory / container_labels" % unclass_cpu_s)
     all_snaps = []
     for t, name, pct, mem in csv_rows:
         if all_snaps and all_snaps[-1][0] == t:
@@ -716,6 +769,11 @@ def run_once(args, cp_sub):
     cp_gco2 = cp_wh * args.ci * PUE
     n_compliant = int(round(compliance * n)) if compliance is not None and n else 0
     kpi = (op_gco2 / n_compliant) if n_compliant else float("nan")
+    # Marginal KPI: dynamic (load-created) carbon only, NOT the idle baseline.
+    # The operational KPI is ~90%+ idle-power-dominated, so it is extremely
+    # sensitive to wall-clock duration (a 3x wall swing moves it 3x). The
+    # dynamic-only figure is the wall-independent per-invocation cost of serving.
+    kpi_dynamic = (e_dynamic / 3600.0 * args.ci * PUE) / n_compliant if n_compliant else float("nan")
     embodied_per_gb = DRAM_EMBODIED_G_PER_GB / (LIFESPAN_YEARS * 365 * 24)
 
     # --- RAPL validation -------------------------------------------------------
@@ -750,6 +808,7 @@ def run_once(args, cp_sub):
         "physical_plausible": bool(cpu_count() * wall >= cp_cpu_s + fn_cpu_s),
         "unclassified_cpu_s": round(unclass_cpu_s, 2),
         "container_inventory": docker_container_names(),
+        "container_labels": {n: {"image": img, "labels": lbls} for n, (img, lbls) in sorted(inv.items())},
         "cp_peak_mem_mb": round(cp_peak_mem_mb, 1),
         "carbon_gCO2": {"op_total": round(op_gco2, 3), "op_control_plane": round(cp_gco2, 3),
                         "idle_band": {str(w): round((w * wall + e_dynamic) / 3600.0 * args.ci * PUE, 3)
@@ -766,6 +825,7 @@ def run_once(args, cp_sub):
                                          for w in (2.0, 3.5, 5.0)},
         },
         "kpi_gco2_per_slo_compliant_inv": round(kpi, 4),
+        "kpi_gco2_per_inv_dynamic": round(kpi_dynamic, 6),
         "embodied_dram_g_per_gb_h": round(embodied_per_gb, 4),
         "host_cpu_sec": round(host_cpu_sec, 2) if host_cpu_sec is not None else None,
         "host_saturation_pct": host_saturation_pct,
@@ -971,9 +1031,18 @@ def main():
     ap.add_argument("--fn-containers", default="",
                     help="comma-separated substrings of function containers (default: all non-cp containers; "
                          "anything matching neither goes to an unclassified bucket)")
+    ap.add_argument("--cp-images", default="",
+                    help="comma-separated image substrings of control-plane containers")
+    ap.add_argument("--fn-images", default="",
+                    help="comma-separated image substrings of function containers (recommended for Fn, whose "
+                         "function containers have opaque ULID names)")
+    ap.add_argument("--cp-labels", default="",
+                    help="comma-separated docker label keys identifying control-plane containers")
+    ap.add_argument("--fn-labels", default="",
+                    help="comma-separated docker label keys identifying function containers")
     ap.add_argument("--total", type=int, default=2000, help="total requests")
     ap.add_argument("--concurrency", type=int, default=10)
-    ap.add_argument("--duration", type=int, default=60, help="window seconds (hard stop)")
+    ap.add_argument("--duration", type=int, default=60, help="window seconds (safety cap; runs are count-bound)")
     ap.add_argument("--warmup", type=int, default=10, help="requests fired before the measured window")
     ap.add_argument("--repeat", type=int, default=1, help="measurement repetitions")
     ap.add_argument("--outdir", default="results")
@@ -1020,6 +1089,11 @@ def main():
         sys.exit(0)
 
     cp_sub = [s.strip().lower() for s in args.cp_containers.split(",") if s.strip()]
+    args.fn_containers = [s.strip().lower() for s in args.fn_containers.split(",") if s.strip()]
+    args.cp_images = [s.strip().lower() for s in args.cp_images.split(",") if s.strip()]
+    args.fn_images = [s.strip().lower() for s in args.fn_images.split(",") if s.strip()]
+    args.cp_labels = [s.strip() for s in args.cp_labels.split(",") if s.strip()]
+    args.fn_labels = [s.strip() for s in args.fn_labels.split(",") if s.strip()]
 
     if args.verify:
         verify(args, cp_sub)
