@@ -29,6 +29,7 @@ import argparse
 import base64
 import csv
 import json
+import math
 import os
 import random
 import shutil
@@ -228,6 +229,9 @@ def run_hey(url, total, concurrency, deadline_s=None, headers=None, timeout_ms=3
     except Exception:
         return None
     if proc.returncode != 0:
+        print("hey failed (rc=%d): %s" % (
+            proc.returncode,
+            (proc.stderr or proc.stdout)[-300:].strip() or "(no output)"))
         return None
     try:
         d = json.loads(proc.stdout)
@@ -341,7 +345,7 @@ def docker_sampler(samples, stop, first_sample):
     def commit():
         nonlocal pending, seen
         if pending:
-            samples.append((time.time(), dict(pending)))
+            samples.append((time.time(), dict(pending), "pct"))
             first_sample.set()
         pending, seen = {}, set()
 
@@ -373,11 +377,12 @@ def docker_sampler(samples, stop, first_sample):
 
 
 def cgroup_sampler(samples, stop, first_sample):
-    """Direct cpu.stat sampler (~100 Hz) with periodic container re-enumeration.
-    CPU from cumulative counters (exact integral); at 100 Hz a 50 ms function
-    container is sampled ~5x, so short-lived containers are accounted instead of
-    aliased away. Mem not captured (0.0). Bails on the FIRST scan if any container
-    cannot be mapped -> caller falls back to the docker sampler."""
+    """Direct cpu.stat sampler. Stores RAW cumulative CPU seconds per container
+    ('cum' samples); the consumer differences them using true timestamps, so
+    the result is exact regardless of sampling cadence (slow cgroup reads,
+    docker rescans, spurious wakeups). Mem not captured (0.0). Bails on the
+    FIRST scan if any container cannot be mapped -> caller falls back to the
+    docker sampler."""
     def scan():
         out = run("docker ps --format '{{.ID}}|{{.Names}}'")
         if out.returncode != 0:
@@ -394,7 +399,7 @@ def cgroup_sampler(samples, stop, first_sample):
     dirs = scan()
     if not dirs:
         return
-    prev, last_t, last_scan = {}, time.time(), time.time()
+    last_scan = time.time()
     while not stop.is_set():
         t = time.time()
         if t - last_scan > 1.0:
@@ -402,22 +407,51 @@ def cgroup_sampler(samples, stop, first_sample):
             if fresh:  # merge new containers / drop dead ones; never bail post-start
                 dirs = fresh
             last_scan = t
-        dt = max(t - last_t, 0.001)
-        last_t = t
         snap = {}
         for cname, d in dirs.items():
             cum = read_cpu_cumulative(d)
             if cum is None:
                 continue
-            old = prev.get(cname)
-            prev[cname] = cum
-            if old is None:
-                continue
-            snap[cname] = ((cum - old) / dt * 100.0, 0.0)
+            snap[cname] = (cum, 0.0)
         if snap:
-            samples.append((t, snap))
+            samples.append((t, snap, "cum"))
             first_sample.set()
         stop.wait(0.01)
+
+
+def sample_totals(samples, cp_sub):
+    """Reduce raw samples to (cp_cpu_s, fn_cpu_s, cp_peak_mem_mb, covered_s, csv_rows).
+    'cum' samples (cgroup): exact — consecutive cumulative deltas; the rate/dt
+    normalization is irrelevant to the total, so irregular cadence cannot bias it.
+    'pct' samples (docker stats): rate x elapsed as before.
+    csv_rows normalize everything to percent-rate for samples.csv."""
+    cp_cpu = fn_cpu = 0.0
+    cp_mem = 0.0
+    covered = 0.0
+    prev = {}
+    csv_rows = []
+    for i, (t, snap, mode) in enumerate(samples):
+        tnext = samples[i + 1][0] if i + 1 < len(samples) else t + SAMPLE_S
+        dt = max(tnext - t, 0.01)
+        covered += dt
+        for name, (v, mem) in snap.items():
+            if mode == "cum":
+                cum = v
+                old = prev.get(name)
+                prev[name] = cum
+                d = max(cum - old, 0.0) if old is not None else 0.0
+                cpu_sec = d
+                pct = (d / dt) * 100.0
+            else:
+                pct = v
+                cpu_sec = (pct / 100.0) * dt
+            csv_rows.append((t, name, pct, mem))
+            if any(s in name.lower() for s in cp_sub):
+                cp_cpu += cpu_sec
+                cp_mem = max(cp_mem, mem)
+            else:
+                fn_cpu += cpu_sec
+    return cp_cpu, fn_cpu, cp_mem, covered, csv_rows
 
 
 def start_sampler(mode="docker"):
@@ -487,26 +521,14 @@ def run_once(args, cp_sub):
     cp_cum_after = cp_read() if cp_read else None
 
     # --- energy attribution (Kepler-style CPU-time proportional) -------------
-    cp_cpu_s, fn_cpu_s, cp_peak_mem_mb = 0.0, 0.0, 0.0
-    all_snaps = [s for s in samples if s[1] is not None]
-    e_cp, e_fn = 0.0, 0.0
-    covered_s = 0.0
-    for i in range(len(all_snaps)):
-        t, snap = all_snaps[i]
-        tnext = all_snaps[i + 1][0] if i + 1 < len(all_snaps) else t + SAMPLE_S
-        dt = max(tnext - t, 0.01)
-        covered_s += dt
-        for name, (cpu, mem) in snap.items():
-            is_cp = any(s in name.lower() for s in cp_sub)
-            cpu_sec = (cpu / 100.0) * dt
-            dyn_j = cpu_sec * P_BUSY_CORE_W
-            if is_cp:
-                e_cp += dyn_j
-                cp_cpu_s += cpu_sec
-                cp_peak_mem_mb = max(cp_peak_mem_mb, mem)
-            else:
-                e_fn += dyn_j
-                fn_cpu_s += cpu_sec
+    cp_cpu_s, fn_cpu_s, cp_peak_mem_mb, covered_s, csv_rows = sample_totals(samples, cp_sub)
+    all_snaps = []
+    for t, name, pct, mem in csv_rows:
+        if all_snaps and all_snaps[-1][0] == t:
+            all_snaps[-1][1][name] = (pct, mem)
+        else:
+            all_snaps.append((t, {name: (pct, mem)}))
+    e_cp, e_fn = cp_cpu_s * P_BUSY_CORE_W, fn_cpu_s * P_BUSY_CORE_W
     e_dynamic = e_cp + e_fn
     e_total = args.idle_w * wall + e_dynamic
     covered_s = min(covered_s, wall)  # never overstate coverage beyond the window
@@ -596,6 +618,8 @@ def run_once(args, cp_sub):
         "cp_share_pct": round(e_cp / e_total * 100, 2) if e_total else None,
         "cp_dynamic_share_pct": round(e_cp / e_dynamic * 100, 2) if e_dynamic else None,
         "cpu_sec": {"control_plane": round(cp_cpu_s, 2), "function": round(fn_cpu_s, 2)},
+        "cpu_sec_ceiling": round(cpu_count() * wall, 2),
+        "physical_plausible": bool(cpu_count() * wall >= cp_cpu_s + fn_cpu_s),
         "cp_peak_mem_mb": round(cp_peak_mem_mb, 1),
         "carbon_gCO2": {"op_total": round(op_gco2, 3), "op_control_plane": round(cp_gco2, 3),
                         "idle_band": {str(w): round((w * wall + e_dynamic) / 3600.0 * args.ci * PUE, 3)
@@ -626,7 +650,7 @@ def run_once(args, cp_sub):
 def write_run(outdir, summary, all_snaps, reqs):
     os.makedirs(outdir, exist_ok=True)
     with open(os.path.join(outdir, "summary.json"), "w") as f:
-        json.dump(summary, f, indent=2)
+        json.dump(clean_json(summary), f, indent=2)
     with open(os.path.join(outdir, "samples.csv"), "w", newline="") as f:
         w = csv.writer(f)
         w.writerow(["t", "container", "cpu_pct", "mem_mb"])
@@ -643,11 +667,26 @@ def write_run(outdir, summary, all_snaps, reqs):
             w.writerow(["none", 0])  # hey loadgen: per-request latencies live in hey.json
 
 
+def clean_json(obj):
+    """Recursively replace non-finite floats (NaN/Inf) with None so every
+    JSON output stays spec-valid (bare NaN breaks strict parsers like R/JS)."""
+    if isinstance(obj, float) and not math.isfinite(obj):
+        return None
+    if isinstance(obj, dict):
+        return {k: clean_json(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [clean_json(v) for v in obj]
+    return obj
+
+
 def median_summary(summaries):
-    """Median of numeric leaves (statistics.median semantics); first value for strings/None."""
+    """Median of numeric leaves (statistics.median semantics); first value for strings/None.
+    Non-finite values are skipped so a NaN from one run can't poison a median."""
     def med(vals):
-        s = sorted(vals)
+        s = sorted(v for v in vals if v is not None and not (isinstance(v, float) and not math.isfinite(v)))
         n = len(s)
+        if n == 0:
+            return None
         if n % 2 == 1:
             return s[n // 2]
         return (s[n // 2 - 1] + s[n // 2]) / 2.0
@@ -730,17 +769,7 @@ def verify(args, cp_sub):
     def pct(p):
         return lats[min(len(lats) - 1, int(len(lats) * p))] if lats else float("nan")
 
-    fn_cpu_s, cp_cpu_s = 0.0, 0.0
-    for i in range(len(samples)):
-        t, snap = samples[i]
-        tnext = samples[i + 1][0] if i + 1 < len(samples) else t + SAMPLE_S
-        dt = max(tnext - t, 0.01)
-        for name, (cpu, mem) in snap.items():
-            cpu_sec = (cpu / 100.0) * dt
-            if any(s in name.lower() for s in cp_sub):
-                cp_cpu_s += cpu_sec
-            else:
-                fn_cpu_s += cpu_sec
+    cp_cpu_s, fn_cpu_s, _, _, _ = sample_totals(samples, cp_sub)
 
     ms_per_inv = (fn_cpu_s / ok * 1000.0) if ok else None
     result = {
@@ -763,8 +792,8 @@ def verify(args, cp_sub):
         else:
             result["budget_check"] = "MATCHES budget within 50-150%"
     with open(os.path.join(args.outdir, "verify.json"), "w") as f:
-        json.dump(result, f, indent=2)
-    print(json.dumps(result, indent=2))
+        json.dump(clean_json(result), f, indent=2)
+    print(json.dumps(clean_json(result), indent=2))
     print("\nSaved to %s/verify.json" % os.path.abspath(args.outdir))
 
 
@@ -856,7 +885,7 @@ def main():
                     f.write(ld["raw"])
             summaries.append(summary)
         with open(os.path.join(args.outdir, "runs.json"), "w") as f:
-            json.dump(summaries, f, indent=2)
+            json.dump(clean_json(summaries), f, indent=2)
         med = median_summary(summaries)
         med["repetitions"] = args.repeat
         med["spread_min_max"] = spread_of(summaries, [
@@ -871,9 +900,9 @@ def main():
         med["bootstrap_ci"] = {".".join(p): bootstrap_ci(gather(summaries, p)) for p in stats_paths}
         med["cv_pct"] = {".".join(p): cv_pct(gather(summaries, p)) for p in stats_paths}
         with open(os.path.join(args.outdir, "summary.json"), "w") as f:
-            json.dump(med, f, indent=2)
+            json.dump(clean_json(med), f, indent=2)
         print("=== MEDIAN over %d runs ===" % args.repeat)
-        print(json.dumps(med, indent=2))
+        print(json.dumps(clean_json(med), indent=2))
         print("\nSaved runs to", os.path.abspath(args.outdir), "/")
     else:
         summary, all_snaps, reqs, ld = run_once(args, cp_sub)
@@ -881,7 +910,7 @@ def main():
         if ld is not None:
             with open(os.path.join(args.outdir, "hey.json"), "w") as f:
                 f.write(ld["raw"])
-        print(json.dumps(summary, indent=2))
+        print(json.dumps(clean_json(summary), indent=2))
         print(f"\nSaved to {os.path.abspath(args.outdir)}/")
 
 
