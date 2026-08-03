@@ -507,3 +507,32 @@ This is **between-session spread**, not the within-session `cv_pct`/`iqr` (which
 - **Honest status of both runs:** per the reviewer, neither session's absolute numbers should be quoted in isolation. The path forward is bare metal (controlled environment), where the fresh-restart protocol + exercised allowlist + both KPIs will let a multi-session median (≥2 independent `all` runs) be reported.
 
 **v9.5 test status:** py_compile + `test_review_v95.py` green (members-based allowlist folds strays to unclassified; denylist default preserved; image/label matching; `docker_inventory` parsing; marginal-KPI arithmetic). Re-drag `saqef_harness.py` + `run_saqef.sh` and re-run `all` from a fresh server before quoting any fn-CPU or KPI number.
+
+## 19. v9.6 — reviewer green light, but a loadgen-truth bug found in the transcript (2026-08-04)
+
+The fresh-reset v9.5 run was independently reviewed. Verdict: **internally consistent, not corrupt** — three independent measurements now triangulate on the same per-invocation function cost:
+
+| cross-check | value |
+|---|---|
+| bench run-to-run (5×, fresh-reset session) | `fn` CPU/inv 3.80 ms, host_saturation 100.0–100.3% (tight) |
+| independent earlier clean session | 3.83 ms/inv |
+| `--verify` (100 calls, same build) | `function_cpu_ms_per_inv` 3.22 ms, budget_check "MATCHES" |
+
+`container_labels` also confirmed a clean two-bucket world: **all 12 non-`fnserver` containers are image `hello:0.0.14`** (the deployed function), so the v9.5 allowlist classification is proven, not assumed.
+
+**But the transcript exposed a loadgen-truth bug (fixed in v9.6):**
+Every run in that session printed `WARNING: hey unavailable/failed -> python load generator` (×5), yet `summary.json` reported `env.loadgen: "hey"`. The harness recorded the **requested** loadgen, not the **actual** one. The exact hey failure is not yet confirmed (the box is gone), but `run_hey` had three **silent** `None`-return paths (binary-not-found, subprocess exception, JSON parse) that print nothing — only the `rc != 0` path was loud, and no `hey failed (rc=...)` line appeared, so hey died on a silent path. The fallback therefore ran invisibly.
+
+Consequences and fixes (v9.6):
+- **QoS numbers of the v9.5 fresh run are Python-generator measurements, not hey's.** Container-level metrics (`fn` 3.80 ms/inv, `cp_dynamic_share_pct` 23.88%) are loadgen-agnostic and remain valid — the triangulation above holds. But that run's `"loadgen": "hey"` label was wrong.
+- **Every failure path is now loud.** `run_hey` prints a reason on binary-not-found, subprocess exception, non-zero rc, and JSON parse failure, so a silent fallback cannot recur and the next run will name the actual cause.
+- **Defensive NaN/Inf sanitize.** Go's `encoding/json` emits bare `NaN`/`Inf` for non-finite floats; while Python tolerates them, they poison percentile math and make `hey.json` invalid for strict consumers (R/JS). Sanitized to `null` so artifacts stay spec-valid.
+- `env.loadgen` now records the **actual** generator used (`"hey"` or `"py"`); `env.loadgen_requested` preserves what was asked for; `env.loadgen_fallback` is `true` only when hey was requested but unavailable.
+- **Coverage tail fixed:** runs 1–2 missed 95% (93.6%/92.9%). Root cause: the sampler's last scheduled rescan can be starved past the window end on a saturated host, truncating the sampled span. `cgroup_sampler` now flushes a final sample on `stop`, and `sampling_covered_s` is clamped at `wall_s` so coverage cannot read >100%.
+
+**Reviewer's open items (unchanged — bare-metal gates, not code bugs):**
+1. **Host saturation is real and stable (100.0–100.3%)**: a genuinely saturated 2-vCPU box. QoS p50/p99 (54.9/151.75 ms) carry zero scheduling headroom → bare-metal gate applies to QoS, not just energy.
+2. **Verify p99 (733 ms) ≫ bench p99 (151.75 ms)**: expected — `--verify` runs the first 100 calls immediately after `fn deploy`, so the tail is cold-start/Docker overhead. `verify.json` is a CPU-budget sanity check, **not** a QoS measurement; do not quote its tail latency.
+3. **Still one platform (Fn only), zero RAPL ground truth.** Per §11 plan, next is OpenFaaS on the identical protocol + fresh-reset discipline. Discrimination gate: if `cp_dynamic_share_pct` differs from Fn's ~24% by >5 pp, the methodology discriminates → clear for bare metal.
+
+**v9.6 test status:** py_compile + `test_review_v96.py` green (hey NaN sanitize; `env.loadgen` records actual; `loadgen_fallback` truth; coverage clamp ≤ wall).
