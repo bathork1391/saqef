@@ -1,0 +1,189 @@
+{
+  "platform": "fn",
+  "url": "http://localhost:8080/t/app1/hello",
+  "mode": "load",
+  "wall_s": 17.06,
+  "wall_harness_s": 17.06,
+  "sampling_covered_s": 17.06,
+  "requests": 3000,
+  "successes": 3000,
+  "availability": 1.0,
+  "throughput_rps": 175.85,
+  "latency_ms": {
+    "p50": 54.26,
+    "p90": 88.89,
+    "p99": 135.63,
+    "max": 270.31
+  },
+  "slo_ms": 500.0,
+  "slo_compliance": 1.0,
+  "compliance_source": "measured",
+  "energy_J": {
+    "total": 564.7,
+    "dynamic": 52.9,
+    "control_plane": 12.3,
+    "function": 40.5
+  },
+  "cp_share_pct": 2.18,
+  "cp_dynamic_share_pct": 23.32,
+  "cpu_sec": {
+    "control_plane": 3.52,
+    "function": 11.58
+  },
+  "cpu_sec_ceiling": 34.12,
+  "physical_plausible": true,
+  "unclassified_cpu_s": 0.0,
+  "container_inventory": [
+    "01KZ4R0D39NG8G00GZJ0000005",
+    "01KZ4R0FPSNG8G00GZJ000000A",
+    "01KZ4R0FPTNG8G00GZJ000000C",
+    "01KZ4R0FPWNG8G00GZJ000000E",
+    "01KZ4R0FPWNG8G00GZJ000000G",
+    "01KZ4R0FPYNG8G00GZJ000000J",
+    "01KZ4R0FQ0NG8G00GZJ000000M",
+    "01KZ4R0FQ1NG8G00GZJ000000P",
+    "01KZ4R0FQ5NG8G00GZJ000000R",
+    "01KZ4R0FQPNG8G00GZJ000000T",
+    "01KZ4R0PZMNG8G00GZJ0000056",
+    "01KZ4R0PZNNG8G00GZJ0000058",
+    "fnserver"
+  ],
+  "container_labels": {
+    "01KZ4R0D39NG8G00GZJ0000005": {
+      "image": "hello:0.0.16",
+      "labels": [
+        "io.buildah.version=1.43.1"
+      ]
+    },
+    "01KZ4R0FPSNG8G00GZJ000000A": {
+      "image": "hello:0.0.16",
+      "labels": [
+        "io.buildah.version=1.43.1"
+      ]
+    },
+    "01KZ4R0FPTNG8G00GZJ000000C": {
+      "image": "hello:0.0.16",
+      "labels": [
+        "io.buildah.version=1.43.1"
+      ]
+    },
+    "01KZ4R0FPWNG8G00GZJ000000E": {
+      "image": "hello:0.0.16",
+      "labels": [
+        "io.buildah.version=1.43.1"
+      ]
+    },
+    "01KZ4R0FPWNG8G00GZJ000000G": {
+      "image": "hello:0.0.16",
+      "labels": [
+        "io.buildah.version=1.43.1"
+      ]
+    },
+    "01KZ4R0FPYNG8G00GZJ000000J": {
+      "image": "hello:0.0.16",
+      "labels": [
+        "io.buildah.version=1.43.1"
+      ]
+    },
+    "01KZ4R0FQ0NG8G00GZJ000000M": {
+      "image": "hello:0.0.16",
+      "labels": [
+        "io.buildah.version=1.43.1"
+      ]
+    },
+    "01KZ4R0FQ1NG8G00GZJ000000P": {
+      "image": "hello:0.0.16",
+      "labels": [
+        "io.buildah.version=1.43.1"
+      ]
+    },
+    "01KZ4R0FQ5NG8G00GZJ000000R": {
+      "image": "hello:0.0.16",
+      "labels": [
+        "io.buildah.version=1.43.1"
+      ]
+    },
+    "01KZ4R0FQPNG8G00GZJ000000T": {
+      "image": "hello:0.0.16",
+      "labels": [
+        "io.buildah.version=1.43.1"
+      ]
+    },
+    "01KZ4R0PZMNG8G00GZJ0000056": {
+      "image": "hello:0.0.16",
+      "labels": [
+        "io.buildah.version=1.43.1"
+      ]
+    },
+    "01KZ4R0PZNNG8G00GZJ0000058": {
+      "image": "hello:0.0.16",
+      "labels": [
+        "io.buildah.version=1.43.1"
+      ]
+    },
+    "fnserver": {
+      "image": "fnproject/fnserver",
+      "labels": [
+        "io.buildah.version=1.41.8"
+      ]
+    }
+  },
+  "cp_peak_mem_mb": 67.9,
+  "carbon_gCO2": {
+    "op_total": 27.057,
+    "op_control_plane": 0.591,
+    "idle_band": {
+      "15": 14.795,
+      "30": 27.057,
+      "45": 39.318
+    }
+  },
+  "model": {
+    "idle_w": 30.0,
+    "busy_core_w": 3.5,
+    "pue": 1.15,
+    "ci": 150.0
+  },
+  "sensitivity": {
+    "cp_dynamic_share_pct_by_busy_w": {
+      "2.0": 23.32,
+      "3.5": 23.32,
+      "5.0": 23.32
+    },
+    "dynamic_energy_J_by_busy_w": {
+      "2.0": 30.2,
+      "3.5": 52.9,
+      "5.0": 75.5
+    },
+    "op_carbon_gCO2_by_busy_w": {
+      "2.0": 25.971,
+      "3.5": 27.057,
+      "5.0": 28.142
+    }
+  },
+  "kpi_gco2_per_slo_compliant_inv": 0.009,
+  "kpi_gco2_per_inv_dynamic": 0.000844,
+  "embodied_dram_g_per_gb_h": 0.0317,
+  "host_cpu_sec": 34.34,
+  "host_saturation_pct": 100.6,
+  "host_plausible": true,
+  "host_overhead_cpu_sec": 19.23,
+  "orchestration_cpu_sec": 22.76,
+  "orchestration_share_pct": 66.27,
+  "steal_sec": null,
+  "steal_pct": null,
+  "cp_delta_sec": 3.522,
+  "cp_sampler_vs_delta_pct": 0.01,
+  "env": {
+    "cpu_count": 2,
+    "governor": null,
+    "freq_mhz_before": null,
+    "freq_mhz_after": null,
+    "sampler": "cgroup",
+    "loadgen": "py",
+    "loadgen_requested": "hey",
+    "loadgen_fallback": true
+  },
+  "rapl_validation_err_pct": null,
+  "rapl_available": false
+}
