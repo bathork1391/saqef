@@ -9,21 +9,30 @@ Stdlib only. Works on: bare-metal Linux, WSL2, Killercoda Ubuntu, Docker Desktop
 
 Usage:
   python3 saqef_harness.py --check
-  python3 saqef_harness.py --url http://localhost:8080/r/app/hello \
+  python3 saqef_harness.py --verify --url http://localhost:8080/t/app1/hello \
+      --platform fn --cp-containers fnserver --verify-n 100 --verify-budget-ms 5
+  python3 saqef_harness.py --url http://localhost:8080/t/app1/hello \
       --platform fn --cp-containers fnserver \
-      --total 2000 --concurrency 10 --duration 60 --outdir results/fn_default
+      --total 3000 --concurrency 20 --duration 60 --repeat 5 \
+      --sampler cgroup --loadgen py --delta-check \
+      --outdir results/fn_default
 
 Outputs (into --outdir):
   summary.json   - all KPIs, energy/carbon, validation, QoS
-  samples.csv    - per-second per-container CPU%/mem
-  requests.csv   - per-request latency/status
-  rapl.csv       - RAPL readings (if available)
+  samples.csv    - per-sample per-container CPU%/mem
+  requests.csv   - per-request latency/status (python loadgen only)
+  hey.json       - hey raw output (--loadgen hey only)
+  verify.json    - --verify report
 """
 
 import argparse
+import base64
 import csv
 import json
 import os
+import random
+import shutil
+import statistics
 import subprocess
 import sys
 import threading
@@ -92,9 +101,83 @@ def rapl_energy():
         return None
 
 
+def env_frequency():
+    """Return (freq_mhz, scaling_governor) or (None, None)."""
+    mhz, gov = None, None
+    try:
+        with open("/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq") as f:
+            mhz = int(f.read().strip()) / 1000.0  # kHz -> MHz
+    except Exception:
+        pass
+    try:
+        with open("/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor") as f:
+            gov = f.read().strip()
+    except Exception:
+        pass
+    return mhz, gov
+
+
+def host_cpu_ticks():
+    """Total CPU ticks across all cores from /proc/stat, or None.
+    user..steal only (parts[1:9]) - excludes guest/guest_nice which double-count
+    ticks already present in user/system."""
+    try:
+        with open("/proc/stat") as f:
+            parts = f.readline().split()
+        return sum(int(v) for v in parts[1:9])
+    except Exception:
+        return None
+
+
+def steal_ticks():
+    """Steal-time ticks from /proc/stat (noisy-neighbor visibility), or None."""
+    try:
+        with open("/proc/stat") as f:
+            parts = f.readline().split()
+        if len(parts) > 9:
+            return int(parts[8])  # user nice system idle iowait irq softirq steal guest
+    except Exception:
+        pass
+    return None
+
+
+def cpu_count():
+    try:
+        with open("/proc/cpuinfo") as f:
+            return sum(1 for line in f if line.startswith("processor"))
+    except Exception:
+        return None
+
+
+def bootstrap_ci(values, n=1000, seed=1):
+    """Bootstrap 95% CI on the median (stdlib only)."""
+    if not values or n < 1:
+        return None
+    rng = random.Random(seed)
+    medians = []
+    for _ in range(n):
+        res = [rng.choice(values) for _ in values]
+        s = sorted(res)
+        medians.append(s[len(s) // 2])
+    medians.sort()
+    return [round(medians[int(len(medians) * 0.025)], 4),
+            round(medians[int(len(medians) * 0.975)], 4)]
+
+
+def cv_pct(values):
+    """Coefficient of variation in %, or None."""
+    if not values or len(values) < 2:
+        return None
+    m = statistics.fmean(values)
+    if m == 0:
+        return None
+    return round(statistics.stdev(values) / m * 100.0, 2)
+
+
 # ---------------------------------------------------------------------------
-def run_load(url, total, concurrency, timeout_s=10, deadline_s=None):
+def run_load(url, total, concurrency, timeout_s=10, deadline_s=None, headers=None, interarrival_ms=0.0):
     """Fire `total` requests with `concurrency` threads, hard-stopped at deadline_s.
+    Optionally sleeps `interarrival_ms` between requests (cold-start experiments).
     Returns list of (ok, latency_s)."""
     per = total // concurrency
     results = []
@@ -110,11 +193,14 @@ def run_load(url, total, concurrency, timeout_s=10, deadline_s=None):
             t0 = time.perf_counter()
             ok = True
             try:
-                with urllib.request.urlopen(url, timeout=timeout_s) as r:
+                req = urllib.request.Request(url, headers=headers) if headers else url
+                with urllib.request.urlopen(req, timeout=timeout_s) as r:
                     r.read()
             except Exception:
                 ok = False
             results.append((ok, time.perf_counter() - t0))
+            if interarrival_ms:
+                time.sleep(interarrival_ms / 1000.0)
 
     with ThreadPoolExecutor(max_workers=concurrency) as ex:
         for i in range(concurrency):
@@ -122,71 +208,283 @@ def run_load(url, total, concurrency, timeout_s=10, deadline_s=None):
     return results
 
 
-def run_once(args, cp_sub):
-    """One full measurement window (warmup + sampler + load). Returns summary dict."""
-    if args.warmup > 0:
-        run_load(args.url, args.warmup, min(args.concurrency, args.warmup))
-        time.sleep(2)  # let the hot function container register in docker stats
+def run_hey(url, total, concurrency, deadline_s=None, headers=None, timeout_ms=30000):
+    """Run hey (Go load generator) as a subprocess; keeps the harness's own CPU
+    out of host accounting. Returns a results dict, or None if hey is missing/fails.
+    QoS from hey's JSON: rps, latency percentiles, status distribution."""
+    if shutil.which("hey") is None:
+        return None
+    cmd = ["hey", "-n", str(total), "-c", str(concurrency),
+           "-t", str(timeout_ms), "-o", "json"]
+    if deadline_s:
+        cmd += ["-z", "%ds" % int(deadline_s)]
+    if headers:
+        for k, v in headers.items():
+            cmd += ["-H", "%s: %s" % (k, v)]
+    cmd.append(url)
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True,
+                              timeout=(deadline_s or 0) + 120)
+    except Exception:
+        return None
+    if proc.returncode != 0:
+        return None
+    try:
+        d = json.loads(proc.stdout)
+    except Exception:
+        return None
+    tot = d.get("total", {})
+    wall = tot.get("duration", 0.0)
+    requests = tot.get("requests", 0)
+    ok = sum(v for k, v in d.get("statusCodeDistribution", {}).items()
+             if str(k).startswith("2"))
+    pct_map = {}
+    for e in d.get("latencyDistribution", []):
+        pct_map[e.get("percentage")] = e.get("latency", 0.0) * 1000.0
+    return {
+        "ok": ok, "requests": requests, "wall": wall,
+        "p50": pct_map.get(50), "p90": pct_map.get(90), "p99": pct_map.get(99),
+        "max": tot.get("slowest", 0.0) * 1000.0,
+        "rps": tot.get("rps", 0.0),
+        "lat_points": sorted((p, l) for p, l in pct_map.items()),
+        "source": "hey",
+        "raw": proc.stdout,
+    }
 
-    samples = []
-    stop = threading.Event()
-    rapl_start = rapl_energy()
 
-    def sampler():
-        proc = None
-        try:
-            proc = subprocess.Popen(
-                ["docker", "stats", "--format",
-                 "{{.Name}}|{{.CPUPerc}}|{{.MemUsage}}|{{.MemPerc}}"],
-                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                text=True, bufsize=1)
-        except Exception:
-            pass
-        if proc is None:
-            return
+def cdf_compliance(lat_points, slo_ms):
+    """SLO compliance estimated by linear interpolation of hey's percentile points."""
+    pts = sorted(lat_points)
+    if not pts:
+        return None
+    if slo_ms <= pts[0][1]:
+        return 0.0
+    if slo_ms >= pts[-1][1]:
+        return 1.0
+    for i in range(len(pts) - 1):
+        p0, l0 = pts[i]
+        p1, l1 = pts[i + 1]
+        if l0 <= slo_ms <= l1:
+            frac = (slo_ms - l0) / (l1 - l0) if l1 > l0 else 1.0
+            return (p0 + (p1 - p0) * frac) / 100.0
+    return 1.0
+
+
+def cp_cgroup_reader(cp_sub):
+    """Return a callable reading cumulative CPU seconds of the control-plane
+    container (first name matching cp_sub), or None if not mappable."""
+    out = run("docker ps --format '{{.Names}}'")
+    if out.returncode != 0:
+        return None
+    name = next((nm.strip() for nm in out.stdout.splitlines()
+                 if any(s in nm.lower() for s in cp_sub)), None)
+    if not name:
+        return None
+    cid = run("docker inspect -f '{{.Id}}' %s" % name).stdout.strip()
+    d = container_cgroup_dir(cid)
+    if not d:
+        return None
+    return lambda: read_cpu_cumulative(d)
+
+
+# ---------------------------------------------------------------------------
+def container_cgroup_dir(cid):
+    """cgroup dir for a container, or None (cgroup v1 'cpu' or v2 unified)."""
+    pid = run("docker inspect -f '{{.State.Pid}}' %s" % cid).stdout.strip()
+    if not pid or not pid.isdigit():
+        return None
+    try:
+        with open("/proc/%s/cgroup" % pid) as f:
+            for line in f:
+                parts = line.strip().split(":")
+                if len(parts) == 3:
+                    if parts[1] in ("cpu", "cpu,cpuacct", "cpuacct"):
+                        return "/sys/fs/cgroup" + parts[1] + parts[2]
+                    if parts[1] == "":
+                        return "/sys/fs/cgroup" + parts[2]  # v2 unified
+    except Exception:
+        pass
+    return None
+
+
+def read_cpu_cumulative(cdir):
+    """Cumulative CPU time (s) for a cgroup, or None."""
+    try:
+        p = os.path.join(cdir, "cpu.stat")
+        if os.path.exists(p):  # cgroup v2
+            for line in open(p):
+                if line.startswith("usage_usec"):
+                    return int(line.split()[1]) / 1e6
+        p = os.path.join(cdir, "cpuacct.usage")
+        if os.path.exists(p):  # cgroup v1
+            return int(open(p).read().strip()) / 1e9
+    except Exception:
+        pass
+    return None
+
+
+def docker_sampler(samples, stop, first_sample):
+    """Streaming `docker stats` sampler (~1 Hz). Samples: (t, {name: (cpu_pct, mem_mb)})."""
+    proc = None
+    try:
+        proc = subprocess.Popen(
+            ["docker", "stats", "--format",
+             "{{.Name}}|{{.CPUPerc}}|{{.MemUsage}}|{{.MemPerc}}"],
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            text=True, bufsize=1)
+    except Exception:
+        pass
+    if proc is None:
+        return
+    pending, seen = {}, set()
+
+    def commit():
+        nonlocal pending, seen
+        if pending:
+            samples.append((time.time(), dict(pending)))
+            first_sample.set()
         pending, seen = {}, set()
 
-        def commit():
-            nonlocal pending, seen
-            if pending:
-                samples.append((time.time(), dict(pending), rapl_energy()))
-            pending, seen = {}, set()
-
-        for line in proc.stdout:
-            line = line.strip()
-            if not line:
-                continue
-            parts = line.split("|")
-            if len(parts) < 4:
-                continue
-            name = parts[0].strip()
-            cpu = parts[1].strip().rstrip("%")
-            mem = parts[2].strip().split()[0]
-            try:
-                cpu = float(cpu)
-            except ValueError:
-                cpu = 0.0
-            if name in seen:
-                commit()
-            seen.add(name)
-            pending[name] = (cpu, mem_to_mb(mem))
-            if stop.is_set():
-                break
-        commit()
+    for line in proc.stdout:
+        line = line.strip()
+        if not line:
+            continue
+        parts = line.split("|")
+        if len(parts) < 4:
+            continue
+        name = parts[0].strip()
+        cpu = parts[1].strip().rstrip("%")
+        mem = parts[2].strip().split()[0]
         try:
-            proc.terminate()
-        except Exception:
-            pass
+            cpu = float(cpu)
+        except ValueError:
+            cpu = 0.0
+        if name in seen:
+            commit()
+        seen.add(name)
+        pending[name] = (cpu, mem_to_mb(mem))
+        if stop.is_set():
+            break
+    commit()
+    try:
+        proc.terminate()
+    except Exception:
+        pass
 
-    th = threading.Thread(target=sampler, daemon=True)
+
+def cgroup_sampler(samples, stop, first_sample):
+    """Direct cpu.stat sampler (~100 Hz) with periodic container re-enumeration.
+    CPU from cumulative counters (exact integral); at 100 Hz a 50 ms function
+    container is sampled ~5x, so short-lived containers are accounted instead of
+    aliased away. Mem not captured (0.0). Bails on the FIRST scan if any container
+    cannot be mapped -> caller falls back to the docker sampler."""
+    def scan():
+        out = run("docker ps --format '{{.ID}}|{{.Names}}'")
+        if out.returncode != 0:
+            return None
+        d = {}
+        for line in out.stdout.strip().splitlines():
+            cid, _, cname = line.partition("|")
+            cdir = container_cgroup_dir(cid.strip())
+            if cdir is None:
+                return None
+            d[cname.strip()] = cdir
+        return d
+
+    dirs = scan()
+    if not dirs:
+        return
+    prev, last_t, last_scan = {}, time.time(), time.time()
+    while not stop.is_set():
+        t = time.time()
+        if t - last_scan > 1.0:
+            fresh = scan()
+            if fresh:  # merge new containers / drop dead ones; never bail post-start
+                dirs = fresh
+            last_scan = t
+        dt = max(t - last_t, 0.001)
+        last_t = t
+        snap = {}
+        for cname, d in dirs.items():
+            cum = read_cpu_cumulative(d)
+            if cum is None:
+                continue
+            old = prev.get(cname)
+            prev[cname] = cum
+            if old is None:
+                continue
+            snap[cname] = ((cum - old) / dt * 100.0, 0.0)
+        if snap:
+            samples.append((t, snap))
+            first_sample.set()
+        stop.wait(0.01)
+
+
+def start_sampler(mode="docker"):
+    """Start a background sampler. Returns (samples, stop, first_sample, thread).
+    cgroup mode that cannot map containers returns (None,)*4 -> caller falls back."""
+    samples, stop, first_sample = [], threading.Event(), threading.Event()
+    target = cgroup_sampler if mode == "cgroup" else docker_sampler
+    th = threading.Thread(target=target, args=(samples, stop, first_sample), daemon=True)
     th.start()
+    first_sample.wait(timeout=6)
+    if not first_sample.is_set():
+        stop.set()
+        th.join(timeout=2)
+        if mode == "cgroup":
+            return None, None, None, None
+    return samples, stop, first_sample, th
+
+
+def run_once(args, cp_sub):
+    """One full measurement window (warmup + sampler + load). Returns summary dict."""
+    headers = None
+    if args.auth:
+        user, _, pw = args.auth.partition(":")
+        headers = {"Authorization": "Basic " + base64.b64encode(
+            ("%s:%s" % (user, pw)).encode()).decode()}
+
+    if args.warmup > 0 and not args.idle_probe:
+        run_load(args.url, args.warmup, min(args.concurrency, args.warmup),
+                 headers=headers, interarrival_ms=args.interarrival_ms)
+        time.sleep(2)  # let the hot function container register in docker stats
+
+    rapl_start = rapl_energy()
+    samples, stop, first_sample, th = start_sampler(args.sampler)
+    if th is None:
+        print("WARNING: %s sampler unavailable -> falling back to docker stats" % args.sampler)
+        args.sampler = "docker"
+        samples, stop, first_sample, th = start_sampler("docker")
+
+    host_before = host_cpu_ticks()
+    steal_before = steal_ticks()
+    freq_before, governor = env_frequency()
+    cp_read = cp_cgroup_reader(cp_sub) if args.delta_check else None
+    cp_cum_before = cp_read() if cp_read else None
 
     t0 = time.perf_counter()
-    reqs = run_load(args.url, args.total, args.concurrency, deadline_s=args.duration)
+    reqs = None
+    ld = None
+    if args.idle_probe:
+        time.sleep(args.duration)  # platform up, zero traffic -> static orchestration baseline
+    elif args.loadgen == "hey":
+        ld = run_hey(args.url, args.total, args.concurrency, deadline_s=args.duration,
+                     headers=headers)
+        if ld is None:
+            print("WARNING: hey unavailable/failed -> python load generator")
+            reqs = run_load(args.url, args.total, args.concurrency, deadline_s=args.duration,
+                            headers=headers, interarrival_ms=args.interarrival_ms)
+    else:
+        reqs = run_load(args.url, args.total, args.concurrency, deadline_s=args.duration,
+                        headers=headers, interarrival_ms=args.interarrival_ms)
     wall = time.perf_counter() - t0
     stop.set()
     th.join(timeout=10)
     rapl_end = rapl_energy()
+    host_after = host_cpu_ticks()
+    steal_after = steal_ticks()
+    freq_after, _ = env_frequency()
+    cp_cum_after = cp_read() if cp_read else None
 
     # --- energy attribution (Kepler-style CPU-time proportional) -------------
     cp_cpu_s, fn_cpu_s, cp_peak_mem_mb = 0.0, 0.0, 0.0
@@ -194,7 +492,7 @@ def run_once(args, cp_sub):
     e_cp, e_fn = 0.0, 0.0
     covered_s = 0.0
     for i in range(len(all_snaps)):
-        t, snap, _ = all_snaps[i]
+        t, snap = all_snaps[i]
         tnext = all_snaps[i + 1][0] if i + 1 < len(all_snaps) else t + SAMPLE_S
         dt = max(tnext - t, 0.01)
         covered_s += dt
@@ -211,17 +509,56 @@ def run_once(args, cp_sub):
                 fn_cpu_s += cpu_sec
     e_dynamic = e_cp + e_fn
     e_total = args.idle_w * wall + e_dynamic
+    covered_s = min(covered_s, wall)  # never overstate coverage beyond the window
+
+    host_cpu_sec = None
+    host_overhead_cpu_sec = None
+    orchestration_cpu_sec = None
+    orchestration_share_pct = None
+    steal_sec = None
+    steal_pct = None
+    if host_before is not None and host_after is not None and host_after > host_before:
+        host_cpu_sec = (host_after - host_before) / 100.0  # USER_HZ = 100
+        host_overhead_cpu_sec = max(host_cpu_sec - (cp_cpu_s + fn_cpu_s), 0.0)
+        orchestration_cpu_sec = max(host_cpu_sec - fn_cpu_s, 0.0)  # CP + kernel + dockerd + harness
+        orchestration_share_pct = orchestration_cpu_sec / host_cpu_sec * 100.0
+    if steal_before is not None and steal_after is not None and steal_after > steal_before:
+        steal_sec = (steal_after - steal_before) / 100.0
+        if host_cpu_sec:
+            steal_pct = steal_sec / host_cpu_sec * 100.0
+
+    cp_delta_sec = None
+    cp_sampler_vs_delta_pct = None
+    if cp_cum_before is not None and cp_cum_after is not None and cp_cum_after > cp_cum_before:
+        cp_delta_sec = cp_cum_after - cp_cum_before
+        if cp_delta_sec > 0 and cp_cpu_s > 0:
+            cp_sampler_vs_delta_pct = round((cp_cpu_s / cp_delta_sec - 1.0) * 100.0, 2)
 
     # --- QoS -----------------------------------------------------------------
-    n = len(reqs)
-    ok = sum(1 for o, _ in reqs if o)
-    lats_ms = sorted(1000.0 * l for _, l in reqs)
-    def pct(p):
-        if not lats_ms:
-            return float("nan")
-        return lats_ms[min(len(lats_ms) - 1, int(len(lats_ms) * p))]
-
-    compliance = sum(1 for l in lats_ms if l <= args.slo_ms)
+    compliance_source = "measured"
+    if args.idle_probe:
+        n = 0
+        ok = 0
+        p50 = p90 = p99 = max_ms = None
+        compliance = None
+        compliance_source = "idle_probe"
+    elif reqs is not None:
+        n = len(reqs)
+        ok = sum(1 for o, _ in reqs if o)
+        lats_ms = sorted(1000.0 * l for _, l in reqs)
+        def pct(p):
+            return lats_ms[min(len(lats_ms) - 1, int(len(lats_ms) * p))] if lats_ms else float("nan")
+        p50, p90, p99 = pct(0.5), pct(0.9), pct(0.99)
+        max_ms = lats_ms[-1] if lats_ms else None
+        compliance = (sum(1 for l in lats_ms if l <= args.slo_ms) / n) if n else 0.0
+    else:
+        n = ld["requests"]
+        ok = ld["ok"]
+        wall = ld["wall"]
+        p50, p90, p99 = ld["p50"], ld["p90"], ld["p99"]
+        max_ms = ld["max"]
+        compliance = cdf_compliance(ld["lat_points"], args.slo_ms)
+        compliance_source = "hey_interp"
     availability = ok / n if n else 0.0
 
     # --- carbon ---------------------------------------------------------------
@@ -241,29 +578,49 @@ def run_once(args, cp_sub):
     summary = {
         "platform": args.platform,
         "url": args.url,
+        "mode": "idle" if args.idle_probe else "load",
         "wall_s": round(wall, 2),
         "sampling_covered_s": round(covered_s, 2),
         "requests": n, "successes": ok,
         "availability": round(availability, 4),
         "throughput_rps": round(ok / wall, 2),
-        "latency_ms": {"p50": round(pct(0.5), 2), "p90": round(pct(0.9), 2),
-                       "p99": round(pct(0.99), 2), "max": round(lats_ms[-1], 2) if lats_ms else None},
+        "latency_ms": {"p50": round(p50, 2) if p50 is not None else None,
+                       "p90": round(p90, 2) if p90 is not None else None,
+                       "p99": round(p99, 2) if p99 is not None else None,
+                       "max": round(max_ms, 2) if max_ms else None},
         "slo_ms": args.slo_ms,
-        "slo_compliance": round(compliance / n, 4) if n else None,
+        "slo_compliance": round(compliance, 4) if compliance is not None else None,
+        "compliance_source": compliance_source,
         "energy_J": {"total": round(e_total, 1), "dynamic": round(e_dynamic, 1),
                      "control_plane": round(e_cp, 1), "function": round(e_fn, 1)},
         "cp_share_pct": round(e_cp / e_total * 100, 2) if e_total else None,
         "cp_dynamic_share_pct": round(e_cp / e_dynamic * 100, 2) if e_dynamic else None,
         "cpu_sec": {"control_plane": round(cp_cpu_s, 2), "function": round(fn_cpu_s, 2)},
         "cp_peak_mem_mb": round(cp_peak_mem_mb, 1),
-        "carbon_gCO2": {"op_total": round(op_gco2, 3), "op_control_plane": round(cp_gco2, 3)},
+        "carbon_gCO2": {"op_total": round(op_gco2, 3), "op_control_plane": round(cp_gco2, 3),
+                        "idle_band": {str(w): round((w * wall + e_dynamic) / 3600.0 * args.ci * PUE, 3)
+                                      for w in (15, 30, 45)}},
         "model": {"idle_w": args.idle_w, "busy_core_w": P_BUSY_CORE_W, "pue": PUE, "ci": args.ci},
         "kpi_gco2_per_slo_compliant_inv": round(kpi, 4),
-        "embodied_g_per_gb_h": round(embodied_per_gb, 4),
+        "embodied_dram_g_per_gb_h": round(embodied_per_gb, 4),
+        "host_cpu_sec": round(host_cpu_sec, 2) if host_cpu_sec is not None else None,
+        "host_overhead_cpu_sec": round(host_overhead_cpu_sec, 2) if host_overhead_cpu_sec is not None else None,
+        "orchestration_cpu_sec": round(orchestration_cpu_sec, 2) if orchestration_cpu_sec is not None else None,
+        "orchestration_share_pct": round(orchestration_share_pct, 2) if orchestration_share_pct is not None else None,
+        "steal_sec": round(steal_sec, 2) if steal_sec is not None else None,
+        "steal_pct": round(steal_pct, 2) if steal_pct is not None else None,
+        "cp_delta_sec": round(cp_delta_sec, 3) if cp_delta_sec is not None else None,
+        "cp_sampler_vs_delta_pct": cp_sampler_vs_delta_pct,
+        "env": {"cpu_count": cpu_count(), "governor": governor,
+                "freq_mhz_before": round(freq_before, 1) if freq_before else None,
+                "freq_mhz_after": round(freq_after, 1) if freq_after else None,
+                "sampler": args.sampler, "loadgen": args.loadgen},
         "rapl_validation_err_pct": round(rapl_validation, 2) if rapl_validation is not None else None,
         "rapl_available": rapl_start is not None,
     }
-    return summary, all_snaps, reqs
+    if ld is not None:
+        summary["loadgen"] = {"source": "hey", "rps": ld["rps"]}
+    return summary, all_snaps, reqs, ld
 
 
 def write_run(outdir, summary, all_snaps, reqs):
@@ -273,21 +630,27 @@ def write_run(outdir, summary, all_snaps, reqs):
     with open(os.path.join(outdir, "samples.csv"), "w", newline="") as f:
         w = csv.writer(f)
         w.writerow(["t", "container", "cpu_pct", "mem_mb"])
-        for t, snap, _ in all_snaps:
+        for t, snap in all_snaps:
             for name, (cpu, mem) in (snap or {}).items():
                 w.writerow([round(t, 2), name, cpu, mem])
     with open(os.path.join(outdir, "requests.csv"), "w", newline="") as f:
         w = csv.writer(f)
         w.writerow(["ok", "latency_ms"])
-        for o, l in reqs:
-            w.writerow([int(o), round(1000 * l, 3)])
+        if reqs is not None:
+            for o, l in reqs:
+                w.writerow([int(o), round(1000 * l, 3)])
+        else:
+            w.writerow(["none", 0])  # hey loadgen: per-request latencies live in hey.json
 
 
 def median_summary(summaries):
-    """Median of numeric leaves; first value for strings/None."""
+    """Median of numeric leaves (statistics.median semantics); first value for strings/None."""
     def med(vals):
         s = sorted(vals)
-        return s[len(s) // 2]
+        n = len(s)
+        if n % 2 == 1:
+            return s[n // 2]
+        return (s[n // 2 - 1] + s[n // 2]) / 2.0
     def rec(items):
         if isinstance(items[0], dict):
             out = {}
@@ -325,7 +688,106 @@ def spread_of(summaries, paths):
     return res
 
 
+def gather(summaries, path):
+    """Values of a nested path across summaries."""
+    vals = []
+    for s in summaries:
+        cur = s
+        ok = True
+        for p in path:
+            if isinstance(cur, dict) and p in cur:
+                cur = cur[p]
+            else:
+                ok = False
+                break
+        if ok and isinstance(cur, (int, float)) and cur == cur:
+            vals.append(cur)
+    return vals
+
+
+def verify(args, cp_sub):
+    """Workload sanity check: fire N calls, report per-invocation function CPU.
+    Confirms the deployed handler actually does the claimed work."""
+    headers = None
+    if args.auth:
+        user, _, pw = args.auth.partition(":")
+        headers = {"Authorization": "Basic " + base64.b64encode(
+            ("%s:%s" % (user, pw)).encode()).decode()}
+    os.makedirs(args.outdir, exist_ok=True)
+    samples, stop, first_sample, th = start_sampler(args.sampler)
+    if th is None:
+        print("WARNING: %s sampler unavailable -> docker" % args.sampler)
+        args.sampler = "docker"
+        samples, stop, first_sample, th = start_sampler("docker")
+    reqs = run_load(args.url, args.verify_n, min(args.concurrency, args.verify_n),
+                    headers=headers, interarrival_ms=args.interarrival_ms)
+    stop.set()
+    th.join(timeout=10)
+
+    ok = sum(1 for o, _ in reqs if o)
+    lats = sorted(1000.0 * l for _, l in reqs if _)
+
+    def pct(p):
+        return lats[min(len(lats) - 1, int(len(lats) * p))] if lats else float("nan")
+
+    fn_cpu_s, cp_cpu_s = 0.0, 0.0
+    for i in range(len(samples)):
+        t, snap = samples[i]
+        tnext = samples[i + 1][0] if i + 1 < len(samples) else t + SAMPLE_S
+        dt = max(tnext - t, 0.01)
+        for name, (cpu, mem) in snap.items():
+            cpu_sec = (cpu / 100.0) * dt
+            if any(s in name.lower() for s in cp_sub):
+                cp_cpu_s += cpu_sec
+            else:
+                fn_cpu_s += cpu_sec
+
+    ms_per_inv = (fn_cpu_s / ok * 1000.0) if ok else None
+    result = {
+        "platform": args.platform, "url": args.url,
+        "calls": args.verify_n, "successes": ok,
+        "availability": round(ok / args.verify_n, 4) if args.verify_n else None,
+        "latency_ms": {"p50": round(pct(0.5), 2), "p99": round(pct(0.99), 2)},
+        "function_cpu_sec_total": round(fn_cpu_s, 3),
+        "function_cpu_ms_per_inv": round(ms_per_inv, 2) if ms_per_inv is not None else None,
+        "control_plane_cpu_sec_total": round(cp_cpu_s, 3),
+        "budget_ms": args.verify_budget_ms,
+        "budget_check": None,
+        "env": {"sampler": args.sampler},
+    }
+    if args.verify_budget_ms and ms_per_inv is not None:
+        if ms_per_inv < args.verify_budget_ms * 0.5:
+            result["budget_check"] = "UNDER budget: function CPU far below claim (sleeping / not shipped?)"
+        elif ms_per_inv > args.verify_budget_ms * 1.5:
+            result["budget_check"] = "OVER budget: function CPU above claim"
+        else:
+            result["budget_check"] = "MATCHES budget within 50-150%"
+    with open(os.path.join(args.outdir, "verify.json"), "w") as f:
+        json.dump(result, f, indent=2)
+    print(json.dumps(result, indent=2))
+    print("\nSaved to %s/verify.json" % os.path.abspath(args.outdir))
+
+
 # ---------------------------------------------------------------------------
+def cgroup_probe():
+    """Live check that running containers can be mapped to cgroup dirs (as the
+    ~100 Hz cgroup sampler requires). FAIL = use --sampler docker on this host."""
+    out = run("docker ps --format '{{.ID}}|{{.Names}}'")
+    if out.returncode != 0:
+        return "FAIL: docker ps error -> use --sampler docker"
+    lines = [l for l in out.stdout.strip().splitlines() if l.strip()]
+    if not lines:
+        return "no containers running (probe again once the platform is up)"
+    for line in lines:
+        cid, _, cname = line.partition("|")
+        cdir = container_cgroup_dir(cid.strip())
+        if cdir is None:
+            return "FAIL: cannot map %s -> use --sampler docker" % cname.strip()
+        if not os.path.isdir(cdir):
+            return "FAIL: %s cgroup dir %s missing -> use --sampler docker" % (cname.strip(), cdir)
+    return "OK: %d containers map to cgroups (100 Hz sampler usable)" % len(lines)
+
+
 def main():
     ap = argparse.ArgumentParser(description="SAQEF measurement harness")
     ap.add_argument("--check", action="store_true", help="verify docker + RAPL availability")
@@ -339,27 +801,59 @@ def main():
     ap.add_argument("--repeat", type=int, default=1, help="measurement repetitions")
     ap.add_argument("--outdir", default="results")
     ap.add_argument("--slo-ms", type=float, default=500.0, help="SLO latency target in ms")
+    ap.add_argument("--auth", default="", help="HTTP Basic auth 'user:pass' (OpenFaaS admin creds)")
     ap.add_argument("--idle-w", type=float, default=P_IDLE_BASE_W)
     ap.add_argument("--ci", type=float, default=CI_GCO2_PER_KWH, help="grid carbon intensity gCO2/kWh")
+    ap.add_argument("--verify", action="store_true", help="workload sanity check (N calls, per-inv function CPU)")
+    ap.add_argument("--verify-n", type=int, default=100)
+    ap.add_argument("--verify-budget-ms", type=float, default=None,
+                    help="claimed per-call CPU budget ms (for the verify budget check)")
+    ap.add_argument("--sampler", default="docker", choices=["docker", "cgroup"],
+                    help="container CPU source (cgroup = direct cpu.stat, ~100 Hz, falls back)")
+    ap.add_argument("--loadgen", default="py", choices=["py", "hey"],
+                    help="load generator: py (stdlib threads) or hey (Go binary, low host footprint)")
+    ap.add_argument("--interarrival-ms", type=float, default=0.0,
+                    help="gap between requests, ms (cold-start experiments: total N, concurrency 1)")
+    ap.add_argument("--delta-check", action="store_true",
+                    help="cross-validate sampler vs direct before/after cgroup counter of the CP container")
+    ap.add_argument("--idle-probe", action="store_true",
+                    help="platform up, zero traffic for --duration s: static orchestration baseline")
     args = ap.parse_args()
 
     if args.check:
         ds = docker_stats_once()
         r = rapl_energy()
+        mhz, gov = env_frequency()
+        ht = host_cpu_ticks()
+        st = steal_ticks()
         print("docker stats :", "OK" if ds is not None else "NOT AVAILABLE",
               "(%d containers seen)" % len(ds) if ds is not None else "")
         print("RAPL         :", ("OK %.0f J" % r) if r else "NOT AVAILABLE (CPU-time model only)")
+        print("cpu_count    :", cpu_count())
+        print("governor     :", gov or "n/a")
+        print("freq_mhz     :", ("%.0f" % mhz) if mhz else "n/a")
+        print("host_cpu     :", ("%d ticks" % ht) if ht is not None else "n/a (no /proc/stat)")
+        print("steal        :", ("%d ticks" % st) if st is not None else "n/a (no /proc/stat)")
+        print("hey          :", "available" if shutil.which("hey") else "not installed (--loadgen py only)")
+        print("cgroup map   :", cgroup_probe())
         sys.exit(0)
 
     cp_sub = [s.strip().lower() for s in args.cp_containers.split(",") if s.strip()]
+
+    if args.verify:
+        verify(args, cp_sub)
+        sys.exit(0)
 
     if args.repeat > 1:
         os.makedirs(args.outdir, exist_ok=True)
         summaries = []
         for i in range(1, args.repeat + 1):
             print(f"--- run {i}/{args.repeat} ---")
-            summary, all_snaps, reqs = run_once(args, cp_sub)
+            summary, all_snaps, reqs, ld = run_once(args, cp_sub)
             write_run(os.path.join(args.outdir, "run_%d" % i), summary, all_snaps, reqs)
+            if ld is not None:
+                with open(os.path.join(args.outdir, "run_%d" % i, "hey.json"), "w") as f:
+                    f.write(ld["raw"])
             summaries.append(summary)
         with open(os.path.join(args.outdir, "runs.json"), "w") as f:
             json.dump(summaries, f, indent=2)
@@ -371,14 +865,22 @@ def main():
             ("cp_dynamic_share_pct",), ("cp_share_pct",),
             ("energy_J", "dynamic"), ("kpi_gco2_per_slo_compliant_inv",),
         ])
+        stats_paths = [("throughput_rps",), ("slo_compliance",),
+                       ("latency_ms", "p50"), ("latency_ms", "p99"),
+                       ("cp_dynamic_share_pct",)]
+        med["bootstrap_ci"] = {".".join(p): bootstrap_ci(gather(summaries, p)) for p in stats_paths}
+        med["cv_pct"] = {".".join(p): cv_pct(gather(summaries, p)) for p in stats_paths}
         with open(os.path.join(args.outdir, "summary.json"), "w") as f:
             json.dump(med, f, indent=2)
         print("=== MEDIAN over %d runs ===" % args.repeat)
         print(json.dumps(med, indent=2))
         print("\nSaved runs to", os.path.abspath(args.outdir), "/")
     else:
-        summary, all_snaps, reqs = run_once(args, cp_sub)
+        summary, all_snaps, reqs, ld = run_once(args, cp_sub)
         write_run(args.outdir, summary, all_snaps, reqs)
+        if ld is not None:
+            with open(os.path.join(args.outdir, "hey.json"), "w") as f:
+                f.write(ld["raw"])
         print(json.dumps(summary, indent=2))
         print(f"\nSaved to {os.path.abspath(args.outdir)}/")
 
