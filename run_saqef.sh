@@ -24,7 +24,12 @@ cd "$REPO"
 URL="http://localhost:8080/t/app1/hello"
 PLATFORM="fn"
 CP="fnserver"
-FN_IMAGES="${SAQEF_FN_IMAGES:-fnproject/python:3.12}"
+# Function allowlist image: match the DEPLOYED function image name (hello:*),
+# NOT the base runtime fnproject/python:* -- the running containers are the
+# built image (container image field), and BuildKit does not reliably keep the
+# FROM lineage for an `ancestor=` filter. On Fn the deployed image is the only
+# dependable handle for the opaque-ULID-named function containers.
+FN_IMAGES="${SAQEF_FN_IMAGES:-hello}"
 FN_IMAGES_ARG=""
 [ -n "$FN_IMAGES" ] && FN_IMAGES_ARG="--fn-images $FN_IMAGES"
 OUT="results/fn_cpubound_v9"
@@ -40,12 +45,16 @@ FULL_REPEAT=5
 reset_fn() {
   echo "=== [reset] fresh-session protocol: remove fnserver + orphaned function containers ==="
   docker rm -f fnserver >/dev/null 2>&1 || true
-  # Fn function containers are named with opaque ULIDs; the image is the only
-  # reliable handle. Clean orphans so leftover warm/zombie containers from a
-  # prior session cannot be folded into fn_cpu and inflate it (see report §18).
-  for c in $(docker ps -aq --filter ancestor=fnproject/python:3.12); do
-    docker rm -f "$c" >/dev/null 2>&1 || true
-  done
+  # Fn function containers are named with opaque ULIDs; the DEPLOYED image name
+  # (hello:*) is the only reliable handle -- `ancestor=fnproject/python:3.12`
+  # matches the base runtime, not the running hello:* images (BuildKit does not
+  # preserve the FROM lineage). Clean orphans so leftover warm/zombie containers
+  # from a prior session cannot be folded into fn_cpu and inflate it (report §18).
+  while read -r c img; do
+    case "$img" in
+      hello:*) docker rm -f "$c" >/dev/null 2>&1 || true ;;
+    esac
+  done < <(docker ps -aq --format '{{.ID}} {{.Image}}')
   rm -rf /tmp/iofs /tmp/data
   echo "clean: $(docker ps -aq | wc -l) containers left"
 }

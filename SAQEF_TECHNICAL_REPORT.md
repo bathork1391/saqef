@@ -536,3 +536,22 @@ Consequences and fixes (v9.6):
 3. **Still one platform (Fn only), zero RAPL ground truth.** Per §11 plan, next is OpenFaaS on the identical protocol + fresh-reset discipline. Discrimination gate: if `cp_dynamic_share_pct` differs from Fn's ~24% by >5 pp, the methodology discriminates → clear for bare metal.
 
 **v9.6 test status:** py_compile + `test_review_v96.py` green (hey NaN sanitize; `env.loadgen` records actual; `loadgen_fallback` truth; coverage clamp ≤ wall).
+
+## 20. v9.7 — image-handle bug: the allowlist and the fresh-session cleanup were inert by default (2026-08-04)
+
+A second reviewer gave the v9.5 fresh run a green light (internal consistency 9.5/10, "no unclassified CPU … every CPU second attributed somewhere" singled out as excellent). That praise forced a re-check of *how* the zero came about — and exposed a **genuine bug**:
+
+- The v9.5 allowlist default was `--fn-images fnproject/python:3.12` — the **base runtime** the function image is built **FROM**.
+- The running function containers carry the **deployed** image `hello:0.0.14` (visible in that same run's own `container_labels`).
+- `fn_allow_active = bool(fn_sub or fn_members)` → since `fn_members` matched nothing, the allowlist **silently deactivated** and classification reverted to the denylist default. `unclassified_cpu_s: 0.0` was again vacuous (nothing had a chance to be unclassified). The label audit made the *result* correct, but the *mechanism* was off.
+- The same wrong image was in `reset_fn`'s `ancestor=fnproject/python:3.12` filter. BuildKit does not reliably preserve the FROM lineage, so that filter never matched the running `hello:*` containers — the fresh-session cleanup would not remove a leftover warm fn container from a prior session.
+
+**Fixes (v9.7, bugfix-only — no new metrics, per reviewer "freeze"):**
+- `run_saqef.sh` now defaults `--fn-images hello` — the **deployed** image name (`hello:*`), overridable via `SAQEF_FN_IMAGES`.
+- `reset_fn` removes containers whose image name matches `hello:*` (docker-ps format loop), not an `ancestor=` guess.
+- **Fail-open classification:** when an fn allowlist is configured but matches no container, the harness WARNs loudly and routes strays to `unclassified_cpu_s` — it can no longer silently fall back to the denylist. `--fn-images` help text now says "match the DEPLOYED image, not the base runtime."
+- The v9.5 numbers are **unaffected** (`container_labels` proved a genuine two-bucket world), but the protection is now actually enforced, and a future wrong default is loud.
+
+**v9.7 test status:** py_compile + `test_review_v97.py` green (allowlist-configured-but-empty is fail-open → strays unclassified, denylist not used; default denylist back-compat; warning path; `_class_matches` deployed-image semantics).
+
+**Freeze declaration:** with v9.7 the measurement framework is frozen unless a genuine bug surfaces. Remaining work is experiments, not metrics: (1) repeatability validation — `SAQEF_REPEAT=10 ./run_saqef.sh bench` on Fn, check `cp_dynamic_share_pct` within ±2%, both KPIs stable, CP energy ∝ CP CPU; (2) cross-platform discrimination — OpenFaaS (then Knative/OpenWhisk) with the identical protocol, `cp_dynamic_share_pct` vs Fn's ~24%; (3) bare metal — RAPL ground truth + the native→Docker→containerd→FaaS decomposition the reviewer proposed.
