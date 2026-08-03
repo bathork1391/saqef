@@ -1,0 +1,45 @@
+{
+  "platform": "fn",
+  "url": "http://localhost:8080/t/app1/hello",
+  "wall_s": 13.62,
+  "sampling_covered_s": 9.7,
+  "requests": 3000,
+  "successes": 3000,
+  "availability": 1.0,
+  "throughput_rps": 220.33,
+  "latency_ms": {
+    "p50": 75.03,
+    "p90": 141.92,
+    "p99": 300.05,
+    "max": 511.24
+  },
+  "slo_ms": 500.0,
+  "slo_compliance": 0.9997,
+  "energy_J": {
+    "total": 411.3,
+    "dynamic": 2.8,
+    "control_plane": 1.5,
+    "function": 1.4
+  },
+  "cp_share_pct": 0.35,
+  "cp_dynamic_share_pct": 51.44,
+  "cpu_sec": {
+    "control_plane": 0.41,
+    "function": 0.39
+  },
+  "cp_peak_mem_mb": 69.2,
+  "carbon_gCO2": {
+    "op_total": 19.708,
+    "op_control_plane": 0.07
+  },
+  "model": {
+    "idle_w": 30.0,
+    "busy_core_w": 3.5,
+    "pue": 1.15,
+    "ci": 150.0
+  },
+  "kpi_gco2_per_slo_compliant_inv": 0.0066,
+  "embodied_g_per_gb_h": 0.0317,
+  "rapl_validation_err_pct": null,
+  "rapl_available": false
+}
