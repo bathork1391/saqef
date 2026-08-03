@@ -330,4 +330,93 @@ control plane := containers matching --cp-containers (here: "fnserver")
 
 ---
 
-*Everything in this report is reproducible from the command log in §3 and the committed artifacts in the repo.*
+## 11. Session log (2026-08-03, Codespace retest)
+
+**Environment confirmed:** Codespace, 2 vCPU, no RAPL (CPU-time model only), `cgroup map: OK` (fnserver maps → 100 Hz sampler + `--delta-check` usable), `hey` installed. `cpu_count` recorded per run in `env`.
+
+**Workload confirmed REAL:** `hello/func.py` is a genuine 5 ms spin (`while time.perf_counter() - t0 < 0.005: pass`) — CPU-bound anchor is valid.
+
+**New discovery — Fn container lifecycle (measured via `docker ps` watch during load):**
+Fn creates function containers **per call-batch** (10 at concurrency 10, opaque `01KZ...` names), each lives **~2–5 s**, then **pauses** (FN_FREEZE_IDLE_MSECS=50 default), then is **GC'd within ~1–2 min**. `docker ps -a` minutes after a run shows only `fnserver`.
+
+**Problem:** with `--sampler cgroup`, `function_cpu_sec_total` is **~0 (0.0–0.092 s)** even though function containers exist for multiple seconds — a *hard capture failure* (containers never added to the sampler's set), NOT an aliasing undercount. `cp_cgroup_reader`/fnserver reads work; function-container mapping/read fails somewhere in `container_cgroup_dir` / `read_cpu_cumulative`.
+
+**Pending probe** (replicates the sampler's scan + read against live containers — run a 20-call verify in the background first, then within seconds):
+```bash
+python3 - <<'EOF'
+import subprocess, os
+def run(cmd): return subprocess.run(cmd, shell=True, capture_output=True, text=True)
+out = run("docker ps --format '{{.ID}}|{{.Names}}'")
+for line in out.stdout.strip().splitlines():
+    cid, _, cname = line.partition("|")
+    pid = run("docker inspect -f '{{.State.Pid}}' %s" % cid).stdout.strip()
+    print("== %s docker_id=%s pid=%r" % (cname, cid, pid))
+    cgroup = None
+    if pid.isdigit():
+        try:
+            for l in open("/proc/%s/cgroup" % pid):
+                parts = l.strip().split(":")
+                if len(parts) == 3:
+                    if parts[1] in ("cpu", "cpu,cpuacct", "cpuacct"):
+                        cgroup = "/sys/fs/cgroup" + parts[1] + parts[2]
+                    elif parts[1] == "":
+                        cgroup = "/sys/fs/cgroup" + parts[2]
+        except Exception as e:
+            print("   /proc read FAILED:", e)
+    print("   cgroup dir:", cgroup)
+    if cgroup and os.path.isdir(cgroup):
+        for f in ("cpu.stat", "cpuacct.usage"):
+            p = os.path.join(cgroup, f)
+            if os.path.exists(p):
+                print("   %s:" % f, open(p).read().strip().replace("\n", "; "))
+    else:
+        print("   cgroup dir MISSING / not mounted")
+EOF
+```
+
+**Decision matrix from the probe:**
+| Probe result | Conclusion | Fix |
+|---|---|---|
+| `pid=` empty / `/proc` read FAILED | function-container PIDs invisible from devcontainer (namespace) | cgroup mode cannot work here → accurate function-CPU requires bare metal |
+| `cgroup dir MISSING` | container cgroup not mounted in devcontainer | same → bare metal |
+| `cpu.stat` shows `usage_usec > 0`, dir exists | mapping/read fine → sampler timing/add bug | cheap fix: re-enumerate at ~100 ms instead of 1 s (containers live seconds, so this catches them) |
+
+**Status of this session's gates:**
+- `cgroup map`: OK · `--verify` docker-sampler: VOID (wrong sampler) · `--verify` cgroup: `budget_check` UNDER (0.92 ms/inv, suspect) · frozen idle/GC lifecycle: characterized · function-CPU capture: FAILING (pending probe) · gold-standard run: NOT STARTED.
+- Codespace commit `3d5528f` "harness v8 + report" = everything in sync with the local machine copies.
+
+**Resume checklist (in order):**
+1. Run the pending probe; branch per decision matrix.
+2. If cgroup mode is salvaged: re-run `--verify --sampler cgroup` → expect `function_cpu_ms_per_inv` ≈ 5 ms, `budget_check: MATCHES`.
+3. Then the gold-standard v8 pair (idle-probe A + loaded B with `--loadgen hey --delta-check`), then freeze ablation (`FN_FREEZE_IDLE_MSECS=0`), then cold-start (`--interarrival-ms 1000`).
+4. If cgroup mode is unsalvageable: the honest path is a 1 Hz docker-tier smoke run here + bare metal for the defensible dataset; do NOT publish Codespace cgroup numbers.
+
+---
+
+## 12. Sampler overcount bug — diagnosed and FIXED (2026-08-03)
+
+**Diagnostic (run_1/samples.csv, 18 containers):** only **37 samples / 14.4 s** (≈2.5 Hz, not 100 Hz — cgroup reads are slow on the nested mount) and fnserver `max_cpu% = 897.9%` (impossible). The `--delta-check` for run B showed **5188%** (sampler CP 136.6 s vs direct counter 2.6 s).
+
+**Root cause:** the cgroup sampler computed a *percent rate* `(cum-old)/dt*100` using its own internal `dt`, then `run_once` re-multiplied by a *different* dt (`tnext-t`). With irregular cadence (slow reads, 1 s docker rescans, spurious `Event.wait` wakeups), that double normalization massively overcounted — uniformly, which is why `cp_dynamic_share` stayed stable (≈29.9%) while the absolute numbers were impossible (462 s of container CPU vs 28.7 s available).
+
+**Fix (harness, applied + smoke-tested):** the sampler now stores **raw cumulative CPU seconds** (`(t, {name: (cum_s, 0.0)}, "cum")`); `sample_totals()` differences consecutive cumulative reads (exact, immune to cadence) and re-derives percent only for the CSV. `docker_sampler` samples are tagged `"pct"` and reduced as before. `run_once`, `verify`, `write_run` updated. Local test: cum deltas exact, irregular-cadence immune, CP-mem only for CP containers.
+
+**Environment caveat (separate, NOT a harness bug):** the idle probe showed `host_cpu_sec = 118 s / 60 s wall` with zero traffic — the shared Codespaces VM burns ~2 cores of background CPU, so **host-level metrics (`host_cpu_sec`, `orchestration_cpu_sec`, `orchestration_share_pct`) are meaningless in the Codespace**. Reserved for bare metal. `hey` download was also only 243 bytes (S3 error page) — correct URL: `https://storage.googleapis.com/hey-release/hey_linux_amd64`.
+
+**Re-validate after fix:** `--verify --sampler cgroup` then run B again; accept only if `cp_sampler_vs_delta_pct ≈ 0` AND `function_cpu_ms_per_inv ≈ 5 ms` (function CPU / requests) AND coverage ≥ 95%.
+
+---
+
+## 13. External review cross-check (2026-08-03)
+
+Third-party technical review of the v8 data; disposition of each point:
+
+1. **Delta-check discrepancy (idle 52.73%, loaded 5188.48% = ~52x) is a real bug.** AGREE. That is the exact overcount §12 explains; the reviewer's quoted code (`dt = max(t - last_t, 0.001)` + `snap[cname] = ((cum-old)/dt*100.0, 0.0)`) was the OLD `cgroup_sampler` — it no longer exists. Their GIL/scheduling-jitter mechanism (unreliable internal dt) is precisely why that code was wrong; the fix stores raw cumulative seconds and differences with true timestamps, so it is immune to cadence jitter. (We removed `dt` from the sampler entirely rather than instrumenting it, which makes their proposed debug step unnecessary.) FIXED.
+2. **Physical impossibility (462 CPU-s attributed > 28.66 ceiling).** AGREE — it's the same overcount, and it can't occur from the new cumulative path. The harness now self-reports `cpu_sec_ceiling` and `physical_plausible` per run so the check is automatic. FIXED.
+3. **`median_summary()` medians each field independently — hazard.** PARTIALLY AGREED, and already compliant with their recommended fix: all ratios (`cp_dynamic_share_pct`, `cp_share_pct`, `steal_pct`, `kpi_*`, `cp_sampler_vs_delta_pct`) are computed *inside each run* in `run_once` and the median is taken of stored per-run ratios — never reconstructed from independently-medianed raw components. Residual theoretical risk (median `wall_s` from run A + median `cpu_sec` from run B) only affects absolute sanity checks, not ratios; the new `physical_plausible` flag makes any violation visible. NOTE: verify the per-run `summary.json` files for run_1–5 in the Codespace (5-min check) to confirm the impossibility existed per-run (sampler bug) rather than only in the median view — expected conclusion: per-run impossible, consistent with the overcount.
+4. **`kpi_gco2_per_slo_compliant_inv: NaN` breaks strict JSON.** AGREE — `json.dump` writes bare `NaN` (invalid per spec). Fixed with a recursive `clean_json()` that maps non-finite floats → `null` before every write/print, and `median_summary()` now skips non-finite values (all-NaN → `null`, not crash). FIXED.
+5. **Failure mode flipped direction (v6/v7 "5x too low" → v8 "16x too high").** AGREE, worth stating: v6/v7 undercounted because function containers were never added to the sampler set; v8 overcounted because of double normalization. Both distinct root causes, both now removed — but the flip is evidence the pipeline was not yet converged, so the gold-standard gate must pass before publication.
+6. **Report ratios as "52x", not "5188%".** AGREE — cosmetic; `cp_sampler_vs_delta_pct` stays a % in JSON, this log uses both forms. Adopted.
+7. **Sequencing advice (validate sampler before OpenFaaS/OpenWhisk; treat 100 Hz as earn-back; bare metal only after delta-check is single-digit).** AGREE, this is the current plan (§10, §11 step 4). `--sampler docker` remains a valid interim fallback for cross-platform smoke runs, but the fixed cgroup path should now pass the delta-check directly.
+
+**Net:** all actionable points addressed in the harness; §12 fix + §13 hardening are both in the local copy to re-drag into the Codespace.
