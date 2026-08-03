@@ -145,18 +145,56 @@ def main():
     os.makedirs(args.outdir, exist_ok=True)
     cp_sub = [s.strip().lower() for s in args.cp_containers.split(",") if s.strip()]
 
-    # --- sampler thread ------------------------------------------------------
+    # --- sampler thread (streaming `docker stats`, ~1 Hz full-window coverage) -
     samples, rapl_log = [], []
     stop = threading.Event()
     rapl_start = rapl_energy()
 
     def sampler():
-        while not stop.is_set():
-            t = time.time()
-            snap = docker_stats_once()
-            e = rapl_energy()
-            samples.append((t, snap, e))
-            time.sleep(SAMPLE_S)
+        proc = None
+        try:
+            proc = subprocess.Popen(
+                ["docker", "stats", "--format",
+                 "{{.Name}}|{{.CPUPerc}}|{{.MemUsage}}|{{.MemPerc}}"],
+                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                text=True, bufsize=1)
+        except Exception:
+            pass
+        if proc is None:
+            return
+        pending, seen = {}, set()
+
+        def commit():
+            nonlocal pending, seen
+            if pending:
+                samples.append((time.time(), dict(pending), rapl_energy()))
+            pending, seen = {}, set()
+
+        for line in proc.stdout:
+            line = line.strip()
+            if not line:
+                continue
+            parts = line.split("|")
+            if len(parts) < 4:
+                continue
+            name = parts[0].strip()
+            cpu = parts[1].strip().rstrip("%")
+            mem = parts[2].strip().split()[0]
+            try:
+                cpu = float(cpu)
+            except ValueError:
+                cpu = 0.0
+            if name in seen:
+                commit()
+            seen.add(name)
+            pending[name] = (cpu, mem_to_mb(mem))
+            if stop.is_set():
+                break
+        commit()
+        try:
+            proc.terminate()
+        except Exception:
+            pass
 
     th = threading.Thread(target=sampler, daemon=True)
     th.start()
@@ -166,7 +204,7 @@ def main():
     reqs = run_load(args.url, args.total, args.concurrency)
     wall = time.perf_counter() - t0
     stop.set()
-    th.join(timeout=5)
+    th.join(timeout=10)
     rapl_end = rapl_energy()
 
     # --- energy attribution (Kepler-style CPU-time proportional) -------------
