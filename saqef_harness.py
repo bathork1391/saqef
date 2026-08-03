@@ -560,22 +560,27 @@ def cgroup_sampler(samples, stop, first_sample, rescan_s=0.25):
         samples.append((time.time(), snap, "cum"))
 
 
-def sample_totals(samples, cp_sub, fn_sub="", cp_members=None, fn_members=None):
+def sample_totals(samples, cp_sub, fn_sub="", cp_members=None, fn_members=None,
+                  fn_allow_configured=False):
     """Reduce raw samples to (cp_cpu_s, fn_cpu_s, cp_peak_mem_mb, covered_s, csv_rows, unclass_cpu_s).
     'cum' samples (cgroup): exact — consecutive cumulative deltas; the rate/dt
     normalization is irrelevant to the total, so irregular cadence cannot bias it.
     'pct' samples (docker stats): rate x elapsed as before.
     csv_rows normalize everything to percent-rate for samples.csv.
     Classification: control-plane = names matching cp_sub (or in cp_members);
-    function = names matching fn_sub / fn_members; when NEITHER fn allowlist is
-    given, ALL non-cp names are function (denylist default, back-compat); when
-    an fn allowlist IS given, non-matching names go to an unclassified bucket so
-    a stray container can never silently inflate fn_cpu. cp_members/fn_members
-    are sets of container names matched by image/label allowlists in run_once."""
+    function = names matching fn_sub / fn_members; when NO function allowlist is
+    configured (fn_allow_configured=False and fn_sub/fn_members empty), ALL
+    non-cp names are function (denylist default, back-compat); when an fn
+    allowlist IS configured (fn_allow_configured=True, or fn_sub/fn_members
+    non-empty), non-matching names go to an unclassified bucket so a stray
+    container can never silently inflate fn_cpu -- even if the allowlist matched
+    nothing (fail-open, so a wrong --fn-images is loud, not silently ignored).
+    cp_members/fn_members are sets of container names matched by image/label
+    allowlists in run_once."""
     cp_cpu = fn_cpu = unclass = 0.0
     cp_mem = 0.0
     covered = 0.0
-    fn_allow_active = bool(fn_sub or fn_members)
+    fn_allow_active = fn_allow_configured or bool(fn_sub or fn_members)
     prev = {}
     csv_rows = []
     for i, (t, snap, mode) in enumerate(samples):
@@ -695,8 +700,15 @@ def run_once(args, cp_sub):
                   if _class_matches(n, img, lbls, (), args.cp_images, args.cp_labels)}
     fn_members = {n for n, (img, lbls) in inv.items()
                   if _class_matches(n, img, lbls, (), args.fn_images, args.fn_labels)}
+    fn_allow_configured = bool(args.fn_containers or args.fn_images or args.fn_labels)
     cp_cpu_s, fn_cpu_s, cp_peak_mem_mb, covered_s, csv_rows, unclass_cpu_s = sample_totals(
-        samples, cp_sub, args.fn_containers, cp_members, fn_members)
+        samples, cp_sub, args.fn_containers, cp_members, fn_members,
+        fn_allow_configured=fn_allow_configured)
+    if fn_allow_configured and not (args.fn_containers or fn_members):
+        print("WARNING: function allowlist configured (--fn-images/--fn-labels/--fn-containers) "
+              "but matched NO running container - every non-CP container is being counted as "
+              "unclassified. Check the image/label against `container_labels` (Fn runs the "
+              "DEPLOYED function image, e.g. hello:0.0.14, not the base fnproject/python:*).")
     # Clamp covered to the window: the final-sample tail (SAMPLE_S) plus the
     # stop-time flush can extend the sampled span just past wall; coverage must
     # not read >100%.
@@ -1065,7 +1077,8 @@ def main():
                     help="comma-separated image substrings of control-plane containers")
     ap.add_argument("--fn-images", default="",
                     help="comma-separated image substrings of function containers (recommended for Fn, whose "
-                         "function containers have opaque ULID names)")
+                         "function containers have opaque ULID names). Match the DEPLOYED image name "
+                         "(e.g. hello:0.0.14 / 'hello'), NOT the base runtime fnproject/python:*.")
     ap.add_argument("--cp-labels", default="",
                     help="comma-separated docker label keys identifying control-plane containers")
     ap.add_argument("--fn-labels", default="",
