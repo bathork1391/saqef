@@ -45,11 +45,31 @@ setup_fn() {
   echo "=== [setup] hey (reinstall if broken/truncated) ==="
   HEY_BIN="$(command -v hey || true)"
   if [ -n "$HEY_BIN" ] && [ "$(stat -c%s "$HEY_BIN")" -ge 1000 ]; then
-    echo "hey OK: $HEY_BIN"
+    echo "hey OK: $HEY_BIN ($(stat -c%s "$HEY_BIN") bytes)"
   else
-    curl -sL https://storage.googleapis.com/hey-release/hey_linux_amd64 -o hey
-    chmod +x hey && sudo mv hey /usr/local/bin/hey
-    echo "hey reinstalled"
+    if command -v go >/dev/null 2>&1; then
+      echo "installing hey via go install ..."
+      go install github.com/rakyll/hey@latest
+      GOHEY="$(go env GOPATH)/bin/hey"
+      if [ -f "$GOHEY" ]; then
+        sudo ln -sf "$GOHEY" /usr/local/bin/hey
+        echo "hey installed from go: $(stat -c%s "$GOHEY") bytes"
+      else
+        echo "WARNING: go install produced no binary; python loadgen fallback is fine"
+      fi
+    else
+      echo "go not available; trying binary download (storage.googleapis.com now 403s)..."
+      curl -sL https://storage.googleapis.com/hey-release/hey_linux_amd64 -o hey
+      chmod +x hey
+      SIZE="$(stat -c%s hey 2>/dev/null || echo 0)"
+      if [ "$SIZE" -ge 1000 ]; then
+        sudo mv hey /usr/local/bin/hey
+        echo "hey downloaded OK: $SIZE bytes"
+      else
+        echo "WARNING: download truncated ($SIZE bytes); python loadgen fallback is fine"
+        rm -f hey
+      fi
+    fi
   fi
 
   echo "=== [setup] function + trigger ==="
