@@ -77,7 +77,7 @@ Two energy scopes are reported, because they answer different questions:
 
 `hello/func.py` is a genuine **5 ms CPU spin** (`while time.perf_counter() - t0 < 0.005: pass`). Rationale: a *CPU-anchored* workload makes the function's marginal CPU measurable and stable. A no-op "hello" handler was evaluated and rejected: with a near-free function, both ratio numerator and denominator become tiny and noisy (fn freeze churn between calls → 0% CPU → `cp_dynamic_share` swings ±13 pp). **The metric must be workload-anchored** — itself a reviewer-relevant methodological finding.
 
-Run profile: 3000 requests, concurrency 20, warmup 20, repeat 5, SLO 500 ms, duration cap 60 s. Runs are **count-bound** (exactly N requests per platform; `--duration` is a *safety cap*, not a hard stop) so cross-platform windows are identical in composition even when wall time differs. Publication runs: repeat ≥ 10 (§4.6).
+Run profile: 3000 requests, concurrency 20, warmup 20, repeat 5, SLO 500 ms, duration cap 60 s. Runs are **count-bound** (exactly N requests per platform; `--duration` is a *safety cap*, not a hard stop) so cross-platform windows are identical in composition even when wall time differs. Publication runs: repeat ≥ 10 (§4.6). **Every benchmark session starts from a freshly-restarted fnserver** (`reset` in `run_saqef.sh`): leftover warm/zombie function containers from a prior session were found to fold into `fn_cpu` under the old denylist and inflate it (report §18), so a reused server is no longer measurable via the runner.
 
 ### 4.4 Instrumentation
 
@@ -87,7 +87,7 @@ Run profile: 3000 requests, concurrency 20, warmup 20, repeat 5, SLO 500 ms, dur
 
 **Key design decision — raw cumulative + true-timestamp differencing.** The reducer differences *consecutive cumulative reads* using *true sample timestamps* (`dt = t_{i+1} - t_i`). This makes the totals **exact regardless of sampling cadence** — slow cgroup reads, scheduling jitter, or spurious wakeups cannot bias the integral (the reducer never re-multiplies by a sampler-internal dt). This property is what lets the delta-check pass to 0.01% even when sampling coverage is low on the nested mount (§5.3). Memory is captured the same way (`memory.current` / `memory.usage_in_bytes`) so `cp_peak_mem_mb` is a real measurement in cgroup mode (v9.2+).
 
-**Classification is allowlist-based.** Control-plane = names matching `--cp-containers`; function = names matching `--fn-containers` (when empty, *everything not CP* is treated as function — denylist default, preserved for backward compatibility). Any container matching neither allowlist goes to a logged `unclassified_cpu_s` bucket (warn if > 0.5 CPU-s) so a stray container can never silently inflate `fn_cpu`; a full `container_inventory` (docker ps names) is embedded in every summary for audit. cgroup rescans run every `--rescan-s` s (default 0.25) to bound the blind spot for containers born and dying within one scan.
+**Classification is allowlist-based.** Control-plane = containers matching `--cp-containers`/`--cp-images`/`--cp-labels`; function = containers matching `--fn-containers`/`--fn-images`/`--fn-labels`. When no function allowlist is given, *everything not CP* is function (denylist default, back-compat). When an allowlist IS given, any container matching neither CP nor function goes to a logged `unclassified_cpu_s` bucket (warn if > 0.5 CPU-s) — **so a stray container can never silently inflate `fn_cpu`**. `run_saqef.sh` passes `--fn-images fnproject/python:3.12` by default, which is what makes the bucket meaningful on Fn: function containers have opaque ULID names, so the *image* is the only reliable signal. `container_inventory` (names) and `container_labels` (name → image + labels) are embedded in every summary for audit. cgroup rescans run every `--rescan-s` s (default 0.25) to bound the blind spot for containers born and dying within one scan.
 
 **`--delta-check` (independent validation).** The control-plane container's cumulative counter is read *directly* immediately before and after the window; the direct delta is compared with the sampler's accumulated total: `cp_sampler_vs_delta_pct = (sampler_total / direct_delta - 1) × 100`. ≈0 ⇒ the whole sampling path is validated.
 
@@ -103,7 +103,8 @@ dynamic_J(container) = cpu_sec × P_BUSY_CORE_W                # 3.5 W/busy core
 total_J = P_IDLE_BASE_W × wall_s + Σ dynamic_J                # idle 30 W baseline
 carbon_gCO2 = (Wh) × PUE × CI                                 # PUE 1.15, CI 150 gCO2/kWh
 cp := containers matching --cp-containers (here: "fnserver")
-KPI = operational_gCO2 / N_SLO-compliant_invocations
+KPI = operational_gCO2 / N_SLO-compliant_invocations        # incl. idle baseline (window-dependent)
+KPI_dynamic = dynamic_gCO2 / N_SLO-compliant_invocations    # load-created carbon only (wall-independent)
 embodied_DRAM = 1390 gCO2/GB ÷ (5 yr × 8760 h)                # amortized, reported for context
 ```
 
@@ -203,6 +204,8 @@ The idle-dominance is itself a result: at this light load, **~94% of operational
 > **v9.3 review-driven corrections (external expert review, 2026-08-04):** (a) `host_cpu_sec` sums **busy** ticks only (was total → `orchestration_*` inflated ~5×); (b) **memory captured** in cgroup mode — `cp_peak_mem_mb` was 0.0, now real (88.6 MB on the v9.2 run); (c) **KPI fixed** — now operational gCO₂ per SLO-compliant invocation (≈39.6 mg incl. idle base on the saturated-vm run); (d) **`sensitivity` block added** — dynamic share, dynamic energy, and carbon at busy-core 2/3.5/5 W (share invariant, absolutes banded); (e) **`orchestration_*` defined explicitly** as a host-wide residual (§7.3) and excluded from claims; (f) **quick-run guard** — `SAQEF_REPEAT < 5` writes to a `_quick` outdir so 1-run passes can't be mistaken for the 5-run publication set.
 >
 > **v9.4 review-driven corrections (second external expert review, 2026-08-04):** (g) **host plausibility gate** — `host_plausible = host_cpu_sec ≤ cpu_count × wall × 1.05`, with the cgroup quota (`cpu.max`) printed by `--check`; (h) **host saturation ratio** reported per run and flagged ≥ 85% (QoS caveat, §7.4); (i) **fn allowlist** (`--fn-containers`) — non-matching containers land in an `unclassified_cpu_s` bucket + `container_inventory` audit, never silently in `fn_cpu`; (j) **count-bound runs** — `-n` only, `--duration` is a safety cap with a post-run wall assertion (hey's `-z`/`-n` precedence is build-dependent); (k) **`--rescan-s`** (default 0.25) shrinks the blind spot for ephemeral containers; (l) **`iqr`** reported alongside `bootstrap_ci`/`cv_pct`, N≥10 for publication.
+>
+> **v9.5 corrections (between-session finding, 2026-08-04):** (m) **fresh-session protocol** — `run_saqef.sh reset` + `setup` always restart fnserver and remove orphaned `fnproject/python:3.12` containers, so leftover warm containers can't inflate `fn_cpu` (root cause candidate for the 3.2× session swing); (n) **allowlist now exercised** — image/label signals (`--fn-images` etc.) added and `--fn-images fnproject/python:3.12` passed by default, making `unclassified_cpu_s` informative instead of a guaranteed 0.0; (o) **marginal KPI** — `kpi_gco2_per_inv_dynamic` (load-created carbon only) is wall-independent, unlike the ~93%-idle-dominated operational KPI; (p) neither session's absolute numbers are quoted in isolation — bare-metal multi-session medians are required.
 
 ---
 
@@ -223,7 +226,7 @@ chmod +x run_saqef.sh
 ./run_saqef.sh all
 ```
 
-Artifacts per run: `summary.json`, `samples.csv`, `requests.csv`, `verify.json`, `runs.json` (median + bootstrap CI + CV + IQR + spread). Environment snapshot (cpu_count, governor, freq, sampler, loadgen, container inventory) recorded inside each summary. Stdlib-only Python; no pip installs.
+Artifacts per run: `summary.json`, `samples.csv`, `requests.csv`, `verify.json`, `runs.json` (median + bootstrap CI + CV + IQR + spread). Environment snapshot (cpu_count, governor, freq, sampler, loadgen, container inventory/labels) recorded inside each summary. Stdlib-only Python; no pip installs. Full command log and historical decisions: `SAQEF_TECHNICAL_REPORT.md` §§3, 4, 11–18.
 
 Full command log and historical decisions: `SAQEF_TECHNICAL_REPORT.md` §§3, 4, 11–14.
 

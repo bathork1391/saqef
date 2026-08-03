@@ -1,16 +1,18 @@
 #!/usr/bin/env bash
 # run_saqef.sh - one-command harness for the SAQEF Fn benchmark on Codespaces.
 # Usage: ./run_saqef.sh [setup|check|verify|bench|gates|all]
-#   setup  -> start Fn server, (re)install hey, register function + trigger, sanity curl
+#   reset  -> FRESH-SESSION protocol: remove fnserver + orphaned function containers
+#   setup  -> reset, start Fn server, (re)install hey, register function + trigger, sanity curl
 #   check  -> environment sanity (docker, RAPL, cgroup map, hey)
 #   verify -> confirm the deployed function really burns ~5 ms CPU/invocation
 #   bench  -> gold-standard run B (cgroup sampler + delta-check + hey; count-bound:
 #             exactly $TOTAL requests, --duration is a SAFETY cap, not a hard stop)
 #   gates  -> print the accept/reject table for the runs
-#   all    -> setup, check, verify, bench, gates (full pipeline)
+#   all    -> setup, check, verify, bench, gates (full pipeline, always from a fresh fnserver)
 #
 # Env overrides for faster iteration:
 #   SAQEF_TOTAL SAQEF_CONCURRENCY SAQEF_DURATION SAQEF_WARMUP SAQEF_REPEAT
+#   SAQEF_FN_IMAGES (function-image allowlist; default = the hello function image)
 #   e.g.  SAQEF_TOTAL=600 SAQEF_REPEAT=1 ./run_saqef.sh bench
 #   If SAQEF_REPEAT < 5, results go to results/<name>_quick (never the final
 #   outdir), so a 1-run pass cannot be mistaken for the 5-run publication set.
@@ -22,7 +24,9 @@ cd "$REPO"
 URL="http://localhost:8080/t/app1/hello"
 PLATFORM="fn"
 CP="fnserver"
-FN=""
+FN_IMAGES="${SAQEF_FN_IMAGES:-fnproject/python:3.12}"
+FN_IMAGES_ARG=""
+[ -n "$FN_IMAGES" ] && FN_IMAGES_ARG="--fn-images $FN_IMAGES"
 OUT="results/fn_cpubound_v9"
 VERIFY_N=100
 VERIFY_BUDGET_MS=5
@@ -33,23 +37,33 @@ WARMUP="${SAQEF_WARMUP:-20}"
 REPEAT="${SAQEF_REPEAT:-5}"
 FULL_REPEAT=5
 
+reset_fn() {
+  echo "=== [reset] fresh-session protocol: remove fnserver + orphaned function containers ==="
+  docker rm -f fnserver >/dev/null 2>&1 || true
+  # Fn function containers are named with opaque ULIDs; the image is the only
+  # reliable handle. Clean orphans so leftover warm/zombie containers from a
+  # prior session cannot be folded into fn_cpu and inflate it (see report §18).
+  for c in $(docker ps -aq --filter ancestor=fnproject/python:3.12); do
+    docker rm -f "$c" >/dev/null 2>&1 || true
+  done
+  rm -rf /tmp/iofs /tmp/data
+  echo "clean: $(docker ps -aq | wc -l) containers left"
+}
+
 setup_fn() {
+  reset_fn
   echo "=== [setup] Fn server ==="
-  if docker ps --format '{{.Names}}' | grep -qx fnserver; then
-    echo "fnserver already running"
-  else
-    mkdir -p /tmp/iofs /tmp/data
-    docker run -d --rm --name fnserver \
-      -v /tmp/iofs:/iofs \
-      -e FN_IOFS_DOCKER_PATH=/tmp/iofs \
-      -e FN_IOFS_PATH=/iofs \
-      -v /tmp/data:/app/data \
-      -v /var/run/docker.sock:/var/run/docker.sock \
-      --privileged -p 8080:8080 \
-      --entrypoint ./fnserver -e FN_LOG_LEVEL=DEBUG \
-      fnproject/fnserver
-    sleep 6
-  fi
+  mkdir -p /tmp/iofs /tmp/data
+  docker run -d --rm --name fnserver \
+    -v /tmp/iofs:/iofs \
+    -e FN_IOFS_DOCKER_PATH=/tmp/iofs \
+    -e FN_IOFS_PATH=/iofs \
+    -v /tmp/data:/app/data \
+    -v /var/run/docker.sock:/var/run/docker.sock \
+    --privileged -p 8080:8080 \
+    --entrypoint ./fnserver -e FN_LOG_LEVEL=DEBUG \
+    fnproject/fnserver
+  sleep 6
 
   echo "=== [setup] hey (reinstall if broken/truncated) ==="
   HEY_BIN="$(command -v hey || true)"
@@ -112,13 +126,13 @@ run_bench() {
     echo "#######################################################################"
     echo ""
     python3 saqef_harness.py --url "$URL" --platform "$PLATFORM" --cp-containers "$CP" \
-      --fn-containers "$FN" \
+      $FN_IMAGES_ARG \
       --total "$TOTAL" --concurrency "$CONCURRENCY" --duration "$DURATION" \
       --warmup "$WARMUP" --repeat "$REPEAT" \
       --sampler cgroup --delta-check --loadgen hey --outdir "${OUT}_quick"
   else
     python3 saqef_harness.py --url "$URL" --platform "$PLATFORM" --cp-containers "$CP" \
-      --fn-containers "$FN" \
+      $FN_IMAGES_ARG \
       --total "$TOTAL" --concurrency "$CONCURRENCY" --duration "$DURATION" \
       --warmup "$WARMUP" --repeat "$REPEAT" \
       --sampler cgroup --delta-check --loadgen hey --outdir "$OUT"
@@ -149,11 +163,12 @@ PY
 }
 
 case "${1:-all}" in
+  reset)  reset_fn ;;
   setup)  setup_fn ;;
   check)  run_check ;;
   verify) run_verify ;;
   bench)  run_bench ;;
   gates)  run_gates ;;
   all)    setup_fn && run_check && run_verify && run_bench && run_gates ;;
-  *) echo "usage: $0 [setup|check|verify|bench|gates|all]"; exit 1 ;;
+  *) echo "usage: $0 [reset|setup|check|verify|bench|gates|all]"; exit 1 ;;
 esac
