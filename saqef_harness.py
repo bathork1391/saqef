@@ -412,9 +412,13 @@ def cp_cgroup_reader(cp_sub):
     The container set is re-resolved on every call (so swarm task restarts
     cannot wedge the reader), and the sum matches what sample_totals adds for
     the cp buckets - the delta-check must compare like for like, and a
-    multi-container control plane (OpenFaaS = 6 containers) is the norm."""
+    multi-container control plane (OpenFaaS = 6 containers) is the norm.
+    Each matched container's cgroup-mapping status is recorded on
+    reader.map (name -> 'ok' / 'read-failed' / 'unmappable') and logged, so a
+    partial silent mapping failure can never masquerade as a valid delta."""
     if not cp_sub:
         return None
+    mapping = {}
 
     def read_total():
         out = run("docker ps --format '{{.Names}}'")
@@ -426,14 +430,26 @@ def cp_cgroup_reader(cp_sub):
             if any(s in nm.lower() for s in cp_sub):
                 cid = run("docker inspect -f '{{.Id}}' %s" % nm).stdout.strip()
                 d = container_cgroup_dir(cid) if cid else None
+                status = "unmappable"
                 if d:
                     v = read_cpu_cumulative(d)
                     if v is not None:
                         total += v
                         mapped += 1
+                        status = "ok"
+                    else:
+                        status = "read-failed"
+                mapping[nm] = status
         return total if mapped else None
 
-    if read_total() is None:
+    read_total.map = mapping
+    first = read_total()
+    ok = sorted(n for n, s in mapping.items() if s == "ok")
+    bad = sorted(n for n, s in mapping.items() if s != "ok")
+    print("[delta-check] CP cgroup mapping: %d/%d mapped (%s)%s"
+          % (len(ok), len(mapping), ", ".join(ok) if ok else "NONE",
+             "; UNMAPPED: " + ", ".join(bad) if bad else ""))
+    if first is None:
         return None
     return read_total
 
@@ -948,6 +964,7 @@ def run_once(args, cp_sub):
         "steal_pct": round(steal_pct, 2) if steal_pct is not None else None,
         "cp_delta_sec": round(cp_delta_sec, 3) if cp_delta_sec is not None else None,
         "cp_sampler_vs_delta_pct": cp_sampler_vs_delta_pct,
+        "delta_check_map": dict(getattr(cp_read, "map", {}) or {}) if cp_read else None,
         "env": {"cpu_count": cpu_count(), "governor": governor,
                 "freq_mhz_before": round(freq_before, 1) if freq_before else None,
                 "freq_mhz_after": round(freq_after, 1) if freq_after else None,
