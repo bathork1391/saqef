@@ -128,7 +128,7 @@ Constants: `P_BUSY_CORE_W = 3.5`, `P_IDLE_BASE_W = 30.0`, `PUE = 1.15`, `CI = 15
 | Delta-check | `cp_sampler_vs_delta_pct` | ≈ 0 (single-digit %) |
 | Physical plausibility | `cpu_sec.fn + cpu_sec.cp ≤ cpu_count × wall_s` | true |
 | **Host plausibility** | `host_cpu_sec ≤ cpu_count × wall_s × 1.05` (vs `cpu.max` quota printed by `--check`) | true |
-| **Host saturation** | `host_cpu_sec / (cpu_count × wall_s)` | report per run; flag if ≥ 85% (QoS is contention-contaminated) |
+| **Host saturation** | `host_cpu_sec / (cpu_count × wall_s)` | report per run; `host_saturated` flag (v9.8, enforced in code) if ≥ 85% — QoS is contention-contaminated |
 | Coverage | `sampling_covered_s / wall_s` | ≥ 95% (bare-metal target) |
 | QoS integrity | availability, SLO compliance | ≥ 99% |
 | Determinism | two independent runs reproduce | within repeat variance |
@@ -209,6 +209,8 @@ The idle-dominance is itself a result: at this light load, **~94% of operational
 >
 > **v9.7 corrections (image-handle bug, 2026-08-04):** (q) the v9.5 allowlist default `fnproject/python:3.12` and the `reset_fn` `ancestor=` filter both referenced the **base runtime** image, but Fn's running function containers carry the **deployed** image (`hello:0.0.14`) — BuildKit does not preserve the FROM lineage. Net effect: the allowlist silently matched nothing and reverted to the denylist, and leftover warm `hello:*` containers were not cleaned. Fixed by defaulting `--fn-images` to the deployed image name (`hello`) and cleaning `hello:*` containers by image-name pattern; (r) **fail-open classification** — when an fn allowlist is configured but matches no container, the harness now WARNs and routes strays to `unclassified_cpu_s` instead of silently folding them into `fn_cpu`. The v9.5 numbers are unaffected (`container_labels` proved a genuine two-bucket world), but the protection is now actually enforced.
 
+> **v9.8 corrections (third external expert review, 2026-08-04):** (s) **hey gate is functional, not size-based** — the old `stat -c%s ≥ 1000` check could reuse a stale ≥1000-byte wrong binary forever (exactly the v9.7 `hey` failure); `hey_smoke_ok()` now requires the candidate to emit a parseable JSON report or it is wiped and reinstalled (G8); (t) **the ≥85% saturation QoS-caveat is enforced, not just documented** — new `host_saturated` field in every `summary.json` (`host_saturated_flag`: sat ≥ 85%), and the `gates` table marks a saturated run "QoS CONTENTION-CONTAMINATED". Both fixes are gates/audit only; no measurement path changed, so all prior numbers stand under their existing caveats.
+
 ---
 
 ## 8. Measurement-validation discipline (methodological contribution)
@@ -220,12 +222,13 @@ The central methodological claim is not a number; it is that **every reported qu
 | # | Reported quantity | Independent cross-check | Current status |
 |---|---|---|---|
 | G1 | control-plane CPU | cgroup **delta-check**: direct before/after counter of the CP container vs the sampler's sum | **0.00–0.01%** across all v9.7 runs |
-| G2 | host busy accounting | `host_plausible = host_cpu_sec ≤ cpu_count × wall × 1.05`; `host_saturation_pct = host/wall` per core | 99.9–100.3%, plausible=true (saturated but *reproducibly*) |
+| G2 | host busy accounting | `host_plausible = host_cpu_sec ≤ cpu_count × wall × 1.05`; `host_saturation_pct = host/wall` per core; v9.8 `host_saturated` flag = sat ≥ 85% | 99.9–100.3%, plausible=true (saturated but *reproducibly*) |
 | G3 | sampling coverage | `sampling_covered_s / wall_s`; stop-time flush + clamp so it cannot exceed 100% | **100.0% on all 5** v9.7 runs |
 | G4 | function classification | allowlist (names + image + label keys) with a logged **unclassified bucket**; fail-open (a configured-but-matching-nothing allowlist warns instead of reverting to the denylist) | `unclassified_cpu_s = 0.0` with 12/12 fn containers matched by image; no warning fired |
 | G5 | load-generator identity | `env.loadgen` records the **actual** generator (`py`/`hey`), plus `loadgen_requested` and `loadgen_fallback` | v9.6+ truthful; a silent fallback is impossible |
 | G6 | cross-session repeatability | multi-session median discipline; `cv_pct`/`iqr`/`bootstrap_ci` within a session, session medians across sessions | `cp_dynamic_share_pct` = 23.88 / 24.38 / 24.59 across three clean sessions (≤0.7 pp drift) |
 | G7 | KPI wall-independence | marginal (idle-excluded) KPI vs operational KPI; busy-power sensitivity band (2/3.5/5 W) | dynamic KPI invariant to window; share invariant to busy power |
+| G8 | instrument/toolchain identity | `hey_smoke_ok()`: a candidate `hey` must emit a parseable JSON report (`-n 2 -c 1 -o json`) or it is wiped and reinstalled | v9.8; a stale/corrupted binary ≥1000 bytes can no longer be reused; python fallback still records truthfully |
 
 ### 8.2 What the discipline caught (bug taxonomy → fix)
 
@@ -243,7 +246,7 @@ The central methodological claim is not a number; it is that **every reported qu
 - **Honesty is enforced by construction**: an unvalidated number cannot be emitted — if a gate fails, the run is flagged, not silently accepted. Remaining uncertainty is *named* (RAPL absent, host saturated, single platform), not hidden.
 - **Reproducibility is checkable**: a reader with `run_saqef.sh all` gets the same gates, the same audit trail (`container_inventory`, `container_labels`, per-run `summary.json`), and can reject any run whose gates fail.
 
-The framework was **frozen at v9.7**; further development stops unless a genuine bug surfaces. Everything measured after the freeze is comparable by construction.
+The framework was **frozen at v9.7**; further development stops unless a genuine bug surfaces (v9.8 applied exactly that exception: two third-expert-verified gate gaps, §8.1 G2/G8). Everything measured after the freeze is comparable by construction.
 
 ---
 
