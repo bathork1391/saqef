@@ -18,6 +18,15 @@
 #   outdir), so a 1-run pass cannot be mistaken for the 5-run publication set.
 set -uo pipefail
 
+# Functional smoke test for the hey binary. A real rakyll/hey emits a parseable
+# JSON report for -o json; a stale 403-HTML page or a wrong binary does not.
+# Size is a useless gate (a truncated/corrupted binary can still be >1000 bytes),
+# so this is what actually decides whether to reuse or reinstall hey.
+hey_smoke_ok() {
+  "$1" -n 2 -c 1 -o json http://localhost:8080/ 2>/dev/null |
+    python3 -c 'import sys, json; json.load(sys.stdin)'
+}
+
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$REPO"
 
@@ -74,31 +83,34 @@ setup_fn() {
     fnproject/fnserver
   sleep 6
 
-  echo "=== [setup] hey (reinstall if broken/truncated) ==="
+  echo "=== [setup] hey (reinstall unless it passes a functional smoke test) ==="
   HEY_BIN="$(command -v hey || true)"
-  if [ -n "$HEY_BIN" ] && [ "$(stat -c%s "$HEY_BIN")" -ge 1000 ]; then
-    echo "hey OK: $HEY_BIN ($(stat -c%s "$HEY_BIN") bytes)"
+  if [ -n "$HEY_BIN" ] && hey_smoke_ok "$HEY_BIN"; then
+    echo "hey OK: $HEY_BIN (functional smoke test passed)"
   else
+    echo "hey broken/missing (no parseable JSON report); wiping and reinstalling ..."
+    for p in "$HEY_BIN" /go/bin/hey /usr/local/bin/hey; do
+      [ -n "$p" ] && sudo rm -f "$p" 2>/dev/null || true
+    done
     if command -v go >/dev/null 2>&1; then
       echo "installing hey via go install ..."
       go install github.com/rakyll/hey@latest
       GOHEY="$(go env GOPATH)/bin/hey"
-      if [ -f "$GOHEY" ]; then
+      if [ -f "$GOHEY" ] && hey_smoke_ok "$GOHEY"; then
         sudo ln -sf "$GOHEY" /usr/local/bin/hey
-        echo "hey installed from go: $(stat -c%s "$GOHEY") bytes"
+        echo "hey installed from go and smoke-tested OK: $GOHEY ($(stat -c%s "$GOHEY") bytes)"
       else
-        echo "WARNING: go install produced no binary; python loadgen fallback is fine"
+        echo "WARNING: go-installed hey failed its smoke test; python loadgen fallback is fine"
       fi
     else
       echo "go not available; trying binary download (storage.googleapis.com now 403s)..."
       curl -sL https://storage.googleapis.com/hey-release/hey_linux_amd64 -o hey
       chmod +x hey
-      SIZE="$(stat -c%s hey 2>/dev/null || echo 0)"
-      if [ "$SIZE" -ge 1000 ]; then
+      if hey_smoke_ok ./hey; then
         sudo mv hey /usr/local/bin/hey
-        echo "hey downloaded OK: $SIZE bytes"
+        echo "hey downloaded and smoke-tested OK"
       else
-        echo "WARNING: download truncated ($SIZE bytes); python loadgen fallback is fine"
+        echo "WARNING: download unusable (truncated 403 page?); python loadgen fallback is fine"
         rm -f hey
       fi
     fi
@@ -156,15 +168,17 @@ run_gates() {
   python3 - "$GATES_OUT" <<'PY'
 import json, glob, sys
 out = sys.argv[1]
-print("per-run gate table (pass: delta% ~ 0, plausible=true, host_plausible=true, coverage% >= 95):")
+print("per-run gate table (pass: delta% ~ 0, plausible=true, host_plausible=true, host_saturated=false, coverage% >= 95):")
 for p in sorted(glob.glob(out + "/run_*")):
     s = json.load(open(p + "/summary.json"))
     cov = round(100 * s["sampling_covered_s"] / s["wall_s"], 1) if s["wall_s"] else 0.0
-    print("  %-7s delta%%: %-7s cp_cpu_s: %-6s fn_cpu_s: %-6s plausible: %-5s host_sat%%: %-5s host_plausible: %-5s coverage%%: %s"
+    flag = "  <-- QoS CONTENTION-CONTAMINATED (>=85% sat): do not cite latency"
+    print("  %-7s delta%%: %-7s cp_cpu_s: %-6s fn_cpu_s: %-6s plausible: %-5s host_sat%%: %-5s host_plausible: %-5s host_saturated: %-5s coverage%%: %s%s"
           % (p.split("/")[-1], s.get("cp_sampler_vs_delta_pct"),
              s["cpu_sec"]["control_plane"], s["cpu_sec"]["function"],
              s.get("physical_plausible"), s.get("host_saturation_pct"),
-             s.get("host_plausible"), cov))
+             s.get("host_plausible"), s.get("host_saturated"), cov,
+             flag if s.get("host_saturated") else ""))
 med = json.load(open(out + "/summary.json"))
 print("median: cp_dynamic_share_pct=%s  slo_compliance=%s  throughput_rps=%s"
       % (med.get("cp_dynamic_share_pct"), med.get("slo_compliance"), med.get("throughput_rps")))

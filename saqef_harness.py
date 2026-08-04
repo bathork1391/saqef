@@ -134,6 +134,17 @@ def host_cpu_ticks():
         return None
 
 
+def host_saturated_flag(sat_pct):
+    """QoS-contamination flag for a host_saturation_pct value.
+
+    Enforces the documented rule (report §17, v9.4 item h): a run at >=85% host
+    saturation is contention-contaminated -- its latency/throughput reflect
+    scheduler competition, not platform overhead. host_plausible only checks the
+    physical ceiling (<=105%), so this flag is what actually attaches the QoS
+    caveat to the run's numbers in the summary JSON."""
+    return sat_pct is not None and sat_pct >= 85.0
+
+
 def steal_ticks():
     """Steal-time ticks from /proc/stat (noisy-neighbor visibility), or None."""
     try:
@@ -733,6 +744,7 @@ def run_once(args, cp_sub):
     orchestration_share_pct = None
     host_saturation_pct = None
     host_plausible = None
+    host_saturated = None
     steal_sec = None
     steal_pct = None
     if host_before is not None and host_after is not None and host_after > host_before:
@@ -747,6 +759,12 @@ def run_once(args, cp_sub):
         if ceiling > 0:
             host_saturation_pct = round(host_cpu_sec / ceiling * 100.0, 1)
             host_plausible = host_cpu_sec <= ceiling * 1.05
+            # Enforce the documented QoS-caveat rule (report §17): a run at >=85%
+            # host saturation is contention-contaminated -- its latency/throughput
+            # reflect scheduler competition, not platform overhead. host_plausible
+            # only checks the physical ceiling, so this flag is what actually
+            # attaches the caveat to the run's QoS numbers.
+            host_saturated = host_saturated_flag(host_saturation_pct)
     if steal_before is not None and steal_after is not None and steal_after > steal_before:
         steal_sec = (steal_after - steal_before) / 100.0
         if host_cpu_sec:
@@ -869,6 +887,7 @@ def run_once(args, cp_sub):
         "host_cpu_sec": round(host_cpu_sec, 2) if host_cpu_sec is not None else None,
         "host_saturation_pct": host_saturation_pct,
         "host_plausible": host_plausible,
+        "host_saturated": host_saturated,
         "host_overhead_cpu_sec": round(host_overhead_cpu_sec, 2) if host_overhead_cpu_sec is not None else None,
         "orchestration_cpu_sec": round(orchestration_cpu_sec, 2) if orchestration_cpu_sec is not None else None,
         "orchestration_share_pct": round(orchestration_share_pct, 2) if orchestration_share_pct is not None else None,
