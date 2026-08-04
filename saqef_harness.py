@@ -493,8 +493,10 @@ def read_mem_mb(cdir):
     return 0.0
 
 
-def docker_sampler(samples, stop, first_sample):
-    """Streaming `docker stats` sampler (~1 Hz). Samples: (t, {name: (cpu_pct, mem_mb)})."""
+def docker_sampler(samples, stop, first_sample, rescan_s=0.25):
+    """Streaming `docker stats` sampler (~1 Hz). Samples: (t, {name: (cpu_pct, mem_mb)}).
+    rescan_s is unused here (docker stats streams all containers continuously);
+    it exists so start_sampler can pass the same arg tuple to either sampler."""
     proc = None
     try:
         proc = subprocess.Popen(
