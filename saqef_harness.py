@@ -726,6 +726,7 @@ def run_once(args, cp_sub):
         samples, stop, first_sample, th = start_sampler("docker")
 
     host_before = host_cpu_ticks()
+    t_host_before = time.perf_counter()
     steal_before = steal_ticks()
     freq_before, governor = env_frequency()
     cp_read = cp_cgroup_reader(cp_sub) if args.delta_check else None
@@ -754,6 +755,7 @@ def run_once(args, cp_sub):
     # the 10s join timeout, which would otherwise inflate host_cpu_sec past the
     # window and push host_saturation_pct spuriously over 100%.
     host_after = host_cpu_ticks()
+    t_host_after = time.perf_counter()
     steal_after = steal_ticks()
     stop.set()
     th.join(timeout=10)
@@ -801,6 +803,7 @@ def run_once(args, cp_sub):
     covered_s = min(covered_s, wall)  # never overstate coverage beyond the window
 
     host_cpu_sec = None
+    host_window_s = None
     host_overhead_cpu_sec = None
     orchestration_cpu_sec = None
     orchestration_share_pct = None
@@ -814,13 +817,23 @@ def run_once(args, cp_sub):
         host_overhead_cpu_sec = max(host_cpu_sec - (cp_cpu_s + fn_cpu_s), 0.0)
         orchestration_cpu_sec = max(host_cpu_sec - fn_cpu_s, 0.0)  # CP + kernel + dockerd + harness
         orchestration_share_pct = orchestration_cpu_sec / host_cpu_sec * 100.0
-        # Saturation: busy host time relative to the physical ceiling. The host
-        # window is sampled just OUTSIDE the load window, so allow 5% slack for
-        # edge bleed-in before declaring the box saturated/implausible.
-        ceiling = cpu_count() * wall
-        if ceiling > 0:
-            host_saturation_pct = round(host_cpu_sec / ceiling * 100.0, 1)
-            host_plausible = host_cpu_sec <= ceiling * 1.05
+        # Saturation: busy host time relative to the physical ceiling, measured
+        # over the host's OWN sampling window (t_host_before..t_host_after),
+        # NOT the load wall. /proc/stat busy ticks over a window W can never
+        # exceed cpu_count()*W, so this definition is structurally
+        # self-consistent: host_plausible can only trip on a REAL anomaly
+        # (cpu_count()/proc-stat CPU-count mismatch, counter drift), never on
+        # window-edge alignment - which at short wall windows used to inflate
+        # sat% past 100% because the host window is sampled a few ms before/
+        # after the load window and that fixed edge is a larger fraction of a
+        # fast run. cpu_sec_ceiling below keeps the container-side invariant
+        # (cp+fn <= cpu_count()*wall) on the load window.
+        ceiling = cpu_count() * wall          # container-side ceiling (unchanged)
+        host_window_s = (t_host_after - t_host_before) if (t_host_after is not None and t_host_before is not None) else wall
+        ceiling_host = cpu_count() * host_window_s
+        if ceiling_host > 0:
+            host_saturation_pct = round(host_cpu_sec / ceiling_host * 100.0, 1)
+            host_plausible = host_cpu_sec <= ceiling_host * 1.05
             # Enforce the documented QoS-caveat rule (report §17): a run at >=85%
             # host saturation is contention-contaminated -- its latency/throughput
             # reflect scheduler competition, not platform overhead. host_plausible
@@ -954,6 +967,7 @@ def run_once(args, cp_sub):
         "kpi_gco2_per_inv_dynamic": round(kpi_dynamic, 6),
         "embodied_dram_g_per_gb_h": round(embodied_per_gb, 4),
         "host_cpu_sec": round(host_cpu_sec, 2) if host_cpu_sec is not None else None,
+        "host_window_s": round(host_window_s, 3) if host_window_s is not None else None,
         "host_saturation_pct": host_saturation_pct,
         "host_plausible": host_plausible,
         "host_saturated": host_saturated,

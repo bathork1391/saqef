@@ -105,20 +105,22 @@ run_gates() {
   python3 - "$GATES_OUT" <<'PY'
 import json, glob, sys
 out = sys.argv[1]
-print("per-run gate table (pass: delta% ~ 0, CPmapped=6/6, plausible=true, host_saturated flags, 95 <= coverage% <= 100):")
+print("per-run gate table (pass: delta% ~ 0, CPmapped=6/6, host_plausible=true, host_sat%% <= 105, 95 <= coverage%% <= 100):")
 for p in sorted(glob.glob(out + "/run_*")):
     s = json.load(open(p + "/summary.json"))
     cov = round(100 * s["sampling_covered_s"] / s["wall_s"], 1) if s["wall_s"] else 0.0
     m = s.get("delta_check_map") or {}
     okmap = sum(1 for v in m.values() if v == "ok")
     nfn = sum(1 for n in s.get("container_inventory", []) if n.startswith("hello"))
-    flag = "  <-- QoS CONTENTION-CONTAMINATED (>=85% sat): do not cite latency"
-    covflag = "  <-- COVERAGE INVARIANT BROKEN (>100%): do not cite"
-    flags = (flag if s.get("host_saturated") else "") + (covflag if cov > 100 else "")
-    print("  %-7s delta%%: %-7s delta_s: %-6s cp_cpu_s: %-6s fn_cpu_s: %-6s CPmapped: %s/%s fn_replicas: %s unclass: %s coverage%%: %s%s"
+    hcw = s.get("host_cpu_sec"); hsat = s.get("host_saturation_pct"); hpl = s.get("host_plausible")
+    satflag = "  <-- QoS CONTENTION-CONTAMINATED (>=85%): do not cite latency" if s.get("host_saturated") else ""
+    covflag = "  <-- COVERAGE INVARIANT BROKEN (>100%): do not cite" if cov > 100 else ""
+    hostflag = "  <-- HOST IMPLAUSIBLE (host_cpu_s > cpu_count*host_window*1.05): do not cite host metrics" if hpl is False else ""
+    print("  %-7s delta%%: %-7s delta_s: %-6s cp_cpu_s: %-6s fn_cpu_s: %-6s CPmapped: %s/%s fn_replicas: %s unclass: %s host_cpu_s: %-7s host_sat%%: %-6s host_plausible: %-5s coverage%%: %s%s%s%s"
           % (p.split("/")[-1], s.get("cp_sampler_vs_delta_pct"),
              s.get("cp_delta_sec"), s["cpu_sec"]["control_plane"], s["cpu_sec"]["function"],
-             okmap, len(m), nfn, s["unclassified_cpu_s"], cov, flags))
+             okmap, len(m), nfn, s["unclassified_cpu_s"], hcw, hsat, hpl, cov,
+             satflag, covflag, hostflag))
 med = json.load(open(out + "/summary.json"))
 print("median: cp_dynamic_share_pct=%s  slo_compliance=%s  throughput_rps=%s"
       % (med.get("cp_dynamic_share_pct"), med.get("slo_compliance"), med.get("throughput_rps")))
