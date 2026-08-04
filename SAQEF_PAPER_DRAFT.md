@@ -93,7 +93,7 @@ Run profile: 3000 requests, concurrency 20, warmup 20, repeat 5, SLO 500 ms, dur
 
 **`--idle-probe` (static baseline).** Platform up, zero traffic for `--duration` s: measures the orchestration baseline that exists even with no invocations (gateway, scheduler daemons).
 
-**Load generator.** `hey` (external Go binary) removes the harness's own Python/GIL footprint from host accounting; falls back to a Python generator. QoS percentiles from `hey` JSON or measured request latencies.
+**Load generator.** `hey` (external Go binary) removes the harness's own Python/GIL footprint from host accounting; falls back to a Python generator. QoS percentiles parsed from `hey -o csv` per-request rows (the only machine-readable mode mainline hey ships) or measured request latencies. As of v9.9, real `hey` runs are the default on both platforms (the earlier JSON-era failure is fully diagnosed — see corrections below).
 
 ### 4.5 Metrics & energy/carbon model
 
@@ -209,7 +209,9 @@ The idle-dominance is itself a result: at this light load, **~94% of operational
 >
 > **v9.7 corrections (image-handle bug, 2026-08-04):** (q) the v9.5 allowlist default `fnproject/python:3.12` and the `reset_fn` `ancestor=` filter both referenced the **base runtime** image, but Fn's running function containers carry the **deployed** image (`hello:0.0.14`) — BuildKit does not preserve the FROM lineage. Net effect: the allowlist silently matched nothing and reverted to the denylist, and leftover warm `hello:*` containers were not cleaned. Fixed by defaulting `--fn-images` to the deployed image name (`hello`) and cleaning `hello:*` containers by image-name pattern; (r) **fail-open classification** — when an fn allowlist is configured but matches no container, the harness now WARNs and routes strays to `unclassified_cpu_s` instead of silently folding them into `fn_cpu`. The v9.5 numbers are unaffected (`container_labels` proved a genuine two-bucket world), but the protection is now actually enforced.
 
-> **v9.8 corrections (third external expert review, 2026-08-04):** (s) **hey gate is functional, not size-based** — the old `stat -c%s ≥ 1000` check could reuse a stale ≥1000-byte wrong binary forever (exactly the v9.7 `hey` failure); `hey_smoke_ok()` now requires the candidate to emit a parseable JSON report or it is wiped and reinstalled (G8); (t) **the ≥85% saturation QoS-caveat is enforced, not just documented** — new `host_saturated` field in every `summary.json` (`host_saturated_flag`: sat ≥ 85%), and the `gates` table marks a saturated run "QoS CONTENTION-CONTAMINATED". Both fixes are gates/audit only; no measurement path changed, so all prior numbers stand under their existing caveats.
+> **v9.8 corrections (third external expert review, 2026-08-04):** (s) **hey gate is functional, not size-based** — the old `stat -c%s ≥ 1000` check could reuse a stale ≥1000-byte wrong binary forever; `hey_smoke_ok()` now runs the candidate and wipes/reinstalls on any failure (G8); (t) **the ≥85% saturation QoS-caveat is enforced, not just documented** — new `host_saturated` field in every `summary.json` (`host_saturated_flag`: sat ≥ 85%), and the `gates` table marks a saturated run "QoS CONTENTION-CONTAMINATED". Both fixes are gates/audit only; no measurement path changed, so all prior numbers stand under their existing caveats.
+>
+> **v9.9 hey CSV root-cause fix + first real hey run (2026-08-04):** (u) **root cause** — mainline rakyll/hey **has never had an `-o json` mode**; any non-`csv` `-o` value is parsed as a literal text/template, so `-o json` prints the string `json` (rc=0). The v9.7 "not a rakyll/hey binary" diagnosis was wrong (`go version -m`: genuine `rakyll/hey v0.1.5`). The fix requests the one documented machine mode, **`-o csv`**, and parses the per-request rows (header-normalized `responsetime`/`statuscode`/`offset`; wall = max offset). `./run_saqef.sh all` (v9.9, `hello:0.0.20`, 5×3000) ran with **`loadgen: "hey"` for the first time**: 335.4 rps, 0 errors, p50 47.0 ms, `cp_dynamic_share_pct` **24.07** — within ~0.3 pp of the Python-generator medians, proving container-level energy attribution is loadgen-agnostic. (v) **coverage invariant** — the hey branch overwrote `wall` with hey's max-offset (last request *start*), making `sampling_covered_s` > `wall_s` and coverage read 103%; fixed by keeping the harness clock as the single attribution window (hey's duration exposed as `loadgen.wall_s`), restoring G3 coverage ≤ 100%, with the gates table now flagging any >100% as a hard break. (w) **`-t` units** — hey's `-t` is seconds; the raw ms value (30000 → 30,000 s) is now converted. Output renamed `hey.json` → `hey.csv`. G8 status: `hey_smoke_ok()` probes `-o csv` and **passes**.
 
 ---
 
@@ -228,7 +230,7 @@ The central methodological claim is not a number; it is that **every reported qu
 | G5 | load-generator identity | `env.loadgen` records the **actual** generator (`py`/`hey`), plus `loadgen_requested` and `loadgen_fallback` | v9.6+ truthful; a silent fallback is impossible |
 | G6 | cross-session repeatability | multi-session median discipline; `cv_pct`/`iqr`/`bootstrap_ci` within a session, session medians across sessions | `cp_dynamic_share_pct` = 23.88 / 24.38 / 24.59 across three clean sessions (≤0.7 pp drift) |
 | G7 | KPI wall-independence | marginal (idle-excluded) KPI vs operational KPI; busy-power sensitivity band (2/3.5/5 W) | dynamic KPI invariant to window; share invariant to busy power |
-| G8 | instrument/toolchain identity | `hey_smoke_ok()`: a candidate `hey` must emit a parseable JSON report (`-n 2 -c 1 -o json`) or it is wiped and reinstalled | v9.8; a stale/corrupted binary ≥1000 bytes can no longer be reused; python fallback still records truthfully |
+| G8 | instrument/toolchain identity | `hey_smoke_ok()`: a candidate `hey` must emit a parseable `-o csv` report (`-n 2 -c 1 -o csv`: header + ≥1 data row) or it is wiped and reinstalled | **v9.9: passes** — first real `loadgen: "hey"` run; a stale/corrupted binary ≥1000 bytes can no longer be reused; python fallback still records truthfully |
 
 ### 8.2 What the discipline caught (bug taxonomy → fix)
 
@@ -246,7 +248,7 @@ The central methodological claim is not a number; it is that **every reported qu
 - **Honesty is enforced by construction**: an unvalidated number cannot be emitted — if a gate fails, the run is flagged, not silently accepted. Remaining uncertainty is *named* (RAPL absent, host saturated, single platform), not hidden.
 - **Reproducibility is checkable**: a reader with `run_saqef.sh all` gets the same gates, the same audit trail (`container_inventory`, `container_labels`, per-run `summary.json`), and can reject any run whose gates fail.
 
-The framework was **frozen at v9.7**; further development stops unless a genuine bug surfaces (v9.8 applied exactly that exception: two third-expert-verified gate gaps, §8.1 G2/G8). Everything measured after the freeze is comparable by construction.
+The framework was **frozen at v9.7**; further development stops unless a genuine bug surfaces (v9.8: two third-expert-verified gate gaps, §8.1 G2/G8; v9.9: three genuine bugs — hey's `-o csv` mode, the coverage/wall invariant, and `-t` units — in the previously-dead hey code path, §8.1 G3/G8). Everything measured after the freeze is comparable by construction.
 
 ---
 
@@ -259,7 +261,7 @@ chmod +x run_saqef.sh
 ./run_saqef.sh all
 ```
 
-Artifacts per run: `summary.json`, `samples.csv`, `requests.csv`, `verify.json`, `runs.json` (median + bootstrap CI + CV + IQR + spread). Environment snapshot (cpu_count, governor, freq, sampler, loadgen — including `loadgen_requested`/`loadgen_fallback`, container inventory/labels) recorded inside each summary. Stdlib-only Python; no pip installs. `verify.json` is a CPU-budget sanity check (`function_cpu_ms_per_inv` vs the deployed handler's spin), not a QoS measurement — its tail latency (cold first calls right after `fn deploy`) is not representative and must not be quoted.
+Artifacts per run: `summary.json`, `samples.csv`, `requests.csv`, `hey.csv` (raw `hey -o csv` when the hey loadgen is used), `verify.json`, `runs.json` (median + bootstrap CI + CV + IQR + spread). Environment snapshot (cpu_count, governor, freq, sampler, loadgen — including `loadgen_requested`/`loadgen_fallback`, container inventory/labels) recorded inside each summary. Stdlib-only Python; no pip installs. `verify.json` is a CPU-budget sanity check (`function_cpu_ms_per_inv` vs the deployed handler's spin), not a QoS measurement — its tail latency (cold first calls right after `fn deploy`) is not representative and must not be quoted.
 
 Full command log and historical decisions: `SAQEF_TECHNICAL_REPORT.md` §§3, 4, 11–19.
 
