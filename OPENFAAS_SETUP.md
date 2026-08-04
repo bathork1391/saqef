@@ -138,6 +138,15 @@ python3 saqef_harness.py \
   --outdir results/openfaas_cpubound
 ```
 
+Step 1.5 — **concurrency parity (required for CPU-bound functions, expert review 2026-08-05).** One replica runs a single Python process, and the busy-spin never releases the GIL — so `--concurrency 20` is ~1-way in practice, not comparable to Fn's multiple function containers. Scale the function service statically *before* the run so function CPU can actually use all cores (autoscaler lag ≈ 15–20 s is too slow for a ~21 s window):
+```bash
+docker service ls                            # find the function service (name "hello")
+docker service scale hello=4                 # N = 2 x cpu_count (here 2 vCPU -> 4)
+docker service ls                            # wait until 4/4 replicas ready
+docker ps --format '{{.Names}}' | grep hello # expect hello.1.<id> x4
+```
+All replicas carry the `hello:*` image → `--fn-images hello` still attributes every one of them to function CPU. Same step on bare metal with `N = 2 × $(nproc)`.
+
 ## 7. Expected output + comparison gate
 
 - `summary.json` median + `spread_min_max` per run.
