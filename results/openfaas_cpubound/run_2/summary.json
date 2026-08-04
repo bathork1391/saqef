@@ -2,35 +2,35 @@
   "platform": "openfaas",
   "url": "http://127.0.0.1:8080/function/hello",
   "mode": "load",
-  "wall_s": 10.23,
-  "wall_harness_s": 10.23,
-  "sampling_covered_s": 10.23,
+  "wall_s": 10.54,
+  "wall_harness_s": 10.54,
+  "sampling_covered_s": 10.54,
   "requests": 3000,
   "successes": 3000,
   "availability": 1.0,
-  "throughput_rps": 293.19,
+  "throughput_rps": 284.75,
   "latency_ms": {
-    "p50": 55.2,
-    "p90": 97.4,
-    "p99": 143.3,
-    "max": 1186.6
+    "p50": 49.2,
+    "p90": 90.8,
+    "p99": 162.9,
+    "max": 2183.0
   },
   "slo_ms": 500.0,
   "slo_compliance": 1.0,
   "compliance_source": "hey_interp",
   "energy_J": {
-    "total": 341.1,
-    "dynamic": 34.1,
-    "control_plane": 5.6,
-    "function": 28.5
+    "total": 351.0,
+    "dynamic": 34.9,
+    "control_plane": 5.7,
+    "function": 29.3
   },
-  "cp_share_pct": 1.65,
-  "cp_dynamic_share_pct": 16.5,
+  "cp_share_pct": 1.61,
+  "cp_dynamic_share_pct": 16.19,
   "cpu_sec": {
-    "control_plane": 1.61,
-    "function": 8.15
+    "control_plane": 1.62,
+    "function": 8.36
   },
-  "cpu_sec_ceiling": 20.46,
+  "cpu_sec_ceiling": 21.07,
   "physical_plausible": true,
   "unclassified_cpu_s": 0.0,
   "container_inventory": [
@@ -183,14 +183,14 @@
       ]
     }
   },
-  "cp_peak_mem_mb": 37.9,
+  "cp_peak_mem_mb": 41.6,
   "carbon_gCO2": {
-    "op_total": 16.345,
-    "op_control_plane": 0.27,
+    "op_total": 16.818,
+    "op_control_plane": 0.271,
     "idle_band": {
-      "15": 8.991,
-      "30": 16.345,
-      "45": 23.7
+      "15": 9.245,
+      "30": 16.818,
+      "45": 24.39
     }
   },
   "model": {
@@ -201,36 +201,36 @@
   },
   "sensitivity": {
     "cp_dynamic_share_pct_by_busy_w": {
-      "2.0": 16.5,
-      "3.5": 16.5,
-      "5.0": 16.5
+      "2.0": 16.19,
+      "3.5": 16.19,
+      "5.0": 16.19
     },
     "dynamic_energy_J_by_busy_w": {
-      "2.0": 19.5,
-      "3.5": 34.1,
-      "5.0": 48.8
+      "2.0": 20.0,
+      "3.5": 34.9,
+      "5.0": 49.9
     },
     "op_carbon_gCO2_by_busy_w": {
-      "2.0": 15.644,
-      "3.5": 16.345,
-      "5.0": 17.046
+      "2.0": 16.101,
+      "3.5": 16.818,
+      "5.0": 17.535
     }
   },
-  "kpi_gco2_per_slo_compliant_inv": 0.0054,
-  "kpi_gco2_per_inv_dynamic": 0.000545,
+  "kpi_gco2_per_slo_compliant_inv": 0.0056,
+  "kpi_gco2_per_inv_dynamic": 0.000558,
   "embodied_dram_g_per_gb_h": 0.0317,
-  "host_cpu_sec": 23.31,
-  "host_window_s": 11.774,
-  "host_saturation_pct": 99.0,
+  "host_cpu_sec": 23.89,
+  "host_window_s": 12.021,
+  "host_saturation_pct": 99.4,
   "host_plausible": true,
   "host_saturated": true,
-  "host_overhead_cpu_sec": 13.55,
-  "orchestration_cpu_sec": 15.16,
-  "orchestration_share_pct": 65.05,
+  "host_overhead_cpu_sec": 13.91,
+  "orchestration_cpu_sec": 15.53,
+  "orchestration_share_pct": 65.01,
   "steal_sec": null,
   "steal_pct": null,
   "cp_delta_sec": 1.607,
-  "cp_sampler_vs_delta_pct": 0.13,
+  "cp_sampler_vs_delta_pct": 0.56,
   "delta_check_map": {
     "openfaas_faas-swarm.1.7dggnmjxx3i0n40eg3rh2cv4i": "ok",
     "openfaas_queue-worker.1.ce0t0v4t8mfnlentu3xz8cchs": "ok",
@@ -253,9 +253,9 @@
   "rapl_available": false,
   "loadgen": {
     "source": "hey",
-    "rps": 298.4599466751562,
-    "avg_ms": 62.68,
+    "rps": 290.33756580984823,
+    "avg_ms": 63.17,
     "errors": 0,
-    "wall_s": 10.05
+    "wall_s": 10.33
   }
 }
