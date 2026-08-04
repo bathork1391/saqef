@@ -6,9 +6,11 @@ Target: run the **same** function image and the **same** SAQEF protocol against 
 
 | Option | Verdict |
 |---|---|
-| **Docker Swarm (`deploy_stack.sh`)** | **Recommended.** Mirrors Fn's single-dockerd architecture, one command to deploy, a *small, identifiable control-plane container set* (perfect for `--cp-containers`), light enough for a 2-vCPU Codespace. |
-| faasd | ❌ Needs `systemd` — not present in a Codespace container. |
+| **Docker Swarm (hand-written stack, this file)** | **Recommended.** Mirrors Fn's single-dockerd architecture, one command to deploy, a *small, identifiable control-plane container set* (perfect for `--cp-containers`), light enough for a 2-vCPU Codespace. |
+| faasd | ❌ Needs `systemd` — not present in a Codespace container (`ps -p 1` shows `docker-init`). |
 | kind / arkade → Kubernetes | ❌ Works in principle but heavy on 2 vCPU; control plane = many pods across namespaces (harder to attribute). Revisit only for Knative later (K8s is unavoidable there). |
+
+> ⚠️ **Image-set constraint (verified 2026-08-05):** OpenFaaS dropped Docker Swarm support. No faas tag (0.25.4, 0.27.10–0.27.14) ships `deploy_stack.sh`; the 0.27.14 README documents only k8s/OpenShift/faasd; the 0.17-era `openfaas/*` images the archived `faas-swarm` repo referenced are **deleted from Docker Hub**. The last era-coherent, still-pullable swarm set is the 2019 `functions/*` line (`gateway:0.8.3`, `faas-swarm:0.3.3`, `queue-worker:0.4.6`). The stack in `OPENFAAS_DEPLOY/docker-compose.yml` pins exactly these (all verified pullable). gateway 0.8.3 predates HTTP basic auth → **no login, no secrets, no `--auth`** in the harness commands.
 
 ## 1. Preflight
 
@@ -27,20 +29,19 @@ faas-cli version
 
 ## 3. Deploy OpenFaaS to Swarm
 
+The deploy files live in this repo under `OPENFAAS_DEPLOY/` (`docker-compose.yml` + `prometheus/*.yml`). Copy them onto the Codespace (or recreate them from this repo), then:
+
 ```bash
-git clone https://github.com/openfaas/faas /tmp/faas
-cd /tmp/faas
-git checkout 0.27.14   # latest stable release tag (verified 2026-08-05; there are no 0.3x tags — pin this for the report)
-docker swarm init
-./deploy_stack.sh
+cd OPENFAAS_DEPLOY
+docker swarm init                          # one-time; node becomes a manager
+docker stack deploy openfaas -c docker-compose.yml
 ```
-`deploy_stack.sh` prints the generated **admin password** — copy it into the report/env now.
 
 Wait for readiness:
 ```bash
 watch docker service ls
-# gateway should reach 1/1 replicas
-curl -s -u admin:<password> http://127.0.0.1:8080/system/functions | head
+# gateway should reach 1/1 replicas; stack name = openfaas, services = openfaas_gateway, openfaas_faas-swarm, openfaas_nats, openfaas_queue-worker, openfaas_prometheus, openfaas_alertmanager
+curl -s http://127.0.0.1:8080/version     # 0.8.3 gateway has NO basic auth
 ```
 
 ## 4. Same function workload (the 5 ms CPU busy-spin, identical to Fn)
@@ -49,6 +50,7 @@ Goal: byte-for-byte the **same CPU workload** we deployed on Fn (`hello/func.py`
 
 ```bash
 mkdir -p ~/of-hello && cd ~/of-hello
+faas-cli template store pull python3       # one-time; needed for `faas-cli new` (and first build)
 faas-cli new hello --lang python3   # creates hello/handler.py + hello.yml
 ```
 
@@ -79,13 +81,10 @@ functions:
       write_timeout: "60s"
 ```
 
-Build + deploy:
+Build + deploy (no auth on the 0.8.3 gateway):
 ```bash
 faas-cli build -f hello.yml
 faas-cli deploy -f hello.yml --gateway http://127.0.0.1:8080
-# note: faas-cli may prompt for auth -> admin:<password>; use OPENFAAS_URL env:
-export OPENFAAS_URL=http://127.0.0.1:8080
-faas-cli login -u admin -p <password>
 ```
 
 Verify:
@@ -93,11 +92,10 @@ Verify:
 faas-cli list
 echo -n test | faas-cli invoke hello
 # synchronous URL used by the harness:
-curl -s -u admin:<password> http://127.0.0.1:8080/function/hello
+curl -s http://127.0.0.1:8080/function/hello
 ```
 
-> Auth note: the OpenFaaS gateway enforces HTTP Basic auth by default. The harness now supports it:
-> `python3 saqef_harness.py ... --auth admin:<password>`
+> Auth note: gateway 0.8.3 predates HTTP basic auth → **no** `faas-cli login`, no `--auth`, no `-u admin:<password>` anywhere.
 
 ## 5. Control-plane container set for `--cp-containers`
 
@@ -122,7 +120,6 @@ python3 saqef_harness.py --verify \
   --url http://127.0.0.1:8080/function/hello \
   --platform openfaas \
   --cp-containers gateway,faas-swarm,prometheus,nats,queue-worker,alertmanager \
-  --auth admin:<password> \
   --verify-n 100 --verify-budget-ms 5
 # expect function_cpu_ms_per_inv ≈ 5 and budget_check == "MATCHES"
 ```
@@ -133,7 +130,6 @@ python3 saqef_harness.py \
   --url http://127.0.0.1:8080/function/hello \
   --platform openfaas \
   --cp-containers gateway,faas-swarm,prometheus,nats,queue-worker,alertmanager \
-  --auth admin:<password> \
   --total 3000 --concurrency 20 --duration 60 \
   --warmup 20 --repeat 5 \
   --sampler cgroup --delta-check --loadgen hey \
@@ -149,13 +145,16 @@ python3 saqef_harness.py \
 ## 8. Known pitfalls
 
 - `docker swarm init` fails if another swarm is active → `docker swarm leave --force` then re-init.
+- **`deploy_stack.sh` no longer exists in any faas tag** (swarm support removed); the stack in `OPENFAAS_DEPLOY/` is the replacement. Do not checkout `0.27.14` expecting a swarm script — it is k8s-only.
 - Swarm services do not appear in `docker ps` until their tasks start; wait for `docker service ls` replicas to be 1/1 before `--check`.
 - Port 8080 conflict with Fn's fnserver → stop fnserver first (`docker rm -f fnserver`) or run OpenFaaS on another published port and set `--url` accordingly.
-- First `faas-cli build` pulls the python3 template → needs network + a couple of minutes on cold cache.
+- **0.8.3 gateway has no basic auth** → do not add `--auth`, `faas-cli login`, or `-u admin:<password>`; they will fail or be ignored.
+- First `faas-cli build` pulls the python3 template + of-watchdog base → needs network + a couple of minutes on cold cache.
 - **Sleep ≠ spin (§4):** a `time.sleep(0.005)` handler burns ~0 CPU and will make OpenFaaS look "cheaper" — that is a workload difference, not a platform result. Verify `function_cpu_ms_per_inv` matches Fn's band before comparing `cp_dynamic_share_pct`.
 
 ## 9. What to record in the paper/report
 
-- OpenFaaS + faas-cli + gateway image versions (pinned tags).
+- OpenFaaS + faas-cli versions: gateway `functions/gateway:0.8.3`, `functions/faas-swarm:0.3.3`, `functions/queue-worker:0.4.6`, `nats-streaming:0.25.6`, `prom/prometheus:v2.11.0`, `prom/alertmanager:v0.18.0` (the last pullable swarm-era image set; no basic auth).
+- Why not a newer release: OpenFaaS removed Docker Swarm support; the 0.27.14 line is k8s/faasd-only (documented in the README, verified 2026-08-05).
 - The exact `docker service ls` replica list and container names (control-plane attribution).
-- The generated admin password in the env log (never in the repo).
+- No admin password exists on 0.8.3 — nothing to protect in the env log.
