@@ -407,20 +407,35 @@ def cdf_compliance(lat_points, slo_ms):
 
 
 def cp_cgroup_reader(cp_sub):
-    """Return a callable reading cumulative CPU seconds of the control-plane
-    container (first name matching cp_sub), or None if not mappable."""
-    out = run("docker ps --format '{{.Names}}'")
-    if out.returncode != 0:
+    """Return a callable reading cumulative CPU seconds summed across ALL
+    control-plane containers matching cp_sub, or None if none mappable.
+    The container set is re-resolved on every call (so swarm task restarts
+    cannot wedge the reader), and the sum matches what sample_totals adds for
+    the cp buckets - the delta-check must compare like for like, and a
+    multi-container control plane (OpenFaaS = 6 containers) is the norm."""
+    if not cp_sub:
         return None
-    name = next((nm.strip() for nm in out.stdout.splitlines()
-                 if any(s in nm.lower() for s in cp_sub)), None)
-    if not name:
+
+    def read_total():
+        out = run("docker ps --format '{{.Names}}'")
+        if out.returncode != 0:
+            return None
+        total = 0.0
+        mapped = 0
+        for nm in (s.strip() for s in out.stdout.splitlines()):
+            if any(s in nm.lower() for s in cp_sub):
+                cid = run("docker inspect -f '{{.Id}}' %s" % nm).stdout.strip()
+                d = container_cgroup_dir(cid) if cid else None
+                if d:
+                    v = read_cpu_cumulative(d)
+                    if v is not None:
+                        total += v
+                        mapped += 1
+        return total if mapped else None
+
+    if read_total() is None:
         return None
-    cid = run("docker inspect -f '{{.Id}}' %s" % name).stdout.strip()
-    d = container_cgroup_dir(cid)
-    if not d:
-        return None
-    return lambda: read_cpu_cumulative(d)
+    return read_total
 
 
 # ---------------------------------------------------------------------------
