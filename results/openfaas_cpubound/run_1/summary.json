@@ -2,39 +2,42 @@
   "platform": "openfaas",
   "url": "http://127.0.0.1:8080/function/hello",
   "mode": "load",
-  "wall_s": 21.08,
-  "wall_harness_s": 21.08,
-  "sampling_covered_s": 21.08,
+  "wall_s": 10.14,
+  "wall_harness_s": 10.14,
+  "sampling_covered_s": 10.14,
   "requests": 3000,
   "successes": 3000,
   "availability": 1.0,
-  "throughput_rps": 142.32,
+  "throughput_rps": 295.73,
   "latency_ms": {
-    "p50": 48.0,
-    "p90": 68.3,
-    "p99": 1931.4,
-    "max": 4442.9
+    "p50": 54.0,
+    "p90": 94.8,
+    "p99": 165.0,
+    "max": 1240.9
   },
   "slo_ms": 500.0,
-  "slo_compliance": 0.9209,
+  "slo_compliance": 1.0,
   "compliance_source": "hey_interp",
   "energy_J": {
-    "total": 686.4,
-    "dynamic": 54.0,
-    "control_plane": 5.8,
-    "function": 48.2
+    "total": 338.6,
+    "dynamic": 34.2,
+    "control_plane": 5.6,
+    "function": 28.7
   },
-  "cp_share_pct": 0.85,
-  "cp_dynamic_share_pct": 10.75,
+  "cp_share_pct": 1.65,
+  "cp_dynamic_share_pct": 16.29,
   "cpu_sec": {
-    "control_plane": 1.66,
-    "function": 13.77
+    "control_plane": 1.59,
+    "function": 8.19
   },
-  "cpu_sec_ceiling": 42.16,
+  "cpu_sec_ceiling": 20.29,
   "physical_plausible": true,
   "unclassified_cpu_s": 0.0,
   "container_inventory": [
     "hello.1.fnxydoo7dcgxwae2u6anavyi0",
+    "hello.2.u9ftys1spwaofumc96y0bvdh5",
+    "hello.3.lcz7xhjrndvtzktu6jxln6sze",
+    "hello.4.8nzuhq5wd948zpx8k7n694ioe",
     "openfaas_alertmanager.1.zedbsqrush8ma8kjgjjyfzz1v",
     "openfaas_faas-swarm.1.7dggnmjxx3i0n40eg3rh2cv4i",
     "openfaas_gateway.1.yvayfo2mz54rhafs7mjtphb16",
@@ -51,6 +54,48 @@
         "com.docker.swarm.service.name=hello",
         "com.docker.swarm.task.id=fnxydoo7dcgxwae2u6anavyi0",
         "com.docker.swarm.task.name=hello.1.fnxydoo7dcgxwae2u6anavyi0",
+        "com.docker.swarm.task=",
+        "com.openfaas.function=hello",
+        "com.openfaas.uid=942101443",
+        "function=true"
+      ]
+    },
+    "hello.2.u9ftys1spwaofumc96y0bvdh5": {
+      "image": "hello:latest",
+      "labels": [
+        "com.docker.swarm.node.id=4h2uqocga9ioxe04vvz7mzclo",
+        "com.docker.swarm.service.id=fyjaa8pulsaeju42re4ozaosn",
+        "com.docker.swarm.service.name=hello",
+        "com.docker.swarm.task.id=u9ftys1spwaofumc96y0bvdh5",
+        "com.docker.swarm.task.name=hello.2.u9ftys1spwaofumc96y0bvdh5",
+        "com.docker.swarm.task=",
+        "com.openfaas.function=hello",
+        "com.openfaas.uid=942101443",
+        "function=true"
+      ]
+    },
+    "hello.3.lcz7xhjrndvtzktu6jxln6sze": {
+      "image": "hello:latest",
+      "labels": [
+        "com.docker.swarm.node.id=4h2uqocga9ioxe04vvz7mzclo",
+        "com.docker.swarm.service.id=fyjaa8pulsaeju42re4ozaosn",
+        "com.docker.swarm.service.name=hello",
+        "com.docker.swarm.task.id=lcz7xhjrndvtzktu6jxln6sze",
+        "com.docker.swarm.task.name=hello.3.lcz7xhjrndvtzktu6jxln6sze",
+        "com.docker.swarm.task=",
+        "com.openfaas.function=hello",
+        "com.openfaas.uid=942101443",
+        "function=true"
+      ]
+    },
+    "hello.4.8nzuhq5wd948zpx8k7n694ioe": {
+      "image": "hello:latest",
+      "labels": [
+        "com.docker.swarm.node.id=4h2uqocga9ioxe04vvz7mzclo",
+        "com.docker.swarm.service.id=fyjaa8pulsaeju42re4ozaosn",
+        "com.docker.swarm.service.name=hello",
+        "com.docker.swarm.task.id=8nzuhq5wd948zpx8k7n694ioe",
+        "com.docker.swarm.task.name=hello.4.8nzuhq5wd948zpx8k7n694ioe",
         "com.docker.swarm.task=",
         "com.openfaas.function=hello",
         "com.openfaas.uid=942101443",
@@ -138,14 +183,14 @@
       ]
     }
   },
-  "cp_peak_mem_mb": 28.9,
+  "cp_peak_mem_mb": 37.9,
   "carbon_gCO2": {
-    "op_total": 32.889,
-    "op_control_plane": 0.278,
+    "op_total": 16.224,
+    "op_control_plane": 0.267,
     "idle_band": {
-      "15": 17.738,
-      "30": 32.889,
-      "45": 48.039
+      "15": 8.932,
+      "30": 16.224,
+      "45": 23.515
     }
   },
   "model": {
@@ -156,35 +201,44 @@
   },
   "sensitivity": {
     "cp_dynamic_share_pct_by_busy_w": {
-      "2.0": 10.75,
-      "3.5": 10.75,
-      "5.0": 10.75
+      "2.0": 16.29,
+      "3.5": 16.29,
+      "5.0": 16.29
     },
     "dynamic_energy_J_by_busy_w": {
-      "2.0": 30.9,
-      "3.5": 54.0,
-      "5.0": 77.2
+      "2.0": 19.6,
+      "3.5": 34.2,
+      "5.0": 48.9
     },
     "op_carbon_gCO2_by_busy_w": {
-      "2.0": 31.78,
-      "3.5": 32.889,
-      "5.0": 33.998
+      "2.0": 15.52,
+      "3.5": 16.224,
+      "5.0": 16.927
     }
   },
-  "kpi_gco2_per_slo_compliant_inv": 0.0119,
-  "kpi_gco2_per_inv_dynamic": 0.000937,
+  "kpi_gco2_per_slo_compliant_inv": 0.0054,
+  "kpi_gco2_per_inv_dynamic": 0.000547,
   "embodied_dram_g_per_gb_h": 0.0317,
-  "host_cpu_sec": 39.16,
-  "host_saturation_pct": 92.9,
+  "host_cpu_sec": 22.67,
+  "host_window_s": 11.433,
+  "host_saturation_pct": 99.1,
   "host_plausible": true,
   "host_saturated": true,
-  "host_overhead_cpu_sec": 23.73,
-  "orchestration_cpu_sec": 25.39,
-  "orchestration_share_pct": 64.83,
+  "host_overhead_cpu_sec": 12.88,
+  "orchestration_cpu_sec": 14.48,
+  "orchestration_share_pct": 63.87,
   "steal_sec": null,
   "steal_pct": null,
-  "cp_delta_sec": 0.009,
-  "cp_sampler_vs_delta_pct": 18942.88,
+  "cp_delta_sec": 1.592,
+  "cp_sampler_vs_delta_pct": 0.15,
+  "delta_check_map": {
+    "openfaas_faas-swarm.1.7dggnmjxx3i0n40eg3rh2cv4i": "ok",
+    "openfaas_queue-worker.1.ce0t0v4t8mfnlentu3xz8cchs": "ok",
+    "openfaas_nats.1.xqbkaeyj2ons95g3vi2vuol7c": "ok",
+    "openfaas_gateway.1.yvayfo2mz54rhafs7mjtphb16": "ok",
+    "openfaas_alertmanager.1.zedbsqrush8ma8kjgjjyfzz1v": "ok",
+    "openfaas_prometheus.1.on6b7q0gjh6fluvvlq50j3zdt": "ok"
+  },
   "env": {
     "cpu_count": 2,
     "governor": null,
@@ -199,9 +253,9 @@
   "rapl_available": false,
   "loadgen": {
     "source": "hey",
-    "rps": 144.05278093893602,
-    "avg_ms": 125.38,
+    "rps": 302.5932239290721,
+    "avg_ms": 63.01,
     "errors": 0,
-    "wall_s": 20.83
+    "wall_s": 9.91
   }
 }
