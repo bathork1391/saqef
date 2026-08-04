@@ -43,21 +43,23 @@ watch docker service ls
 curl -s -u admin:<password> http://127.0.0.1:8080/system/functions | head
 ```
 
-## 4. Same function image (the 5 ms busy-loop Python handler)
+## 4. Same function workload (the 5 ms CPU busy-spin, identical to Fn)
 
-Goal: byte-for-byte the same workload we used on Fn (pure `time.sleep(0.005)`, no FDK coupling beyond the platform's handler contract).
+Goal: byte-for-byte the **same CPU workload** we deployed on Fn (`hello/func.py` — a 5 ms **busy-spin** loop). ⚠️ Do **NOT** use `time.sleep(0.005)`: a sleep burns ~0 CPU (measured locally: 0.09 ms/call vs 4.2 ms/call for the spin) and would zero out `fn_cpu`, faking a platform "discrimination". The spin is what makes the per-invocation CPU budget real.
 
 ```bash
 mkdir -p ~/of-hello && cd ~/of-hello
 faas-cli new hello --lang python3   # creates hello/handler.py + hello.yml
 ```
 
-Edit `hello/handler.py`:
+Edit `hello/handler.py` to mirror Fn's busy-spin exactly:
 ```python
 import time
 
 def handle(req):
-    time.sleep(0.005)
+    t0 = time.perf_counter()
+    while time.perf_counter() - t0 < 0.005:
+        pass
     return "Hello"
 ```
 
@@ -141,7 +143,8 @@ python3 saqef_harness.py \
 ## 7. Expected output + comparison gate
 
 - `summary.json` median + `spread_min_max` per run.
-- **Gate:** if `cp_dynamic_share_pct` differs from Fn's ~27% by **>5pp** → the metric discriminates → proceed to bare metal (RAPL) for the definitive numbers. If within noise → redesign the metric *before* paying for bare-metal experiments.
+- **Gate:** Fn baseline = `cp_dynamic_share_pct` **23.59–24.59** (five clean sessions, report G6). If OpenFaaS differs from Fn by **>5pp** → the metric discriminates → proceed to bare metal (RAPL) for the definitive numbers. If within noise → redesign the metric *before* paying for bare-metal experiments.
+- **Workload cross-check first:** `--verify` should report `function_cpu_ms_per_inv` in the same band as Fn (near-uncontended ≈3.5–4.0; the bench value will read lower, ~1.9, because host saturation dilutes per-call CPU attribution on the 2-vCPU box). If verify lands near 0, the deployed handler is sleeping, not spinning — stop and fix §4 before comparing.
 
 ## 8. Known pitfalls
 
@@ -149,6 +152,7 @@ python3 saqef_harness.py \
 - Swarm services do not appear in `docker ps` until their tasks start; wait for `docker service ls` replicas to be 1/1 before `--check`.
 - Port 8080 conflict with Fn's fnserver → stop fnserver first (`docker rm -f fnserver`) or run OpenFaaS on another published port and set `--url` accordingly.
 - First `faas-cli build` pulls the python3 template → needs network + a couple of minutes on cold cache.
+- **Sleep ≠ spin (§4):** a `time.sleep(0.005)` handler burns ~0 CPU and will make OpenFaaS look "cheaper" — that is a workload difference, not a platform result. Verify `function_cpu_ms_per_inv` matches Fn's band before comparing `cp_dynamic_share_pct`.
 
 ## 9. What to record in the paper/report
 
