@@ -119,7 +119,9 @@ Step 0 — verify the deployed workload actually ships the 5 ms of work:
 python3 saqef_harness.py --verify \
   --url http://127.0.0.1:8080/function/hello \
   --platform openfaas \
+  --sampler cgroup --delta-check \
   --cp-containers gateway,faas-swarm,prometheus,nats,queue-worker,alertmanager \
+  --fn-images hello \
   --verify-n 100 --verify-budget-ms 5
 # expect function_cpu_ms_per_inv ≈ 5 and budget_check == "MATCHES"
 ```
