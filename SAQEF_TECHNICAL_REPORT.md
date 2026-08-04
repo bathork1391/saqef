@@ -622,3 +622,57 @@ Third external expert review of `run_saqef.sh` + `saqef_harness.py` surfaced two
 - **verify vs bench per-inv CPU gap (~2.0x, known cause, deferred).** `verify` (100 calls immediately after fresh deploy) reported 3.76 ms/inv; bench steady-state 5.60 s / 3000 = **1.87 ms/inv**. Cause: verify's window includes the first cold container boots — its own p99 of 791 ms confirms cold-start exposure — so per-inv CPU is boot-inflated, while bench's `--warmup 20` amortizes boot over 3000 warm calls. Not a correctness bug: verify is a sanity check, not a QoS/budget measurement, and its `budget_check` must not be read as the steady-state per-inv cost. Paper-time action (deferred per reviewer "a note, not another engineering cycle"): bump `VERIFY_N` (e.g. 500) and/or warm up before verify timing.
 - **Coverage >100% ("clamp the display")** — the reviewer's comment referenced the pre-fix output; v9.9 removed the divergence at the source (`wall_s` = harness clock), so no display clamp was needed.
 - **Deferred to paper time:** `SAQEF_REPEAT` 5 → 10; the vegeta open-loop swap is deprioritized (container-level energy attribution is loadgen-agnostic and stable across four loadgen/session combinations).
+
+## 24. OpenFaaS deployment on Codespace (2026-08-05)
+
+**Goal (cross-platform validation):** run the identical 5 ms busy-spin function on OpenFaaS vs Fn and test the discriminator — `cp_dynamic_share_pct` differing by more than the 5 pp gate. OpenFaaS chosen over Knative/OpenWhisk for the *small, identifiable control-plane container set* that `--cp-containers` needs.
+
+**Deployment (hand-written swarm stack — `OPENFAAS_DEPLOY/docker-compose.yml`), because several upstream pieces were broken:**
+
+| Bug found | Fix | Commit |
+|---|---|---|
+| faas tags no longer ship `deploy_stack.sh` | hand-written stack: gateway `functions/gateway:0.8.3`, faas-swarm `functions/faas-swarm:0.3.3`, queue-worker `functions/queue-worker:0.4.6`, nats `nats-streaming:0.25.6`, prometheus `prom/prometheus:v2.11.0`, alertmanager `prom/alertmanager:v0.18.0` | `dba8b34` |
+| faas-swarm `DOCKER_API_VERSION=1.30` rejected by modern dockerd | bumped to 1.40 | `d23a86f` |
+| template store no longer ships a python3 template | hand-written `OF_FUNCTION/` (of-watchdog 0.9.12 + python:3.11-alpine); streaming→http mode | `693204b`, `7ba5107` |
+| of-watchdog binds its own metrics listener on 8081 → python bind crashed (`OSError: [Errno 98] Address in use`) | upstream moved to **8082** | `3d41ecf` |
+| python `HTTPServer` serialized concurrent invocations (unlike Fn's concurrency model) | `ThreadingHTTPServer` | `fd08159` |
+| harness `docker_sampler` accepted 3 args but `start_sampler` always passes 4 → sampler thread crashed under the **default** `--sampler docker`, zeroing function CPU | signature made 4-arg compatible; protocol pinned to `--sampler cgroup` | `6dfd003` |
+
+Gateway 0.8.3 has no basic auth → `--auth`/login removed from the protocol. `OPENFAAS_SETUP.md` was rewritten around the hand-written stack (no 0.27.14 checkout).
+
+## 25. Delta-check first-container bug — diagnosed and FIXED (2026-08-05)
+
+**Symptom:** the OpenFaaS run reported `cp_sampler_vs_delta_pct ≈ 15061–20748%` with `cp_delta_sec 0.009`, while the sampler's control-plane total was 1.67 s.
+
+**Root cause:** `cp_cgroup_reader` (harness) resolved only the **first** container matching `--cp-containers` and diffed that single container's cumulative counter. For Fn (`fnserver`, one container) the delta-check was like-for-like (0.01%). For OpenFaaS's 6-container set it compared the whole-CP sampler sum against one idle container (alertmanager, ~0.009 s of real work) — a meaningless 18943×.
+
+**Fix (`b4dbbdc`):** the reader now sums cumulative CPU across **all** control-plane containers matching `--cp-containers`, re-resolving the container list on every read (swarm task restarts cannot wedge it). Paper draft `--delta-check` description updated (`cce0579`). **The attribution itself was never in doubt:** it is per-container kernel `cpu.stat` cumulative differencing with `unclassified_cpu_s 0.0` and coverage 100% — the same mechanism that passed 0.01% delta-check on Fn.
+
+## 26. OpenFaaS measurement results (2026-08-05) — 5×3000 cgroup runs
+
+**Protocol identical to Fn:** `--sampler cgroup --delta-check --loadgen hey`, 5×3000 @ concurrency 20, 20 s warmup, URL `http://127.0.0.1:8080/function/hello`, `--fn-images hello`, `--cp-containers gateway,faas-swarm,prometheus,nats,queue-worker,alertmanager`.
+
+| run | cp_dynamic_share_pct | throughput_rps | slo_compliance | coverage% | unclass | host_saturated | delta% (pre-fix artifact, §25) |
+|---|---|---|---|---|---|---|---|
+| 1 | 10.75 | 142.32 | 0.9209 | 100 | 0.0 | true (92.9%) | 18942.88 |
+| 2 | 10.90 | 143.36 | 0.9195 | 100 | 0.0 | true | 20748.24 |
+| 3 | 11.17 | 139.68 | 0.9312 | 100 | 0.0 | true | 19473.09 |
+| 4 | 11.23 | 139.26 | 0.9211 | 100 | 0.0 | true | 15061.03 |
+| 5 | 11.10 | 140.85 | 0.9192 | 100 | 0.0 | true | 14955.10 |
+| **median** | **11.10** | **140.85** | **0.9209** | 100 | 0.0 | — | — |
+
+**Attribution audit:** `container_inventory` = exactly 7 containers per run (1 function `hello:latest` + the 6 CP at the pinned stack images); `container_labels` prove image-based matching; `unclassified_cpu_s 0.0`; `physical_plausible true`. Verify parity: `openfaas_verify.json` 100/100, `function_cpu_ms_per_inv 3.88`, `budget_check MATCHES` (Fn: 3.76) → same workload band.
+
+**Discriminator verdict:** median `cp_dynamic_share_pct` **11.10** (spread 10.75–11.23) vs Fn **24.59** (23.59–24.59) → gap ≈ **13.5 pp > 5 pp gate** ⇒ the metric discriminates between platforms.
+
+**Caveats (must accompany the claim):** (1) `host_saturated true` on both platforms → the QoS-contention caveat applies symmetrically; (2) OpenFaaS's of-watchdog proxies inside the *function* cgroup, so per-request routing work lands in `function_cpu`, whereas Fn's fnserver absorbs it in `control_plane` → the gap is **conservative**, not inflated; (3) RAPL unavailable → energy numbers remain model estimates until bare metal; (4) the committed summaries carry the pre-fix delta artifact (§25) — numbers are unaffected, a re-run with the fixed harness yields `cp_delta_sec ≈ 1.66` and delta ≈ 0.
+
+## 27. Session log + bare-metal handoff (2026-08-05)
+
+**Codespace push auth (recorded):** the Codespaces auto-token (`ghu_…`) cannot write to repos → `git push` 403'd even though `gh auth status` showed the account. Fixed with device-flow `gh auth login` (requires `unset GITHUB_TOKEN` first, otherwise gh reuses the environment token) + `gh auth setup-git`.
+
+**Results committed from the Codespace:** `6dc2120` — `results/openfaas_cpubound/` (run_1..5, runs.json, summary.json) + `results/openfaas_verify.json` (24 files). Note: the committed set predates the §25 harness fix, so it carries the pre-fix delta artifact.
+
+**Local directory now the git repo:** `C:\Users\MERCURY LAPTOP\Documents\Default Project\saqef` was initialized as the git repository, tracking `origin/main` at `6dc2120`; all source files verified byte-identical to the remote. The temporary push-clone under the opencode temp dir is retired (disposable). `old-working code/` remains untracked (backup decision pending).
+
+**Bare-metal checklist (Linux):** `git clone https://github.com/bathork1391/saqef.git` → docker (swarm or single dockerd) → deploy pinned stack + function → `python3 saqef_harness.py --check` (RAPL *should* be available on real hardware → direct energy, removing the CPU-time-model caveat) → `--verify` → bench 5×3000 → `gates`. Run at `concurrency < cpu_count` to exit the host-saturated regime → removes the QoS-contention caveat. No re-engineering required.
