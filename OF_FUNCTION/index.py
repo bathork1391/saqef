@@ -25,4 +25,6 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
 
-HTTPServer(("127.0.0.1", 8081), Handler).serve_forever()
+# Note: upstream runs on 8082, NOT 8081 - of-watchdog 0.9.x binds its metrics
+# listener to 8081, so binding python there causes "Address in use" at startup.
+HTTPServer(("127.0.0.1", 8082), Handler).serve_forever()

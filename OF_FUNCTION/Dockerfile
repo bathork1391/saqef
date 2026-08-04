@@ -14,7 +14,7 @@ COPY index.py handler.py requirements.txt ./
 
 ENV fprocess="python3 index.py"
 ENV mode="http"
-ENV upstream_url="http://127.0.0.1:8081"
+ENV upstream_url="http://127.0.0.1:8082"
 ENV exec_timeout="10s"
 ENV read_timeout="60s"
 ENV write_timeout="60s"
