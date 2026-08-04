@@ -21,13 +21,14 @@ Outputs (into --outdir):
   summary.json   - all KPIs, energy/carbon, validation, QoS
   samples.csv    - per-sample per-container CPU%/mem
   requests.csv   - per-request latency/status (python loadgen only)
-  hey.json       - hey raw output (--loadgen hey only)
+  hey.csv        - hey raw CSV output (--loadgen hey only)
   verify.json    - --verify report
 """
 
 import argparse
 import base64
 import csv
+import io
 import json
 import math
 import os
@@ -301,7 +302,20 @@ def run_load(url, total, concurrency, timeout_s=10, deadline_s=None, headers=Non
 def run_hey(url, total, concurrency, deadline_s=None, headers=None, timeout_ms=30000):
     """Run hey (Go load generator) as a subprocess; keeps the harness's own CPU
     out of host accounting. Returns a results dict, or None if hey is missing/fails.
-    QoS from hey's JSON: rps, latency percentiles, status distribution.
+    QoS is computed from hey's per-request CSV rows: rps, latency percentiles,
+    status distribution.
+
+    NOTE (bug fixed here): mainline rakyll/hey has never had a JSON output mode.
+    Per hey's own docs, "'csv' is the only supported alternative" to the default
+    human-readable summary -- there is no -o json. Passing -o json (the previous
+    behavior of this function) either falls through to the plain-text summary
+    (unparseable as JSON) or, depending on build/flag-parsing quirks, produces
+    other unparseable stdout -- both read to the caller as "hey is broken" even
+    though the binary and the server are fine. We now request the one output
+    mode hey actually documents and ships, "-o csv", and parse it ourselves.
+    This also means we no longer depend on hey's built-in percentile/rps math,
+    which is a wash -- we already need lat_points for cdf_compliance().
+
     Runs are COUNT-BOUND (-n total, exactly N requests) so windows are identical
     across platforms; deadline_s is a SAFETY cap only (subprocess timeout + a
     post-run wall assertion), because hey's -z/-n precedence varies by build and
@@ -309,8 +323,10 @@ def run_hey(url, total, concurrency, deadline_s=None, headers=None, timeout_ms=3
     if shutil.which("hey") is None:
         print("hey: binary not found on PATH (wanted --loadgen hey); falling back")
         return None
+    # hey's -t is SECONDS per request (default 20), not milliseconds: passing
+    # the raw ms value (30000) was silently a 30,000-second timeout. Convert.
     cmd = ["hey", "-n", str(total), "-c", str(concurrency),
-           "-t", str(timeout_ms), "-o", "json"]
+           "-t", str(max(1, timeout_ms // 1000)), "-o", "csv"]
     if headers:
         for k, v in headers.items():
             cmd += ["-H", "%s: %s" % (k, v)]
@@ -327,33 +343,46 @@ def run_hey(url, total, concurrency, deadline_s=None, headers=None, timeout_ms=3
             (proc.stderr or proc.stdout)[-300:].strip() or "(no output)"))
         return None
     try:
-        # Go's encoding/json emits BARE NaN/Inf for non-finite floats (e.g. an
-        # empty latency percentile). Python's json.loads happens to accept those
-        # tokens, but they poison downstream percentiles (NaN comparisons) and
-        # make hey.json INVALID for strict consumers (R/JS). Sanitize to null so
-        # hey.json stays spec-valid and NaN can never leak into KPIs.
-        raw = re.sub(r"\b(NaN|Inf|Infinity)\b", "null", proc.stdout)
-        d = json.loads(raw)
+        # hey's CSV header (mainline): response-time,DNS+dialup,DNS,
+        # Request-write,Response-delay,Response-read,status-code,offset
+        # Normalize keys (lower, strip hyphens/spaces) so a header-casing
+        # difference across hey builds/forks doesn't silently break parsing.
+        reader = csv.DictReader(io.StringIO(proc.stdout))
+        if reader.fieldnames is None:
+            raise ValueError("no CSV header in hey output")
+        norm = {fn: re.sub(r"[\s\-+]", "", fn).lower() for fn in reader.fieldnames}
+        rt_key = next((fn for fn, n in norm.items() if n == "responsetime"), None)
+        st_key = next((fn for fn, n in norm.items() if n == "statuscode"), None)
+        off_key = next((fn for fn, n in norm.items() if n == "offset"), None)
+        if rt_key is None or st_key is None:
+            raise ValueError("expected columns not found; got %r" % (reader.fieldnames,))
+        rows = [r for r in reader if r.get(rt_key) not in (None, "")]
+        if not rows:
+            raise ValueError("hey CSV had a header but zero data rows")
+        lat_ms = sorted(float(r[rt_key]) * 1000.0 for r in rows)
+        status = [str(r.get(st_key, "")) for r in rows]
+        offsets = [float(r[off_key]) for r in rows if off_key and r.get(off_key) not in (None, "")]
     except Exception as e:
-        print("hey: JSON parse failed (%s): %.200s" % (
+        print("hey: CSV parse failed (%s): %.200s" % (
             e, (proc.stdout or "(no output)").strip()))
         return None
-    tot = d.get("total", {})
-    wall = tot.get("duration", 0.0)
-    requests = tot.get("requests", 0)
-    ok = sum(v for k, v in d.get("statusCodeDistribution", {}).items()
-             if str(k).startswith("2"))
-    pct_map = {}
-    for e in d.get("latencyDistribution", []):
-        pct_map[e.get("percentage")] = e.get("latency", 0.0) * 1000.0
+
+    n = len(lat_ms)
+
+    def pct(p):
+        k = max(0, min(n - 1, int(round(p / 100.0 * (n - 1)))))
+        return lat_ms[k]
+
+    ok = sum(1 for s in status if s.startswith("2"))
+    wall = max(offsets) if offsets else (sum(lat_ms) / 1000.0 / max(concurrency, 1))
+    pct_map = {50: pct(50), 90: pct(90), 99: pct(99)}
     return {
-        "ok": ok, "requests": requests, "wall": wall,
-        "p50": pct_map.get(50), "p90": pct_map.get(90), "p99": pct_map.get(99),
-        "max": tot.get("slowest", 0.0) * 1000.0,
-        "avg": tot.get("average", 0.0) * 1000.0,
-        "rps": tot.get("rps", 0.0),
-        "errors": sum(d.get("errorDistribution", {}).values()),
-        "lat_points": sorted((p, l) for p, l in pct_map.items()),
+        "ok": ok, "requests": n, "wall": wall,
+        "p50": pct_map[50], "p90": pct_map[90], "p99": pct_map[99],
+        "max": lat_ms[-1], "avg": sum(lat_ms) / n,
+        "rps": (n / wall) if wall > 0 else 0.0,
+        "errors": n - ok,
+        "lat_points": sorted(pct_map.items()),
         "source": "hey",
         "raw": proc.stdout,
     }
@@ -797,11 +826,18 @@ def run_once(args, cp_sub):
     else:
         n = ld["requests"]
         ok = ld["ok"]
-        wall = ld["wall"]
+        # wall MUST stay the harness clock: it is the single window over which
+        # energy is attributed (e_total = idle_w*wall + e_dynamic), host
+        # saturation is computed, and coverage is clamped. hey's own wall
+        # (max(offset) = time of the LAST REQUEST START) can be a fraction of a
+        # second shorter than the true window, so reassigning wall here made
+        # wall_s < the attribution window and coverage read >100% even though
+        # the clamp had capped covered_s at the harness window (v9.9 fix).
+        # Expose hey's own duration separately as loadgen.wall_s (cross-check).
         wall_loadgen = ld["wall"]
-        if wall_harness and abs(wall - wall_harness) > 5.0:
+        if wall_harness and abs(wall_loadgen - wall_harness) > 5.0:
             print("WARNING: loadgen-reported wall (%.1fs) differs from harness clock (%.1fs) - "
-                  "loadgen timing may be unreliable" % (wall, wall_harness))
+                  "loadgen timing may be unreliable" % (wall_loadgen, wall_harness))
         p50, p90, p99 = ld["p50"], ld["p90"], ld["p99"]
         max_ms = ld["max"]
         compliance = cdf_compliance(ld["lat_points"], args.slo_ms)
@@ -809,10 +845,10 @@ def run_once(args, cp_sub):
         ld_avg = ld.get("avg")
         ld_errors = ld.get("errors", 0)
         if ld_avg and p50 and ld_avg > 3.0 * p50:
-            print("WARNING: heavy-tailed QoS (avg=%.0fms vs p50=%.0fms) - check hey.json, VM contention"
+            print("WARNING: heavy-tailed QoS (avg=%.0fms vs p50=%.0fms) - check hey.csv, VM contention"
                   % (ld_avg, p50))
         if ld_errors:
-            print("WARNING: hey reports %d request errors - check hey.json errorDistribution" % ld_errors)
+            print("WARNING: hey reports %d request errors - check hey.csv status codes" % ld_errors)
         if args.duration and wall > args.duration * 1.1:
             print("WARNING: window (%.1fs) exceeded the --duration safety cap (%.0fs) - "
                   "runs are count-bound; consider a shorter --total on a loaded VM"
@@ -930,7 +966,7 @@ def write_run(outdir, summary, all_snaps, reqs):
             for o, l in reqs:
                 w.writerow([int(o), round(1000 * l, 3)])
         else:
-            w.writerow(["none", 0])  # hey loadgen: per-request latencies live in hey.json
+            w.writerow(["none", 0])  # hey loadgen: per-request latencies live in hey.csv
 
 
 def clean_json(obj):
@@ -1169,7 +1205,7 @@ def main():
             summary, all_snaps, reqs, ld = run_once(args, cp_sub)
             write_run(os.path.join(args.outdir, "run_%d" % i), summary, all_snaps, reqs)
             if ld is not None:
-                with open(os.path.join(args.outdir, "run_%d" % i, "hey.json"), "w") as f:
+                with open(os.path.join(args.outdir, "run_%d" % i, "hey.csv"), "w") as f:
                     f.write(ld["raw"])
             summaries.append(summary)
         with open(os.path.join(args.outdir, "runs.json"), "w") as f:
@@ -1197,7 +1233,7 @@ def main():
         summary, all_snaps, reqs, ld = run_once(args, cp_sub)
         write_run(args.outdir, summary, all_snaps, reqs)
         if ld is not None:
-            with open(os.path.join(args.outdir, "hey.json"), "w") as f:
+            with open(os.path.join(args.outdir, "hey.csv"), "w") as f:
                 f.write(ld["raw"])
         print(json.dumps(clean_json(summary), indent=2))
         print(f"\nSaved to {os.path.abspath(args.outdir)}/")

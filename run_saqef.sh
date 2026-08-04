@@ -18,13 +18,22 @@
 #   outdir), so a 1-run pass cannot be mistaken for the 5-run publication set.
 set -uo pipefail
 
-# Functional smoke test for the hey binary. A real rakyll/hey emits a parseable
-# JSON report for -o json; a stale 403-HTML page or a wrong binary does not.
-# Size is a useless gate (a truncated/corrupted binary can still be >1000 bytes),
-# so this is what actually decides whether to reuse or reinstall hey.
+# Functional smoke test for the hey binary. Mainline rakyll/hey has never had
+# a JSON output mode -- per hey's own docs, "csv" is the only supported
+# alternative to the default text summary. An earlier version of this script
+# tested `-o json`, which is not a real hey flag; it either fell through to
+# the plain-text summary or produced other unparseable stdout, so the smoke
+# test always failed even against a perfectly good hey binary and a live
+# server (see run_saqef.sh history / report). Test the mode hey actually
+# supports instead: a real rakyll/hey emits a parseable CSV report (header +
+# at least one data row) for -o csv; a stale 403-HTML page or a wrong binary
+# does not. Size is a useless gate (a truncated/corrupted binary can still be
+# >1000 bytes), so this is what actually decides whether to reuse or reinstall.
 hey_smoke_ok() {
-  "$1" -n 2 -c 1 -o json http://localhost:8080/ 2>/dev/null |
-    python3 -c 'import sys, json; json.load(sys.stdin)'
+  "$1" -n 2 -c 1 -o csv http://localhost:8080/ 2>/dev/null |
+    python3 -c 'import sys, csv
+r = list(csv.reader(sys.stdin))
+assert len(r) >= 2, "expected a CSV header + at least one data row, got %r" % r'
 }
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -88,7 +97,7 @@ setup_fn() {
   if [ -n "$HEY_BIN" ] && hey_smoke_ok "$HEY_BIN"; then
     echo "hey OK: $HEY_BIN (functional smoke test passed)"
   else
-    echo "hey broken/missing (no parseable JSON report); wiping and reinstalling ..."
+    echo "hey broken/missing (no parseable CSV report); wiping and reinstalling ..."
     for p in "$HEY_BIN" /go/bin/hey /usr/local/bin/hey; do
       [ -n "$p" ] && sudo rm -f "$p" 2>/dev/null || true
     done
@@ -168,17 +177,18 @@ run_gates() {
   python3 - "$GATES_OUT" <<'PY'
 import json, glob, sys
 out = sys.argv[1]
-print("per-run gate table (pass: delta% ~ 0, plausible=true, host_plausible=true, host_saturated=false, coverage% >= 95):")
+print("per-run gate table (pass: delta% ~ 0, plausible=true, host_plausible=true, host_saturated=false, 95 <= coverage% <= 100):")
 for p in sorted(glob.glob(out + "/run_*")):
     s = json.load(open(p + "/summary.json"))
     cov = round(100 * s["sampling_covered_s"] / s["wall_s"], 1) if s["wall_s"] else 0.0
     flag = "  <-- QoS CONTENTION-CONTAMINATED (>=85% sat): do not cite latency"
+    covflag = "  <-- COVERAGE INVARIANT BROKEN (>100%): measurement window mismatch; do not cite"
+    flags = (flag if s.get("host_saturated") else "") + (covflag if cov > 100 else "")
     print("  %-7s delta%%: %-7s cp_cpu_s: %-6s fn_cpu_s: %-6s plausible: %-5s host_sat%%: %-5s host_plausible: %-5s host_saturated: %-5s coverage%%: %s%s"
           % (p.split("/")[-1], s.get("cp_sampler_vs_delta_pct"),
              s["cpu_sec"]["control_plane"], s["cpu_sec"]["function"],
              s.get("physical_plausible"), s.get("host_saturation_pct"),
-             s.get("host_plausible"), s.get("host_saturated"), cov,
-             flag if s.get("host_saturated") else ""))
+             s.get("host_plausible"), s.get("host_saturated"), cov, flags))
 med = json.load(open(out + "/summary.json"))
 print("median: cp_dynamic_share_pct=%s  slo_compliance=%s  throughput_rps=%s"
       % (med.get("cp_dynamic_share_pct"), med.get("slo_compliance"), med.get("throughput_rps")))
