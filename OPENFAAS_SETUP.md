@@ -30,7 +30,7 @@ faas-cli version
 ```bash
 git clone https://github.com/openfaas/faas /tmp/faas
 cd /tmp/faas
-git checkout <latest stable release tag>   # e.g. 0.31.x — pin this for the report
+git checkout 0.27.14   # latest stable release tag (verified 2026-08-05; there are no 0.3x tags — pin this for the report)
 docker swarm init
 ./deploy_stack.sh
 ```
