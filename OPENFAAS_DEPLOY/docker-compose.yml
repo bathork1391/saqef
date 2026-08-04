@@ -59,7 +59,8 @@ services:
     environment:
       read_timeout: "5m5s"
       write_timeout: "5m5s"
-      DOCKER_API_VERSION: "1.30"
+      # API 1.30 (original 2019 stack) is rejected by modern dockerd: minimum is now 1.40.
+      DOCKER_API_VERSION: "1.40"
     deploy:
       placement:
         constraints:
