@@ -725,12 +725,19 @@ def run_once(args, cp_sub):
         args.sampler = "docker"
         samples, stop, first_sample, th = start_sampler("docker")
 
-    host_before = host_cpu_ticks()
-    t_host_before = time.perf_counter()
     steal_before = steal_ticks()
     freq_before, governor = env_frequency()
     cp_read = cp_cgroup_reader(cp_sub) if args.delta_check else None
     cp_cum_before = cp_read() if cp_read else None
+    # Host counter read as close to t0 as possible so the host window == the load
+    # window (v9.11). It previously sat BEFORE the delta-check reader construction
+    # (cp_cgroup_reader), which takes ~1.5 s on this box: host_window_s then came
+    # out ~1.5 s longer than wall_s (11.77 vs 10.23 on the v3 rerun), so host_cpu_sec
+    # included busy ticks from a non-load stretch. Self-consistent after v9.10, but
+    # the headroom was exactly what inflated the old wall-based sat% to 112% on the
+    # short windows. Moving the read here makes host_window_s == wall_s by ordering.
+    host_before = host_cpu_ticks()
+    t_host_before = time.perf_counter()
 
     t0 = time.perf_counter()
     reqs = None
