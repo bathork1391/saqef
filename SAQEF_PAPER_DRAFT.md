@@ -25,10 +25,11 @@ Serverless (FaaS) platforms promise "scale to zero," pay-per-invocation pricing,
 **Central claim:** for a light CPU-bound function, the control plane is not a rounding error — on an 8-core box it is ~10% of the marginal (dynamic) CPU cost for Fn and ~8% for OpenFaaS, and its share — and the platform gap — grows as the machine gets smaller (Fn 14.0% vs OpenFaaS 7.0% when the same box is pinned to 2 cores; see §5.5). Orchestration is a first-class, capacity-dependent cost, not an overhead line item.
 
 **Contributions:**
-1. A reproducible, platform-agnostic measurement harness (`saqef_harness.py`) that attributes CPU/energy between control plane and function under controlled load, with built-in self-validation.
-2. A workload-anchored methodology that fixes the "ratio of tiny quantities" instability that plagues no-op-workload energy comparisons.
-3. The first RAPL-validated cross-platform control-plane overhead numbers on bare metal (Fn 10.5% vs OpenFaaS 7.7% of dynamic CPU on 8 cores; the machine/core-count dependence of the gap is quantified, not hand-waved — §5.5).
+1. A reproducible, platform-agnostic measurement harness (`saqef_harness.py`) that attributes CPU/energy between control plane and function under controlled load, with built-in self-validation (delta-check, host-plausibility, coverage, platform-isolation assertions).
+2. A workload-anchored methodology that fixes the "ratio of tiny quantities" instability that plagues no-op-workload energy comparisons, plus a frequency-invariance argument: cgroup CPU-time ratios are invariant-TSC wall-time, so the headline share is robust to per-core frequency/turbo differences by construction (§5.5 caveat, report §31.8).
+3. The first RAPL-validated cross-platform control-plane overhead numbers on bare metal, with the core-count dependence **quantified by a controlled same-instrument experiment** (8-core i5-1145G7): Fn 10.5% vs OpenFaaS 7.7% of dynamic CPU at 8 cores (gap +2.8 pp, below the 5 pp gate), rising to Fn 14.0% vs OpenFaaS 7.0% (gap +7.0 pp, reproduced to 0.2 pp in two independent sessions) when the same box is cpuset-pinned to 2 cores — an **asymmetric, platform-specific core-scarcity sensitivity** (Fn's share inflates, OpenFaaS's stays flat).
 4. A documented case study of the validation method catching a real 52× instrumentation bug (§8).
+5. For sustainable serverless computing: the finding that **platform overhead shares and the gap between platforms are machine-pair properties, not platform constants** — the widely used 5 pp discrimination threshold fails/passes depending on the host's core count, so carbon-aware scheduling and "green function" claims must be evaluated per machine-pair with a citable per-machine-pair gate, not a global constant (§5.5, §7).
 
 ---
 
@@ -67,10 +68,20 @@ Two energy scopes are reported, because they answer different questions:
 | | Value (codespace) | Value (bare metal, 2026-08-05) |
 |---|---|---|
 | Host | GitHub Codespaces, x86_64, 2 vCPU, Docker 29.3.0, Python 3.12 | 8-core Ubuntu, 16 GB, docker + swarm, RAPL readable |
+| CPU | 2 shared vCPU (cloud VM, co-tenanted) | 11th Gen Intel Core i5-1145G7 @ 2.60 GHz — 4 cores / 8 threads, 1 socket, turbo to 4.4 GHz, governors ondemand/performance (3.30 GHz loaded at c=4; 3.60 GHz when pinned to 2 cores, report §31.8) |
 | Platform | Fn — `fnproject/fnserver:latest` (0.3.x), containerized, iofs socket fix | Fn 0.3.x; OpenFaaS 0.8.3 (6-container CP, of-watchdog) |
 | Function runtime | Python 3.12 FDK (`fnproject/python:3.12`) | Python FDK (hello:0.0.7 Fn / hello:latest OF) |
 | Load generator | `hey` (Go) preferred; Python stdlib fallback | `hey -o csv`, TOTAL=10000, warmup 20 |
 | RAPL | Unavailable (cloud VM) → CPU-time model | **Available** → model RAPL-validated 4.2–8.2% (idle 4.3 W) |
+
+> **Hardware-dependence — explicit.** All absolute values (share, gap, per-request ms) are
+> machine-pair-specific: the headline numbers would differ on a different core count, CPU model,
+> DVFS policy, or co-tenancy regime — this is the *point* of §5.5's cross-regime table, not a
+> caveat swept under the rug. What generalizes is the **framework and the per-machine-pair gate**:
+> the protocol records the machine's `cpu_count`, governor, and frequency in every `summary.json`,
+> and the 5 pp decision is re-derived per host pair rather than taken as a platform constant. A
+> reader applying the method to their own hardware gets citable, machine-local numbers — the same
+> instrument, re-anchored.
 
 > **[CANDID, mostly closed]**: RAPL validation on bare metal was a hard requirement (§7, §10) — now
 > delivered (2026-08-05). Remaining CANDIDs: a second bare-metal machine, control-plane
@@ -303,7 +314,7 @@ presents both the machine-dependence and its asymmetry as findings.
 >
 > **v9.12 bare-metal session (2026-08-05):** (x) **`SAQEF_IDLE_W` knob** added to both runner scripts — the hardcoded `idle_w=30` was a 7× overestimate of the 8-core box's real 4.3 W idle package power, keeping `rapl_validation_err_pct` ≈ 45%; calibrated it to 4.2–8.2% steady-state on both platforms. Knob only; no measurement-path change. (y) **swarm advertise-addr fix** in `run_openfaas.sh` — `docker swarm init --advertise-addr 127.0.0.1` for multi-homed hosts. (z) **isolation pitfall recorded**: `docker stack rm openfaas` does not remove the `hello` function service (deployed outside the stack); its idle replicas fold into Fn's `fn_cpu` via the image allowlist with all gates still green. Protocol now requires `docker service rm hello` before any Fn run; one tainted Fn rerun was discarded (share 11.68 vs clean 10.46; its "0.9–6.1% RAPL" and "6.7/9.4 ms @ 577 rps" figures must NOT be cited).
 >
-> **v9.13 structural isolation guard + drift analysis (2026-08-06, §31.9):** (aa) **`assert_platform_isolation` enforced at `run_once()` start** — Fn sessions fail loud if ANY swarm service is up (Fn never uses swarm; the known offender is OpenFaaS's `hello` service, deployed outside the stack and invisible to `docker stack rm`), OpenFaaS sessions fail loud if `fnserver` is up. Both platforms' function images are named `hello`, so the allowlist substring match cannot distinguish them; the `unclassified` bucket catches only neither-match strays, leaving a wrong-platform-but-name-matching stray silent (the exact mechanism of the §30 discarded tainted run). The guard is a precondition check, not a measurement-path change — no citable run invalidated. (bb) **run-order drift investigated, container accumulation REJECTED** — the Fn CV 8.1% drift (runs 4–5 ≈ 11.7) is NOT container growth (per-run live counts 11, 11, 9, 9, 9 — flat-to-shrinking) but a monotonic fnserver-side CPU rise (6.07→7.54 s, +24% across five runs) with flat function-side denominator; it does not move the reported median and is honestly presented via the reported CV/spread. Mechanism (scheduler contention vs frequency settling) stays future work per §31.7(c).
+> **v9.13 structural isolation guard + drift analysis (2026-08-06, §31.9):** (aa) **`assert_platform_isolation` enforced at `run_once()` start** — Fn sessions fail loud if ANY swarm service is up (Fn never uses swarm; the known offender is OpenFaaS's `hello` service, deployed outside the stack and invisible to `docker stack rm`), OpenFaaS sessions fail loud if `fnserver` is up. Both platforms' function images are named `hello`, so the allowlist substring match cannot distinguish them; the `unclassified` bucket catches only neither-match strays, leaving a wrong-platform-but-name-matching stray silent (the exact mechanism of the §30 discarded tainted run). The guard is a precondition check, not a measurement-path change — no citable run invalidated. (bb) **run-order drift bounded and characterized (report §31.9)** — the Fn CV 8.1% drift (runs 4–5 ≈ 11.7) is NOT accumulation: per-run live container counts were 11, 11, 9, 9, 9 (flat-to-shrinking) and fnserver RSS from the committed `samples.csv` traces is a run-1 warm-up spike (max 126.5 MB) then flat 34.0/33.8/33.3/33.1 MB across runs 2–5, while fnserver CPU% settles 28.9 → 33.9 then down to 32.7 at run_5. It is a bounded warm-up/settling transient, not a session-length scaling term, so longer sessions (REPEAT=10) would not drift higher — external validity preserved. Threads/FD counts were not measured (needs a ~15-min diagnostic; deferred); the underlying mechanism stays future work per §31.7(c).
 
 ---
 

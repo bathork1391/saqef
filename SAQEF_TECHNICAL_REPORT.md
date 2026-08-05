@@ -1125,14 +1125,24 @@ citable run already satisfied the stronger form of this discipline). `pin_cpuset
 core-restricted variant) remains warning-free by design: it pins whatever is running, so the
 isolation guard above is what protects pinned runs from a stray wrong-platform container.
 
-**Drift analysis (expert's container-accumulation hypothesis) — REJECTED on existing data.**
-Expert suggested the Fn run-order drift (CV ~8.4%, runs 4–5 climbing to ~11.7) might be container
-accumulation (`docker ps -a` growth across runs 1→5). Existing `results/fn_cpubound_baremetal`
-per-run summaries show the opposite: live container counts across runs 1–5 were **11, 11, 9, 9, 9
-— flat-to-shrinking**, not growing. The drift instead lives in fnserver itself: control-plane CPU
-grew monotonically 6.07 → 6.48 → 6.56 → 7.57 → 7.54 s across the five runs (+24%) with wall time
-16.7 → 17.6 s, while the function-side denominator stayed flat. So the run-order trend is a real
-fnserver-side effect (consistent with frequency/turbo settling or fnserver warm-up, NOT container
-GC), it does not change the reported median, and the only citable concern it raises is honest
-presentation of the spread — already done (CV reported in every table). A micro-benchmark of
-fnserver's scheduler behavior is future work per §31.7(c).
+**Drift analysis (expert's accumulation hypothesis) — REJECTED, and boundedness established from
+existing data (no rerun).** Expert suggested the Fn run-order drift (CV ~8.4%, runs 4–5 climbing
+to ~11.7) might be container accumulation (`docker ps -a` growth across runs 1→5). Existing
+`results/fn_cpubound_baremetal` data show the opposite on both candidate mechanisms:
+- **Container accumulation — rejected:** live container counts across runs 1–5 were **11, 11, 9,
+  9, 9** — flat-to-shrinking.
+- **In-process memory (RSS) accumulation — rejected:** fnserver `mem_mb` from the per-run
+  `samples.csv` (docker-stats trace) is a run-1 warm-up spike (mean 62.9 MB, max 126.5 MB) then
+  **flat 34.0 / 33.8 / 33.3 / 33.1 MB** across runs 2–5. A goroutine/FD/buffer/connection leak
+  with a +24% CPU rise would show in RSS; it does not.
+- **Bounded, not unbounded:** fnserver mean CPU% rises 28.9 → 30.2 → 32.6 → 33.9 then **down to
+  32.7** at run_5 (cp_cpu_s 6.07 → 6.48 → 6.56 → 7.57 → 7.54). The climb is a settle-then-plateau
+  warm-up/settling transient, not a monotonic session-length scaling term — so a group replicating
+  at REPEAT=10 or longer sessions would land on the same plateau, and the external-validity concern
+  (systematically higher share from longer sessions) is answered negatively from data already
+  committed.
+- **Mechanism (threads/FD counts) not measured:** `/proc/<pid>/status Threads` + `ls /proc/<pid>/fd`
+  are not recoverable retroactively (fnserver is gone) and would need a ~15-min diagnostic session;
+  deferred per the no-more-iterations directive, and flagged open rather than closed. The drift does
+  not move the reported median and is honestly presented via the reported CV/spread; a
+  micro-benchmark of fnserver's scheduler behavior remains future work per §31.7(c).
