@@ -1046,3 +1046,43 @@ comparison vs OpenFaaS's gateway+queue-worker+of-watchdog path.
 
 **Disposition summary:** results are publishable as the core-count effect with the frequency-parity
 verification explicitly open (and energy-not-citable flagged); the mechanism is honest future work.
+
+### 31.8 Frequency-parity verification (2026-08-06) — expert-review item (b) CLOSED
+
+Closes the one open verification from §31.7 (per-core CPU frequency under pinning vs c=4).
+Method: a minimal REPEAT=1 Fn bench (TOTAL=4000, c=4) run twice — once cpuset-pinned to 2 cores
+(pin_cpuset.sh + taskset + both override knobs, identical to the published sessions) and once
+unpinned at c=4 — while sampling `/sys/devices/system/cpu/cpu{0..7}/cpufreq/scaling_cur_freq` at
+10 Hz. Raw samples committed at `results/freqcheck_evidence/freq_{pinned,c4}.csv`.
+
+Median frequency of the loaded cores over the load window:
+
+| run | loaded cores | median | p90 | max |
+|---|---|---|---|---|
+| pinned 2-core | 0, 1 | 3.60 / 3.60 GHz | 3.90 / 3.81 GHz | 4.01 / 4.00 GHz |
+| c=4 unpinned | 0–3 | 3.30 / 3.30 / 3.30 / 3.30 GHz | 3.60 / 3.59 / 3.50 / 3.50 GHz | 4.00 / 4.00 / 4.00 / 4.00 GHz |
+
+(The box idles at ~4.0 GHz and its 4.4 GHz turbo ceiling was not reached in either regime.)
+
+**Verdict.**
+1. **No per-core DVFS asymmetry within the pinned run.** Cores 0 and 1 sat at identical
+   frequencies (3.60/3.60 GHz median). fnserver and the function containers both run on those two
+   cores, so the reviewer's "control plane on a faster core" channel cannot exist — the
+   second-order term from §31.7 is empirically absent.
+2. **Frequency DOES differ between regimes — the reviewer's turbo-headroom mechanism is real on
+   this box.** Pinned loaded cores run ~+9% higher (3.60 vs 3.30 GHz) and the un-pinned idle cores
+   downclock toward 400 MHz. This is now the measured cause of the 43–60% `rapl_validation_err_pct`
+   (the flat `busy_core_w` model and the whole-box `idle_w=4.3` baseline both fail under that
+   profile) — the energy-not-citable decision is evidence-backed, not hypothetical.
+3. **It does NOT confound the share.** Linux cgroup CPU-time accrues via sched_clock/rq_clock on
+   the invariant TSC, i.e. it measures wall-time-on-core, not cycles; a core at 3.6 vs 3.3 GHz
+   accrues identical CPU-time per wall-second. `cp_dynamic_share_pct` is therefore a ratio of
+   core-seconds — frequency-invariant by construction — and with cores 0/1 identical there is no
+   asymmetric channel either. Both frequency paths to the share are closed.
+4. **Instrument corroboration.** The REPEAT=1 runs reproduced the established shares (pinned 14.21
+   within the session-1/2 range 13.34–14.38; c=4 9.56 within/near the 8-core range 9.80–11.74),
+   confirming identical behavior to the published sessions.
+
+**Final status.** The 2-core row stands as the final, correct result: Fn 14.00 / OpenFaaS 7.00,
+gap +7.0 pp. Energy/carbon from pinned runs remains NOT citable, now with a measured cause.
+Mechanism (§31.7(c)) remains observed-not-explained future work.

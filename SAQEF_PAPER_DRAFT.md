@@ -253,10 +253,14 @@ presents both the machine-dependence and its asymmetry as findings.
 > The residual is a small second-order per-core-DVFS term (cores 0 vs 1 at different clocks with a
 > systematic CP-on-faster-core split), bounded but unverified. The share from this row is citable
 > with that caveat; absolute J/gCO2 are not, without re-deriving idle-w for the pinned
-> configuration. **Open verifications (external expert review, report §31.7):** (1) per-core
-> frequency parity — read `/sys/.../cpufreq/scaling_cur_freq` (or turbostat) during a pinned run
-> vs the c=4 run; (2) mechanism (future work): `perf stat -e context-switches,migrations` on
-> fnserver at 2 vs 8 cores to explain the asymmetric sensitivity.
+> configuration. **Frequency-parity verification — CLOSED (2026-08-06; report §31.8).** Direct
+> `scaling_cur_freq` sampling during a pinned run vs a c=4 run found the pinned loaded cores at
+> **3.60/3.60 GHz (identical — no per-core DVFS asymmetry)** vs **3.30 GHz** at c=4. The ~+9%
+> frequency rise under pinning is real and is the measured cause of the RAPL error above, but it
+> does not confound the share: Linux CPU-time accrues via the invariant TSC (wall-time-on-core,
+> not cycles), so a ratio of CPU-times is frequency-invariant by construction, and with cores 0/1
+> at identical clocks there is no CP-on-faster-core channel either. **Mechanism remains future
+> work:** `perf stat -e context-switches,migrations` on fnserver at 2 vs 8 cores.
 
 ---
 
