@@ -1086,3 +1086,53 @@ Median frequency of the loaded cores over the load window:
 **Final status.** The 2-core row stands as the final, correct result: Fn 14.00 / OpenFaaS 7.00,
 gap +7.0 pp. Energy/carbon from pinned runs remains NOT citable, now with a measured cause.
 Mechanism (§31.7(c)) remains observed-not-explained future work.
+
+### 31.9 Structural isolation guard + drift analysis (2026-08-06) — allowlist review item CLOSED
+
+**Latest external review (after §31.8).** Two parts, both dispositioned here:
+(a) **Frequency-parity pushback — RETRACTED BY THE REVIEWER.** On the invariant-TSC argument
+(§31.8 verdict 3) the reviewer withdrew the validity-gap concern: "your developer is right, and I
+was wrong to press on it as a validity gap." It is downgraded to an optional cheap mechanism lead
+only (whether Fn's share would move if fnserver ran on a faster core than the functions) and is
+recorded as future work, not a gate.
+(b) **Allowlist/isolation concern — ACCEPTED, and fixed here.** The reviewer confirmed at code
+level that the allowlist is a real structural gap: `sample_totals()` (saqef_harness.py, lines
+721–725) folds a container matching the fn substring (e.g. `hello`) into `fn_cpu` when
+`fn_allow_active`; the `unclassified_cpu_s` bucket only catches containers matching NEITHER cp
+NOR fn, so a wrong-platform-but-name-matching stray is invisible. The reviewer also flagged that
+`pin_cpuset.sh` pins "every running container" with no filtering. We accepted the cheap fixes
+(config changes, not measurement-methodology changes). This section records the fix + the drift
+analysis.
+
+**Code-level confirmation of the gap.** Both platforms' function images are named `hello`
+(OpenFaaS's is deployed as a swarm *service* `hello`, deliberately outside the stack). The
+`--fn-images hello` allowlist substring match therefore cannot distinguish Fn's ULID-named
+function containers from OpenFaaS's swarm replicas, and the `unclassified_cpu_s` safety net only
+catches containers matching NEITHER cp NOR fn — a wrong-platform-but-name-matching stray is
+silently folded into `fn_cpu` with all gates still green. This is exactly the mechanism of the
+discarded tainted Fn rerun in §30 (share 11.68 vs clean 10.46).
+
+**Fix implemented in `saqef_harness.py`:** new `assert_platform_isolation(platform)` called at the
+top of `run_once()` (the bench + idle-probe entry point) — fail loud, exit with an actionable
+message, before any sampling. Fn sessions assert **zero** swarm services (`docker service ls`;
+Fn never uses swarm, so any service is contamination; message names the likely `hello` offender
+and the exact removal command); OpenFaaS sessions assert **no `fnserver` container** (inverse
+direction). On docker-command failure (e.g. swarm not enabled) the guard is lenient — no services
+can exist without swarm, so returncode!=0 is treated as clean. Both failure paths verified by
+injection test; clean passes verified on the live box. This is a config/precondition change only
+— no measurement-path or methodology change, and it does not invalidate any published run (every
+citable run already satisfied the stronger form of this discipline). `pin_cpuset.sh` (the 
+core-restricted variant) remains warning-free by design: it pins whatever is running, so the
+isolation guard above is what protects pinned runs from a stray wrong-platform container.
+
+**Drift analysis (expert's container-accumulation hypothesis) — REJECTED on existing data.**
+Expert suggested the Fn run-order drift (CV ~8.4%, runs 4–5 climbing to ~11.7) might be container
+accumulation (`docker ps -a` growth across runs 1→5). Existing `results/fn_cpubound_baremetal`
+per-run summaries show the opposite: live container counts across runs 1–5 were **11, 11, 9, 9, 9
+— flat-to-shrinking**, not growing. The drift instead lives in fnserver itself: control-plane CPU
+grew monotonically 6.07 → 6.48 → 6.56 → 7.57 → 7.54 s across the five runs (+24%) with wall time
+16.7 → 17.6 s, while the function-side denominator stayed flat. So the run-order trend is a real
+fnserver-side effect (consistent with frequency/turbo settling or fnserver warm-up, NOT container
+GC), it does not change the reported median, and the only citable concern it raises is honest
+presentation of the spread — already done (CV reported in every table). A micro-benchmark of
+fnserver's scheduler behavior is future work per §31.7(c).
