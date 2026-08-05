@@ -973,7 +973,8 @@ Fn session 2: 13.69 / 14.08 / 14.38 / 14.28 / 14.07 → **median 14.08** (CV 1.9
 session 2: 6.90 / 7.17 / 7.20 / 7.11 / 7.27 → **median 7.17** (CV 2.0%). Gap **6.91 pp**.
 
 Across the two independent sessions: Fn 13.91/14.08 (median 14.00), OpenFaaS 6.82/7.17 (median
-7.00), **gap 7.09/6.91 pp — CV 1.3% across sessions**. Tight agreement, not a one-off. This is the
+7.00), **gap 7.09/6.91 pp across sessions** — reproduced to within 0.2 pp, both sessions at full
+REPEAT=5 with per-run gates. This is the
 paper's 2-core row. `host_sat` 98.3–98.7% everywhere → `host_saturated=true` (c=4 > 2 pinned
 cores) → latency/QoS from this pair is NOT citable, same discipline as the c=8 sensitivity rows.
 
@@ -999,3 +1000,49 @@ un-pinned-but-present idle cores' package contribution no longer matches the who
 ONLY citable number from this experiment. Closing the energy question would require re-deriving
 idle-w for the pinned configuration and confirming per-core frequency parity (scaling_cur_freq /
 turbostat) between the pinned and full-core runs — recorded here as open, not run.
+
+### 31.7 External expert review (2026-08-06) — stored record + disposition
+
+An independent reviewer audited the 2-core experiment. Full review (verbatim) was delivered in the
+session; this is the substantive record and the disposition agreed here.
+
+**What the reviewer credited (earned, publishable):**
+- The core-count effect is real and properly earned: same-instrument, controlled, gate-passing
+  confirmation (2.79 pp → 7.09 pp when pinning THIS box to 2 cores), reproduced in a full
+  independent second session. "The strongest result in the whole thread."
+- The instrument discipline — catching the numerator/ceiling pinning bug via the `host_plausible`
+  gate — is itself a research contribution, and the machine-dependence of the widely-used 5 pp
+  threshold is a publishable methodological point on its own.
+
+**Two technical debts raised, and their disposition:**
+
+1. **RAPL 43–60% under pinning = possible confound beyond energy.** The reviewer's mechanism: under
+   cpuset pinning, fewer active cores → more turbo headroom per core → cores 0–1 may boost higher
+   than in the c=4/c=8 configs → per-core power/frequency differs physically, not just a model bug;
+   and if a boosted core does more work per cgroup-CPU-second, the reviewer argued the CPU-share
+   number could be confounded too. **Disposition:** the energy point stands (hard no on J/gCO2 —
+   same conclusion as §31). The share point is first-order cancelled by construction: numerator and
+   denominator both accrue cgroup CPU-time on the same 2 pinned cores, and Linux CPU-time is
+   frequency-normalized, so a common boost cancels in the ratio. The genuine residual is a
+   second-order per-core-DVFS term (cores 0 vs 1 at different clocks; a systematic
+   CP-on-faster-core split would bias the ratio). **Open verification (not run — reviewer: "not the
+   paper yet" without it):** read `/sys/devices/system/cpu/cpu*/cpufreq/scaling_cur_freq` (or
+   turbostat) during a pinned run vs a c=4 run. Cheap, decisive, recorded as the single gate
+   between "defensible with caveat" and "fully closed."
+
+2. **"CV 1.3% across sessions" reads as statistical reproducibility from n=2.** **Disposition: this
+   concern is already satisfied and was a misreading of the evidence.** Both sessions ran the FULL
+   REPEAT=5 protocol with per-run gate tables (delta 6/6, host_plausible, coverage%) — identical
+   rigor to every other citable number in the study; the n=2 counts independent SESSIONS (each
+   containing 5 runs), not runs. The "CV across sessions" phrasing has been removed everywhere
+   (AGENTS.md, paper §5.5) in favor of "session gaps 7.09 and 6.91 pp, reproduced to within
+   0.2 pp."
+
+**Third item — mechanism still open (agreed).** The asymmetric sensitivity (Fn +33–34%, OpenFaaS
+flat-to-lower) is an observation, not an explanation, and stays labeled as such. Concrete
+investigation recorded for future work: `perf stat -e context-switches,migrations` on the fnserver
+process (or `/proc/<pid>/status` voluntary_ctxt_switches) at 2 vs 8 cores; plus process/thread-model
+comparison vs OpenFaaS's gateway+queue-worker+of-watchdog path.
+
+**Disposition summary:** results are publishable as the core-count effect with the frequency-parity
+verification explicitly open (and energy-not-citable flagged); the mechanism is honest future work.
