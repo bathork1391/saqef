@@ -32,6 +32,8 @@ a contention-robust discriminator. Decision gate: platform gap in the share must
   host_sat ~74–77% -> `host_saturated=false`, coverage 100%, delta-map 6/6, delta%~0):
   Fn median `cp_dynamic_share_pct` **10.46** (9.80–11.74, CV 8.4% — run-order drift on fnserver,
   runs 4–5 ~11.7) vs OpenFaaS **7.67** (6.80–7.83, CV 6.4%) -> **gap ≈ 2.8 pp < 5 pp GATE FAILS**.
+  (Drift is a BOUNDED warm-up/settling transient, not accumulation: fnserver RSS flat 34→33 MB
+  across runs 2–5, CPU% plateaus then dips at run_5 — §31.9.)
 - **Regime-dependence is now the finding.** The gap is ~8 pp on the saturated 2-core codespace
   but ~2.8 pp on an 8-core box with headroom; the direction is stable (Fn's share higher) but
   the magnitude collapses. Cause: Fn's per-request CP cost is 1.22 ms under saturation vs
