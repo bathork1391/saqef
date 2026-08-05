@@ -13,6 +13,7 @@
 # Env overrides for faster iteration:
 #   SAQEF_TOTAL SAQEF_CONCURRENCY SAQEF_DURATION SAQEF_WARMUP SAQEF_REPEAT
 #   SAQEF_FN_IMAGES (function-image allowlist; default = the hello function image)
+#   SAQEF_IDLE_W (machine-measured idle package watts for the energy model; default = 30)
 #   e.g.  SAQEF_TOTAL=600 SAQEF_REPEAT=1 ./run_saqef.sh bench
 #   If SAQEF_REPEAT < 5, results go to results/<name>_quick (never the final
 #   outdir), so a 1-run pass cannot be mistaken for the 5-run publication set.
@@ -50,7 +51,10 @@ CP="fnserver"
 FN_IMAGES="${SAQEF_FN_IMAGES:-hello}"
 FN_IMAGES_ARG=""
 [ -n "$FN_IMAGES" ] && FN_IMAGES_ARG="--fn-images $FN_IMAGES"
-OUT="results/fn_cpubound_v9"
+OUT="${SAQEF_OUT:-results/fn_cpubound_v9}"
+IDLE_W="${SAQEF_IDLE_W:-}"
+IDLE_W_ARG=""
+[ -n "$IDLE_W" ] && IDLE_W_ARG="--idle-w $IDLE_W"
 VERIFY_N=100
 VERIFY_BUDGET_MS=5
 TOTAL="${SAQEF_TOTAL:-3000}"
@@ -156,13 +160,13 @@ run_bench() {
     echo "#######################################################################"
     echo ""
     python3 saqef_harness.py --url "$URL" --platform "$PLATFORM" --cp-containers "$CP" \
-      $FN_IMAGES_ARG \
+      $FN_IMAGES_ARG $IDLE_W_ARG \
       --total "$TOTAL" --concurrency "$CONCURRENCY" --duration "$DURATION" \
       --warmup "$WARMUP" --repeat "$REPEAT" \
       --sampler cgroup --delta-check --loadgen hey --outdir "${OUT}_quick"
   else
     python3 saqef_harness.py --url "$URL" --platform "$PLATFORM" --cp-containers "$CP" \
-      $FN_IMAGES_ARG \
+      $FN_IMAGES_ARG $IDLE_W_ARG \
       --total "$TOTAL" --concurrency "$CONCURRENCY" --duration "$DURATION" \
       --warmup "$WARMUP" --repeat "$REPEAT" \
       --sampler cgroup --delta-check --loadgen hey --outdir "$OUT"

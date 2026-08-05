@@ -15,6 +15,7 @@
 # Env overrides for faster iteration:
 #   SAQEF_TOTAL SAQEF_CONCURRENCY SAQEF_DURATION SAQEF_WARMUP SAQEF_REPEAT
 #   SAQEF_FN_IMAGES SAQEF_REPLICAS SAQEF_OUT
+#   SAQEF_IDLE_W (machine-measured idle package watts for the energy model; default = 30)
 #   e.g.  SAQEF_TOTAL=600 SAQEF_REPEAT=1 ./run_openfaas.sh bench
 #   If SAQEF_REPEAT < 5, results go to <SAQEF_OUT>_quick (never the final
 #   outdir), so a 1-run pass cannot be mistaken for the 5-run publication set.
@@ -30,6 +31,9 @@ FN_IMAGES="${SAQEF_FN_IMAGES:-hello}"
 FN_IMAGES_ARG=""
 [ -n "$FN_IMAGES" ] && FN_IMAGES_ARG="--fn-images $FN_IMAGES"
 OUT="${SAQEF_OUT:-results/openfaas_cpubound}"
+IDLE_W="${SAQEF_IDLE_W:-}"
+IDLE_W_ARG=""
+[ -n "$IDLE_W" ] && IDLE_W_ARG="--idle-w $IDLE_W"
 REPLICAS="${SAQEF_REPLICAS:-4}"
 VERIFY_N=100
 VERIFY_BUDGET_MS=5
@@ -42,7 +46,9 @@ FULL_REPEAT=5
 
 setup_stack() {
   echo "=== [stack] (re)deploy OpenFaaS swarm stack from OPENFAAS_DEPLOY/ ==="
-  docker swarm init >/dev/null 2>&1 || true
+  # advertise-addr 127.0.0.1: single-node swarm; wifi/multi-homed hosts otherwise
+  # fail to auto-pick an address ("could not choose an IP address to advertise")
+  docker swarm init --advertise-addr 127.0.0.1 >/dev/null 2>&1 || true
   (cd OPENFAAS_DEPLOY && docker stack deploy openfaas -c docker-compose.yml) || exit 1
   echo "waiting for gateway (0.8.3, no auth) at $URL ..."
   for i in $(seq 1 45); do
@@ -86,13 +92,13 @@ run_bench() {
     echo "#######################################################################"
     echo ""
     python3 saqef_harness.py --url "$URL" --platform "$PLATFORM" --cp-containers "$CP" \
-      $FN_IMAGES_ARG \
+      $FN_IMAGES_ARG $IDLE_W_ARG \
       --total "$TOTAL" --concurrency "$CONCURRENCY" --duration "$DURATION" \
       --warmup "$WARMUP" --repeat "$REPEAT" \
       --sampler cgroup --delta-check --loadgen hey --outdir "${OUT}_quick"
   else
     python3 saqef_harness.py --url "$URL" --platform "$PLATFORM" --cp-containers "$CP" \
-      $FN_IMAGES_ARG \
+      $FN_IMAGES_ARG $IDLE_W_ARG \
       --total "$TOTAL" --concurrency "$CONCURRENCY" --duration "$DURATION" \
       --warmup "$WARMUP" --repeat "$REPEAT" \
       --sampler cgroup --delta-check --loadgen hey --outdir "$OUT"

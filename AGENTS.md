@@ -18,31 +18,48 @@ a contention-robust discriminator. Decision gate: platform gap in the share must
   the honest saturated-box flag, not a failure).
 
 ## Current state (2026-08-05)
-- Codespace (shared 2-vCPU VM, **no RAPL**, ~100% saturated): OpenFaaS **settled**.
-- Concurrency parity (expert Finding A): a GIL-bound single Python process is ~1-way, so the
-  function runs as **N = 2 x cpu_count static replicas** (`docker service scale hello=N`;
-  statically scaled before the run to bypass autoscaler lag). `gunicorn` was rejected.
-- Final median `cp_dynamic_share_pct`: OpenFaaS **15.82** (sessions 15.87 / 16.29 / 15.82;
-  8-replica confirm = 16.12 -> replica-insensitive) vs Fn **23.59–24.59** -> gap ~8 pp, gate cleared.
-- 1-replica OpenFaaS read 11.1 — the ratio is **NOT** scheduling-order-invariant; 1-replica
-  understated CP (CP idle-waits on the starved function). Use 4-replica numbers.
-- All gates pass on the committed set (delta-check 6/6, delta% ~0, coverage 100%, host & physical
-  plausible). Expert review Finding A and B both resolved.
-- Standing caveats: saturated + co-tenanted VM -> latency/QoS NOT citable (only the share is
-  contention-robust); no RAPL -> energy/carbon use the CPU-time model (`busy_core_w` 2/3.5/5 W
-  sensitivity band, share is invariant across it).
+- **Bare-metal milestone COMPLETE** (8-core Ubuntu, RAPL available). Results in
+  `results/fn_cpubound_baremetal` + `results/openfaas_cpubound_baremetal` (protocol-conformant,
+  all gates green). Old saturated-invalid runs preserved in `*_sat_invalid/` (do not cite).
+- **RAPL validated.** Machine idle package power measured **4.3 W** (60 s RAPL read, stack up).
+  The hardcoded `idle_w=30` gave `rapl_validation_err_pct` ~45% everywhere; with
+  `SAQEF_IDLE_W=4.3` validation settles to **4.2–5.5% on Fn** (runs 4–5) and **4.2–8.2% on
+  OpenFaaS**, steady-state (OF run_1/2 transient 34.6/25.9; Fn run_1–3 transient 36→19→19 — both
+  platforms show the same ~2-run stack/frequency settling). The earlier "0.9–6.1% on Fn" figure
+  belongs to the DISCARDED tainted run and must NOT be cited. `SAQEF_IDLE_W` was added to both
+  runner scripts (knob only, no measurement-path change).
+- **Protocol-conformant bare-metal results** (`c=4 < cpu_count`, `TOTAL=10000`, 5 runs,
+  host_sat ~74–77% -> `host_saturated=false`, coverage 100%, delta-map 6/6, delta%~0):
+  Fn median `cp_dynamic_share_pct` **10.46** (9.80–11.74, CV 8.4% — run-order drift on fnserver,
+  runs 4–5 ~11.7) vs OpenFaaS **7.67** (6.80–7.83, CV 6.4%) -> **gap ≈ 2.8 pp < 5 pp GATE FAILS**.
+- **Regime-dependence is now the finding.** The gap is ~8 pp on the saturated 2-core codespace
+  but ~2.8 pp on an 8-core box with headroom; the direction is stable (Fn's share higher) but
+  the magnitude collapses. Cause: Fn's per-request CP cost is 1.22 ms under saturation vs
+  0.66 ms here (0.56 ms for OpenFaaS both regimes). OpenFaaS's share is conservative (of-watchdog
+  proxies inside the function cgroup), so the true gap is even smaller. The 5 pp decision gate
+  is therefore NOT machine-invariant; paper must be reframed (per-machine-pair gate + the
+  machine-dependence as a contribution).
+- **Concurrency sensitivity (c=8, REPEAT=2, `*_c8_quick`): flat within the box.** Fn 10.47,
+  OpenFaaS 7.62 at c=8 (host_sat ~91–93%) vs c=4 values 10.46/7.67 — the share and gap are
+  invariant to concurrency/saturation on the 8-core box. The ~8 pp codespace gap is therefore a
+  machine (CPU-count) effect, not a load effect: both platforms' shares are ~2.3× higher on the
+  2-core VM, and Fn inflates proportionally more.
+- QoS now citable for the first time (host_sat <85%): Fn p50 6.5 / p99 8.9 ms @ 597 rps;
+  OpenFaaS p50 7.2 / p99 12.1 ms @ 532 rps; SLO compliance 1.0 both.
+- Codespace numbers (Fn 23.59–24.59 vs OpenFaaS 15.82, gap ~8 pp) remain the saturated-regime
+  dataset; the expert-review Findings A/B resolutions still stand.
 
-## Next milestone — bare-metal (Linux, RAPL)
-1. Ubuntu LTS; docker engine + compose; `modprobe msr` if RAPL needs it.
-2. `git clone https://github.com/bathork1391/saqef.git` (or `git pull` an existing clone).
-3. `python3 saqef_harness.py --check` — RAPL should be available here -> real energy, which
-   validates the CPU-time model via `rapl_validation_err_pct`.
-4. Deploy Fn -> `./run_saqef.sh all` -> `results/fn_cpubound_baremetal`.
-5. Deploy OpenFaaS -> `./run_openfaas.sh stack` then scale `hello` to 2 x cpu_count, then
-   `./run_openfaas.sh all` -> `results/openfaas_cpubound_baremetal`.
-6. Compare shares on the SAME box (this is the point — same hardware, both platforms).
-7. Keep `--concurrency < cpu_count` for valid latency/QoS claims.
-- Expect the numbers to shift (both platforms) — the gate is the gap, re-measured identically.
+## Bare-metal protocol (proven on this box)
+1. `sudo bash setup_baremetal.sh` (docker + CLIs + RAPL readable by the user).
+2. Calibrate idle watts: 60 s RAPL read with the platform up, zero traffic -> `SAQEF_IDLE_W`.
+3. Run OpenFaaS FIRST (its function service must be gone before Fn — see pitfall below):
+   `SAQEF_REPLICAS=16 SAQEF_CONCURRENCY=4 SAQEF_TOTAL=10000 SAQEF_REPEAT=5
+    SAQEF_IDLE_W=<W> SAQEF_OUT=results/openfaas_cpubound_baremetal sudo bash run_openfaas.sh all`
+4. `sudo docker stack rm openfaas` **and** `sudo docker service rm hello`, then Fn:
+   `SAQEF_CONCURRENCY=4 SAQEF_TOTAL=10000 SAQEF_REPEAT=5
+    SAQEF_IDLE_W=<W> SAQEF_OUT=results/fn_cpubound_baremetal sudo bash run_saqef.sh all`
+5. `gates` must show `host_saturated=false` (else latency not citable) and the share comparison
+   decides the paper question.
 
 ## Key pitfalls (learned, expensive)
 - GIL concurrency parity: static replicas, never single-replica for the headline.
@@ -52,6 +69,11 @@ a contention-robust discriminator. Decision gate: platform gap in the share must
   `wall_s`. A 112%-style break is a window artifact, not a real anomaly.
 - Delta-check: verify 6/6 `ok` AND delta% ~0 in the gates table before committing results.
 - OpenFaaS autoscaler lag: scale statically before the run.
+- **`docker stack rm openfaas` does NOT remove the `hello` function service** (it is deployed
+  outside the stack). Its replicas fold into Fn's `fn_cpu` via the `hello` image allowlist and
+  taint the Fn run — always `docker service rm hello` before Fn.
+- **Calibrate `SAQEF_IDLE_W`** to the machine's measured idle package watts (60 s RAPL read,
+  stack up, zero traffic) or `rapl_validation_err_pct` stays ~45% on bare metal.
 - Codespace git push needs device-flow `gh auth login` after `unset GITHUB_TOKEN`.
 
 ## Durable knowledge (read these for depth)

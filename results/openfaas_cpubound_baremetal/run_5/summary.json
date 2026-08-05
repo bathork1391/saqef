@@ -1,0 +1,393 @@
+{
+  "platform": "openfaas",
+  "url": "http://127.0.0.1:8080/function/hello",
+  "mode": "load",
+  "wall_s": 19.25,
+  "wall_harness_s": 19.25,
+  "sampling_covered_s": 19.25,
+  "requests": 10000,
+  "successes": 10000,
+  "availability": 1.0,
+  "throughput_rps": 519.39,
+  "latency_ms": {
+    "p50": 7.2,
+    "p90": 8.4,
+    "p99": 12.7,
+    "max": 19.7
+  },
+  "slo_ms": 500.0,
+  "slo_compliance": 1.0,
+  "compliance_source": "hey_interp",
+  "energy_J": {
+    "total": 337.3,
+    "dynamic": 254.5,
+    "control_plane": 19.5,
+    "function": 235.0
+  },
+  "cp_share_pct": 5.79,
+  "cp_dynamic_share_pct": 7.67,
+  "cpu_sec": {
+    "control_plane": 5.58,
+    "function": 67.14
+  },
+  "cpu_sec_ceiling": 154.03,
+  "physical_plausible": true,
+  "unclassified_cpu_s": 0.0,
+  "container_inventory": [
+    "hello.1.vzqlhs9kt9vd3plpk3mzhd325",
+    "hello.10.tqv5zadvgdhjf2m2666a8skty",
+    "hello.11.s9cp3jcjl4anm7fbyrebknhyr",
+    "hello.12.pwdax3vapxcywvrhwv1yng0ux",
+    "hello.13.rkcvkwio270wm9bsuq6ulas3o",
+    "hello.14.mjud7ji8bp2o91r3ga9nv122d",
+    "hello.15.oh69aw7lhxlui9lhlw814hse3",
+    "hello.16.xl5371kjnrrmica53byl0e5v7",
+    "hello.2.118y1kqaloovi9krrhl7t0vci",
+    "hello.3.47njx2biupqpmt4cof6j10z9g",
+    "hello.4.pxfk9xdda905ftt4n2oxz9srx",
+    "hello.5.k3k5d9g7xpjheye78909pyz8h",
+    "hello.6.vb77u0ndwhjvqa3atwxo7ldhw",
+    "hello.7.gb003xsdn3yb3qb2sdoqkyl2f",
+    "hello.8.5zbqbzhvtyjwuqhcoifypyxfp",
+    "hello.9.ye713ztas0gb75hetbxfwkg43",
+    "openfaas_alertmanager.1.4gbwxnjk5fo6p60c8c54qqlgl",
+    "openfaas_faas-swarm.1.0xmigbiga07u48omm2kssstcu",
+    "openfaas_gateway.1.rffqg90tqtir7cnggu8tbjckl",
+    "openfaas_nats.1.u9lpwsk5alrsvvs8qc05xzj8r",
+    "openfaas_prometheus.1.pnxxj4691h9ro2mun1cecve3n",
+    "openfaas_queue-worker.1.6vi645toc6rq4dfv4ov4wscop"
+  ],
+  "container_labels": {
+    "hello.1.vzqlhs9kt9vd3plpk3mzhd325": {
+      "image": "hello:latest",
+      "labels": [
+        "com.docker.swarm.node.id=um81p3fox793t97gw5y94zn75",
+        "com.docker.swarm.service.id=mmqpa0udw8miuzccmdznz0324",
+        "com.docker.swarm.service.name=hello",
+        "com.docker.swarm.task.id=vzqlhs9kt9vd3plpk3mzhd325",
+        "com.docker.swarm.task.name=hello.1.vzqlhs9kt9vd3plpk3mzhd325",
+        "com.docker.swarm.task="
+      ]
+    },
+    "hello.10.tqv5zadvgdhjf2m2666a8skty": {
+      "image": "hello:latest",
+      "labels": [
+        "com.docker.swarm.node.id=um81p3fox793t97gw5y94zn75",
+        "com.docker.swarm.service.id=mmqpa0udw8miuzccmdznz0324",
+        "com.docker.swarm.service.name=hello",
+        "com.docker.swarm.task.id=tqv5zadvgdhjf2m2666a8skty",
+        "com.docker.swarm.task.name=hello.10.tqv5zadvgdhjf2m2666a8skty",
+        "com.docker.swarm.task="
+      ]
+    },
+    "hello.11.s9cp3jcjl4anm7fbyrebknhyr": {
+      "image": "hello:latest",
+      "labels": [
+        "com.docker.swarm.node.id=um81p3fox793t97gw5y94zn75",
+        "com.docker.swarm.service.id=mmqpa0udw8miuzccmdznz0324",
+        "com.docker.swarm.service.name=hello",
+        "com.docker.swarm.task.id=s9cp3jcjl4anm7fbyrebknhyr",
+        "com.docker.swarm.task.name=hello.11.s9cp3jcjl4anm7fbyrebknhyr",
+        "com.docker.swarm.task="
+      ]
+    },
+    "hello.12.pwdax3vapxcywvrhwv1yng0ux": {
+      "image": "hello:latest",
+      "labels": [
+        "com.docker.swarm.node.id=um81p3fox793t97gw5y94zn75",
+        "com.docker.swarm.service.id=mmqpa0udw8miuzccmdznz0324",
+        "com.docker.swarm.service.name=hello",
+        "com.docker.swarm.task.id=pwdax3vapxcywvrhwv1yng0ux",
+        "com.docker.swarm.task.name=hello.12.pwdax3vapxcywvrhwv1yng0ux",
+        "com.docker.swarm.task="
+      ]
+    },
+    "hello.13.rkcvkwio270wm9bsuq6ulas3o": {
+      "image": "hello:latest",
+      "labels": [
+        "com.docker.swarm.node.id=um81p3fox793t97gw5y94zn75",
+        "com.docker.swarm.service.id=mmqpa0udw8miuzccmdznz0324",
+        "com.docker.swarm.service.name=hello",
+        "com.docker.swarm.task.id=rkcvkwio270wm9bsuq6ulas3o",
+        "com.docker.swarm.task.name=hello.13.rkcvkwio270wm9bsuq6ulas3o",
+        "com.docker.swarm.task="
+      ]
+    },
+    "hello.14.mjud7ji8bp2o91r3ga9nv122d": {
+      "image": "hello:latest",
+      "labels": [
+        "com.docker.swarm.node.id=um81p3fox793t97gw5y94zn75",
+        "com.docker.swarm.service.id=mmqpa0udw8miuzccmdznz0324",
+        "com.docker.swarm.service.name=hello",
+        "com.docker.swarm.task.id=mjud7ji8bp2o91r3ga9nv122d",
+        "com.docker.swarm.task.name=hello.14.mjud7ji8bp2o91r3ga9nv122d",
+        "com.docker.swarm.task="
+      ]
+    },
+    "hello.15.oh69aw7lhxlui9lhlw814hse3": {
+      "image": "hello:latest",
+      "labels": [
+        "com.docker.swarm.node.id=um81p3fox793t97gw5y94zn75",
+        "com.docker.swarm.service.id=mmqpa0udw8miuzccmdznz0324",
+        "com.docker.swarm.service.name=hello",
+        "com.docker.swarm.task.id=oh69aw7lhxlui9lhlw814hse3",
+        "com.docker.swarm.task.name=hello.15.oh69aw7lhxlui9lhlw814hse3",
+        "com.docker.swarm.task="
+      ]
+    },
+    "hello.16.xl5371kjnrrmica53byl0e5v7": {
+      "image": "hello:latest",
+      "labels": [
+        "com.docker.swarm.node.id=um81p3fox793t97gw5y94zn75",
+        "com.docker.swarm.service.id=mmqpa0udw8miuzccmdznz0324",
+        "com.docker.swarm.service.name=hello",
+        "com.docker.swarm.task.id=xl5371kjnrrmica53byl0e5v7",
+        "com.docker.swarm.task.name=hello.16.xl5371kjnrrmica53byl0e5v7",
+        "com.docker.swarm.task="
+      ]
+    },
+    "hello.2.118y1kqaloovi9krrhl7t0vci": {
+      "image": "hello:latest",
+      "labels": [
+        "com.docker.swarm.node.id=um81p3fox793t97gw5y94zn75",
+        "com.docker.swarm.service.id=mmqpa0udw8miuzccmdznz0324",
+        "com.docker.swarm.service.name=hello",
+        "com.docker.swarm.task.id=118y1kqaloovi9krrhl7t0vci",
+        "com.docker.swarm.task.name=hello.2.118y1kqaloovi9krrhl7t0vci",
+        "com.docker.swarm.task="
+      ]
+    },
+    "hello.3.47njx2biupqpmt4cof6j10z9g": {
+      "image": "hello:latest",
+      "labels": [
+        "com.docker.swarm.node.id=um81p3fox793t97gw5y94zn75",
+        "com.docker.swarm.service.id=mmqpa0udw8miuzccmdznz0324",
+        "com.docker.swarm.service.name=hello",
+        "com.docker.swarm.task.id=47njx2biupqpmt4cof6j10z9g",
+        "com.docker.swarm.task.name=hello.3.47njx2biupqpmt4cof6j10z9g",
+        "com.docker.swarm.task="
+      ]
+    },
+    "hello.4.pxfk9xdda905ftt4n2oxz9srx": {
+      "image": "hello:latest",
+      "labels": [
+        "com.docker.swarm.node.id=um81p3fox793t97gw5y94zn75",
+        "com.docker.swarm.service.id=mmqpa0udw8miuzccmdznz0324",
+        "com.docker.swarm.service.name=hello",
+        "com.docker.swarm.task.id=pxfk9xdda905ftt4n2oxz9srx",
+        "com.docker.swarm.task.name=hello.4.pxfk9xdda905ftt4n2oxz9srx",
+        "com.docker.swarm.task="
+      ]
+    },
+    "hello.5.k3k5d9g7xpjheye78909pyz8h": {
+      "image": "hello:latest",
+      "labels": [
+        "com.docker.swarm.node.id=um81p3fox793t97gw5y94zn75",
+        "com.docker.swarm.service.id=mmqpa0udw8miuzccmdznz0324",
+        "com.docker.swarm.service.name=hello",
+        "com.docker.swarm.task.id=k3k5d9g7xpjheye78909pyz8h",
+        "com.docker.swarm.task.name=hello.5.k3k5d9g7xpjheye78909pyz8h",
+        "com.docker.swarm.task="
+      ]
+    },
+    "hello.6.vb77u0ndwhjvqa3atwxo7ldhw": {
+      "image": "hello:latest",
+      "labels": [
+        "com.docker.swarm.node.id=um81p3fox793t97gw5y94zn75",
+        "com.docker.swarm.service.id=mmqpa0udw8miuzccmdznz0324",
+        "com.docker.swarm.service.name=hello",
+        "com.docker.swarm.task.id=vb77u0ndwhjvqa3atwxo7ldhw",
+        "com.docker.swarm.task.name=hello.6.vb77u0ndwhjvqa3atwxo7ldhw",
+        "com.docker.swarm.task="
+      ]
+    },
+    "hello.7.gb003xsdn3yb3qb2sdoqkyl2f": {
+      "image": "hello:latest",
+      "labels": [
+        "com.docker.swarm.node.id=um81p3fox793t97gw5y94zn75",
+        "com.docker.swarm.service.id=mmqpa0udw8miuzccmdznz0324",
+        "com.docker.swarm.service.name=hello",
+        "com.docker.swarm.task.id=gb003xsdn3yb3qb2sdoqkyl2f",
+        "com.docker.swarm.task.name=hello.7.gb003xsdn3yb3qb2sdoqkyl2f",
+        "com.docker.swarm.task="
+      ]
+    },
+    "hello.8.5zbqbzhvtyjwuqhcoifypyxfp": {
+      "image": "hello:latest",
+      "labels": [
+        "com.docker.swarm.node.id=um81p3fox793t97gw5y94zn75",
+        "com.docker.swarm.service.id=mmqpa0udw8miuzccmdznz0324",
+        "com.docker.swarm.service.name=hello",
+        "com.docker.swarm.task.id=5zbqbzhvtyjwuqhcoifypyxfp",
+        "com.docker.swarm.task.name=hello.8.5zbqbzhvtyjwuqhcoifypyxfp",
+        "com.docker.swarm.task="
+      ]
+    },
+    "hello.9.ye713ztas0gb75hetbxfwkg43": {
+      "image": "hello:latest",
+      "labels": [
+        "com.docker.swarm.node.id=um81p3fox793t97gw5y94zn75",
+        "com.docker.swarm.service.id=mmqpa0udw8miuzccmdznz0324",
+        "com.docker.swarm.service.name=hello",
+        "com.docker.swarm.task.id=ye713ztas0gb75hetbxfwkg43",
+        "com.docker.swarm.task.name=hello.9.ye713ztas0gb75hetbxfwkg43",
+        "com.docker.swarm.task="
+      ]
+    },
+    "openfaas_alertmanager.1.4gbwxnjk5fo6p60c8c54qqlgl": {
+      "image": "prom/alertmanager:v0.18.0",
+      "labels": [
+        "com.docker.stack.namespace=openfaas",
+        "com.docker.swarm.node.id=um81p3fox793t97gw5y94zn75",
+        "com.docker.swarm.service.id=zge4olo3a4rlrvt9tc5tds49i",
+        "com.docker.swarm.service.name=openfaas_alertmanager",
+        "com.docker.swarm.task.id=4gbwxnjk5fo6p60c8c54qqlgl",
+        "com.docker.swarm.task.name=openfaas_alertmanager.1.4gbwxnjk5fo6p60c8c54qqlgl",
+        "com.docker.swarm.task=",
+        "maintainer=The Prometheus Authors <prometheus-developers@googlegroups.com>"
+      ]
+    },
+    "openfaas_faas-swarm.1.0xmigbiga07u48omm2kssstcu": {
+      "image": "functions/faas-swarm:0.3.3",
+      "labels": [
+        "com.docker.stack.namespace=openfaas",
+        "com.docker.swarm.node.id=um81p3fox793t97gw5y94zn75",
+        "com.docker.swarm.service.id=uwrk8aco7gitnnu9bpiqwd8m1",
+        "com.docker.swarm.service.name=openfaas_faas-swarm",
+        "com.docker.swarm.task.id=0xmigbiga07u48omm2kssstcu",
+        "com.docker.swarm.task.name=openfaas_faas-swarm.1.0xmigbiga07u48omm2kssstcu",
+        "com.docker.swarm.task="
+      ]
+    },
+    "openfaas_gateway.1.rffqg90tqtir7cnggu8tbjckl": {
+      "image": "functions/gateway:0.8.3",
+      "labels": [
+        "com.docker.stack.namespace=openfaas",
+        "com.docker.swarm.node.id=um81p3fox793t97gw5y94zn75",
+        "com.docker.swarm.service.id=k5318kojjufb7kcipgfrmov0f",
+        "com.docker.swarm.service.name=openfaas_gateway",
+        "com.docker.swarm.task.id=rffqg90tqtir7cnggu8tbjckl",
+        "com.docker.swarm.task.name=openfaas_gateway.1.rffqg90tqtir7cnggu8tbjckl",
+        "com.docker.swarm.task=",
+        "org.label-schema.docker.schema-version=1.0",
+        "org.label-schema.license=MIT",
+        "org.label-schema.name=openfaas/faas",
+        "org.label-schema.vcs-type=Git",
+        "org.label-schema.vcs-url=https://github.com/openfaas/faas",
+        "org.label-schema.vendor=openfaas"
+      ]
+    },
+    "openfaas_nats.1.u9lpwsk5alrsvvs8qc05xzj8r": {
+      "image": "nats-streaming:0.25.6",
+      "labels": [
+        "com.docker.stack.namespace=openfaas",
+        "com.docker.swarm.node.id=um81p3fox793t97gw5y94zn75",
+        "com.docker.swarm.service.id=uonp9dbx6zzwtqnaizfkvk6ex",
+        "com.docker.swarm.service.name=openfaas_nats",
+        "com.docker.swarm.task.id=u9lpwsk5alrsvvs8qc05xzj8r",
+        "com.docker.swarm.task.name=openfaas_nats.1.u9lpwsk5alrsvvs8qc05xzj8r",
+        "com.docker.swarm.task="
+      ]
+    },
+    "openfaas_prometheus.1.pnxxj4691h9ro2mun1cecve3n": {
+      "image": "prom/prometheus:v2.11.0",
+      "labels": [
+        "com.docker.stack.namespace=openfaas",
+        "com.docker.swarm.node.id=um81p3fox793t97gw5y94zn75",
+        "com.docker.swarm.service.id=uecixeske1b24l3vg8sxb124l",
+        "com.docker.swarm.service.name=openfaas_prometheus",
+        "com.docker.swarm.task.id=pnxxj4691h9ro2mun1cecve3n",
+        "com.docker.swarm.task.name=openfaas_prometheus.1.pnxxj4691h9ro2mun1cecve3n",
+        "com.docker.swarm.task=",
+        "maintainer=The Prometheus Authors <prometheus-developers@googlegroups.com>"
+      ]
+    },
+    "openfaas_queue-worker.1.6vi645toc6rq4dfv4ov4wscop": {
+      "image": "functions/queue-worker:0.4.6",
+      "labels": [
+        "com.docker.stack.namespace=openfaas",
+        "com.docker.swarm.node.id=um81p3fox793t97gw5y94zn75",
+        "com.docker.swarm.service.id=occtwostnummeow4ciezhuyxn",
+        "com.docker.swarm.service.name=openfaas_queue-worker",
+        "com.docker.swarm.task.id=6vi645toc6rq4dfv4ov4wscop",
+        "com.docker.swarm.task.name=openfaas_queue-worker.1.6vi645toc6rq4dfv4ov4wscop",
+        "com.docker.swarm.task="
+      ]
+    }
+  },
+  "cp_peak_mem_mb": 27.2,
+  "carbon_gCO2": {
+    "op_total": 16.164,
+    "op_control_plane": 0.936,
+    "idle_band": {
+      "15": 26.035,
+      "30": 39.874,
+      "45": 53.712
+    }
+  },
+  "model": {
+    "idle_w": 4.3,
+    "busy_core_w": 3.5,
+    "pue": 1.15,
+    "ci": 150.0
+  },
+  "sensitivity": {
+    "cp_dynamic_share_pct_by_busy_w": {
+      "2.0": 7.67,
+      "3.5": 7.67,
+      "5.0": 7.67
+    },
+    "dynamic_energy_J_by_busy_w": {
+      "2.0": 145.5,
+      "3.5": 254.5,
+      "5.0": 363.6
+    },
+    "op_carbon_gCO2_by_busy_w": {
+      "2.0": 10.937,
+      "3.5": 16.164,
+      "5.0": 21.391
+    }
+  },
+  "kpi_gco2_per_slo_compliant_inv": 0.0016,
+  "kpi_gco2_per_inv_dynamic": 0.00122,
+  "embodied_dram_g_per_gb_h": 0.0317,
+  "host_cpu_sec": 119.12,
+  "host_window_s": 19.254,
+  "host_saturation_pct": 77.3,
+  "host_plausible": true,
+  "host_saturated": false,
+  "host_overhead_cpu_sec": 46.39,
+  "orchestration_cpu_sec": 51.98,
+  "orchestration_share_pct": 43.63,
+  "steal_sec": null,
+  "steal_pct": null,
+  "cp_delta_sec": 5.581,
+  "cp_sampler_vs_delta_pct": 0.0,
+  "delta_check_map": {
+    "openfaas_faas-swarm.1.0xmigbiga07u48omm2kssstcu": "ok",
+    "openfaas_prometheus.1.pnxxj4691h9ro2mun1cecve3n": "ok",
+    "openfaas_alertmanager.1.4gbwxnjk5fo6p60c8c54qqlgl": "ok",
+    "openfaas_queue-worker.1.6vi645toc6rq4dfv4ov4wscop": "ok",
+    "openfaas_nats.1.u9lpwsk5alrsvvs8qc05xzj8r": "ok",
+    "openfaas_gateway.1.rffqg90tqtir7cnggu8tbjckl": "ok"
+  },
+  "env": {
+    "cpu_count": 8,
+    "governor": "powersave",
+    "freq_mhz_before": 4000.0,
+    "freq_mhz_after": 3100.0,
+    "sampler": "cgroup",
+    "loadgen": "hey",
+    "loadgen_requested": "hey",
+    "loadgen_fallback": false
+  },
+  "rapl_validation_err_pct": 4.17,
+  "rapl_available": true,
+  "loadgen": {
+    "source": "hey",
+    "rps": 525.3839243026842,
+    "avg_ms": 7.55,
+    "errors": 0,
+    "wall_s": 19.03
+  }
+}

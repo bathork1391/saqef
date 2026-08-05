@@ -1,0 +1,173 @@
+{
+  "platform": "fn",
+  "url": "http://localhost:8080/t/app1/hello",
+  "mode": "load",
+  "wall_s": 17.62,
+  "wall_harness_s": 17.62,
+  "sampling_covered_s": 17.62,
+  "requests": 10000,
+  "successes": 10000,
+  "availability": 1.0,
+  "throughput_rps": 567.67,
+  "latency_ms": {
+    "p50": 6.7,
+    "p90": 7.7,
+    "p99": 9.7,
+    "max": 46.7
+  },
+  "slo_ms": 500.0,
+  "slo_compliance": 1.0,
+  "compliance_source": "hey_interp",
+  "energy_J": {
+    "total": 300.9,
+    "dynamic": 225.1,
+    "control_plane": 26.4,
+    "function": 198.7
+  },
+  "cp_share_pct": 8.77,
+  "cp_dynamic_share_pct": 11.72,
+  "cpu_sec": {
+    "control_plane": 7.54,
+    "function": 56.78
+  },
+  "cpu_sec_ceiling": 140.93,
+  "physical_plausible": true,
+  "unclassified_cpu_s": 0.0,
+  "container_inventory": [
+    "01KZ9BQXBKNG8G00GZJ0000005",
+    "01KZ9BQZH7NG8G00GZJ000000C",
+    "01KZ9BQZH7NG8G00GZJ000000E",
+    "01KZ9BQZH7NG8G00GZJ000000G",
+    "01KZ9BQZH8NG8G00GZJ000000J",
+    "01KZ9BQZHBNG8G00GZJ000000M",
+    "01KZ9BQZHDNG8G00GZJ000000P",
+    "01KZ9BQZHJNG8G00GZJ000000R",
+    "fnserver"
+  ],
+  "container_labels": {
+    "01KZ9BQXBKNG8G00GZJ0000005": {
+      "image": "hello:0.0.8",
+      "labels": [
+        "io.buildah.version=1.43.1"
+      ]
+    },
+    "01KZ9BQZH7NG8G00GZJ000000C": {
+      "image": "hello:0.0.8",
+      "labels": [
+        "io.buildah.version=1.43.1"
+      ]
+    },
+    "01KZ9BQZH7NG8G00GZJ000000E": {
+      "image": "hello:0.0.8",
+      "labels": [
+        "io.buildah.version=1.43.1"
+      ]
+    },
+    "01KZ9BQZH7NG8G00GZJ000000G": {
+      "image": "hello:0.0.8",
+      "labels": [
+        "io.buildah.version=1.43.1"
+      ]
+    },
+    "01KZ9BQZH8NG8G00GZJ000000J": {
+      "image": "hello:0.0.8",
+      "labels": [
+        "io.buildah.version=1.43.1"
+      ]
+    },
+    "01KZ9BQZHBNG8G00GZJ000000M": {
+      "image": "hello:0.0.8",
+      "labels": [
+        "io.buildah.version=1.43.1"
+      ]
+    },
+    "01KZ9BQZHDNG8G00GZJ000000P": {
+      "image": "hello:0.0.8",
+      "labels": [
+        "io.buildah.version=1.43.1"
+      ]
+    },
+    "01KZ9BQZHJNG8G00GZJ000000R": {
+      "image": "hello:0.0.8",
+      "labels": [
+        "io.buildah.version=1.43.1"
+      ]
+    },
+    "fnserver": {
+      "image": "fnproject/fnserver",
+      "labels": [
+        "io.buildah.version=1.41.8"
+      ]
+    }
+  },
+  "cp_peak_mem_mb": 34.1,
+  "carbon_gCO2": {
+    "op_total": 14.417,
+    "op_control_plane": 1.265,
+    "idle_band": {
+      "15": 23.448,
+      "30": 36.11,
+      "45": 48.771
+    }
+  },
+  "model": {
+    "idle_w": 4.3,
+    "busy_core_w": 3.5,
+    "pue": 1.15,
+    "ci": 150.0
+  },
+  "sensitivity": {
+    "cp_dynamic_share_pct_by_busy_w": {
+      "2.0": 11.72,
+      "3.5": 11.72,
+      "5.0": 11.72
+    },
+    "dynamic_energy_J_by_busy_w": {
+      "2.0": 128.6,
+      "3.5": 225.1,
+      "5.0": 321.6
+    },
+    "op_carbon_gCO2_by_busy_w": {
+      "2.0": 9.794,
+      "3.5": 14.417,
+      "5.0": 19.04
+    }
+  },
+  "kpi_gco2_per_slo_compliant_inv": 0.0014,
+  "kpi_gco2_per_inv_dynamic": 0.001079,
+  "embodied_dram_g_per_gb_h": 0.0317,
+  "host_cpu_sec": 108.92,
+  "host_window_s": 17.616,
+  "host_saturation_pct": 77.3,
+  "host_plausible": true,
+  "host_saturated": false,
+  "host_overhead_cpu_sec": 44.6,
+  "orchestration_cpu_sec": 52.14,
+  "orchestration_share_pct": 47.87,
+  "steal_sec": null,
+  "steal_pct": null,
+  "cp_delta_sec": 7.541,
+  "cp_sampler_vs_delta_pct": -0.0,
+  "delta_check_map": {
+    "fnserver": "ok"
+  },
+  "env": {
+    "cpu_count": 8,
+    "governor": "powersave",
+    "freq_mhz_before": 4000.0,
+    "freq_mhz_after": 715.2,
+    "sampler": "cgroup",
+    "loadgen": "hey",
+    "loadgen_requested": "hey",
+    "loadgen_fallback": false
+  },
+  "rapl_validation_err_pct": 4.2,
+  "rapl_available": true,
+  "loadgen": {
+    "source": "hey",
+    "rps": 575.8080025796198,
+    "avg_ms": 6.93,
+    "errors": 0,
+    "wall_s": 17.37
+  }
+}

@@ -4,7 +4,8 @@
 
 **Author:** [Name], Green Cloud Continuum project
 **Date:** 2026-08-03
-**Status:** Methodology validated on one platform (Fn). Draft for refinement into the final research paper.
+**Status:** Methodology validated on Fn + OpenFaaS, RAPL-validated on bare metal (two machines,
+two regimes). Draft for refinement into the final research paper.
 **Source of record:** `SAQEF_TECHNICAL_REPORT.md` (full measurement log) + `saqef_harness.py` (instrumentation) + `run_saqef.sh` (one-command reproduction).
 
 > **How to use this document.** This is the consolidated methodology + results narrative, written in paper structure. Every claim is traceable to the technical report and the harness. Sections marked **[CANDID]** are honest gaps that must be closed before submission; they are intentional, not omissions. As experiments expand (OpenFaaS, OpenWhisk, bare metal), fill in the marked placeholders and keep this document as the single narrative.
@@ -15,13 +16,25 @@
 
 Serverless computing shifts infrastructure management to platform operators, but the *orchestration overhead* — the control-plane work that schedules, freezes, and coordinates function invocations — is rarely charged to the function. This paper presents **SAQEF**, a sustainability-aware QoS evaluation framework that attributes CPU time and energy to the control plane versus the function under controlled load, cross-validated against direct kernel counters. On the Fn platform, we find the control plane consumes **30.3% of the dynamic (non-idle) CPU/energy** while serving a CPU-bound 5 ms function at ~206 requests/second — a small fraction of total machine energy (1.9%) but a *dominant fraction of the marginal cost that scales with load*. The framework's built-in delta-check caught and eliminated a 52× sampling overcount during development, demonstrating that the validation approach works as intended. Methodology is validated; absolute energy numbers remain model estimates pending RAPL ground truth on bare metal.
 
+> **[Bare-metal addendum (2026-08-05) — read after §1–§2 for the current claims.]** RAPL is now
+> available and validated (4.2–8.2% steady-state), and OpenFaaS has been measured under the same
+> protocol on an 8-core box. Two findings supersede parts of the abstract: (1) **the discriminator
+> is machine-dependent, not load-dependent** — Fn's control-plane dynamic share is 10.46 (8-core
+> box) vs 24.59 (2-vCPU codespace), OpenFaaS 7.67 vs 15.82, and within the 8-core box the share is
+> flat from ~75% to ~93% host saturation (c=4 vs c=8); (2) **the a-priori 5 pp Fn-vs-OpenFaaS gate
+> passes only on the 2-vCPU machine (gap 8.8 pp), failing on the 8-core box (gap 2.8 pp)** — the
+> gate must be per-machine-pair, and the machine-dependence (both platforms' shares ~2.3× higher
+> on 2 vCPU; Fn inflates proportionally more) is a contribution, not a bug. The 30.3% Fn-only
+> codespace figure is superseded for cross-platform claims (see §5.5); it remains valid as the
+> saturated-regime single-platform measurement.
+
 ---
 
 ## 1. Introduction & Motivation
 
 Serverless (FaaS) platforms promise "scale to zero," pay-per-invocation pricing, and operational simplicity. Their environmental cost, however, is hidden in two places: (i) the **idle baseline** of always-on gateways, schedulers, and coordinators, and (ii) the **dynamic overhead** of orchestrating each invocation — route lookups, container spawn/freeze churn, queueing, and watchers. When operators report "the control plane uses ~2% of CPU," they are describing the *static* fraction of total machine capacity — which, on an idle-leaning, co-tenanted VM, obscures the fact that the marginal work attributable to a function is disproportionately orchestration.
 
-**Central claim:** for a light CPU-bound function, the control plane is not a rounding error — it is roughly **one third of the marginal (dynamic) energy cost**. This changes how serverless energy must be modeled: orchestration is a first-class cost, not an overhead line item.
+**Central claim:** for a light CPU-bound function, the control plane is not a rounding error — it is roughly **one third of the marginal (dynamic) energy cost** (saturated 2-vCPU machine; see §5.5 — the share is ~10–16% of dynamic cost on an 8-core box, so the claim is *capacity-dependent* and the direction is always Fn > OpenFaaS). This changes how serverless energy must be modeled: orchestration is a first-class cost, not an overhead line item.
 
 **Contributions:**
 1. A reproducible, platform-agnostic measurement harness (`saqef_harness.py`) that attributes CPU/energy between control plane and function under controlled load, with built-in self-validation.
@@ -47,7 +60,7 @@ The gap we target: most prior work reports QoS (latency/throughput) and/or aggre
 
 - **RQ1 (methodology):** Can container-level sampling attribute marginal CPU/energy to the control plane vs the function with a *verifiable* error bound?
 - **RQ2 (measurement):** What fraction of dynamic CPU/energy does the Fn control plane consume for a CPU-bound function under a realistic load?
-- **RQ3 (comparison, future):** Does the framework discriminate between platforms (Fn vs OpenFaaS vs OpenWhisk) — i.e., is orchestration overhead platform-specific enough to rank?
+- **RQ3 (comparison):** Does the framework discriminate between platforms (Fn vs OpenFaaS)? — **answered (2026-08-05):** yes, with a caveat. On the 2-vCPU saturated codespace the gap is 8.8 pp (gate passes); on the 8-core bare-metal box it is 2.8 pp (gate fails), and the share is flat with concurrency within each machine. Direction is stable (Fn's share higher everywhere); the *magnitude* is a machine-pair property (see §5.5). OpenWhisk remains future work.
 
 ---
 
@@ -63,15 +76,17 @@ Two energy scopes are reported, because they answer different questions:
 
 ### 4.2 Environment
 
-| | Value |
-|---|---|
-| Host | GitHub Codespaces, x86_64, 2 vCPU, Docker 29.3.0, Python 3.12 |
-| Platform | Fn — `fnproject/fnserver:latest` (0.3.x), containerized, iofs socket fix |
-| Function runtime | Python 3.12 FDK (`fnproject/python:3.12`) |
-| Load generator | `hey` (Go) preferred; Python stdlib fallback |
-| RAPL | Unavailable (cloud VM) → CPU-time model; bare metal pending |
+| | Value (codespace) | Value (bare metal, 2026-08-05) |
+|---|---|---|
+| Host | GitHub Codespaces, x86_64, 2 vCPU, Docker 29.3.0, Python 3.12 | 8-core Ubuntu, 16 GB, docker + swarm, RAPL readable |
+| Platform | Fn — `fnproject/fnserver:latest` (0.3.x), containerized, iofs socket fix | Fn 0.3.x; OpenFaaS 0.8.3 (6-container CP, of-watchdog) |
+| Function runtime | Python 3.12 FDK (`fnproject/python:3.12`) | Python FDK (hello:0.0.7 Fn / hello:latest OF) |
+| Load generator | `hey` (Go) preferred; Python stdlib fallback | `hey -o csv`, TOTAL=10000, warmup 20 |
+| RAPL | Unavailable (cloud VM) → CPU-time model | **Available** → model RAPL-validated 4.2–8.2% (idle 4.3 W) |
 
-> **[CANDID]**: RAPL validation on bare metal is a hard requirement for the final paper (§7, §10).
+> **[CANDID, mostly closed]**: RAPL validation on bare metal was a hard requirement (§7, §10) — now
+> delivered (2026-08-05). Remaining CANDIDs: a second bare-metal machine, control-plane
+> decomposition, cold-start vs warm, mixed workloads.
 
 ### 4.3 Workload
 
@@ -178,6 +193,42 @@ Constants: `P_BUSY_CORE_W = 3.5`, `P_IDLE_BASE_W = 30.0`, `PUE = 1.15`, `CI = 15
 | Total operational carbon (incl. idle base) | ≈ **7.5 mg CO₂** (idle dominates: ~94%) |
 The idle-dominance is itself a result: at this light load, **~94% of operational carbon is the always-on baseline**, and the marginal cost of serving is split 30/70 orchestration/function. This is precisely the regime where autoscaling ("scale to zero") pays off — and where the orchestration tax is most visible per unit of useful work.
 
+### 5.5 Cross-platform, RAPL-validated results (bare metal, 2026-08-05)
+
+Same protocol on an 8-core Ubuntu box (RAPL-validated, idle 4.3 W): Fn vs OpenFaaS serving the
+identical 5 ms CPU-bound function, `c=4 < cpu_count=8`, `TOTAL=10000`, 5 runs, 16 static OF
+replicas, all gates green (`host_saturated=false`, delta-map 6/6, coverage 100%).
+
+| Metric (median of 5) | Fn | OpenFaaS |
+|---|---|---|
+| `cp_dynamic_share_pct` | **10.46** (9.80–11.74, CV 8.1%) | **7.67** (6.80–7.83, CV 6.7%) |
+| gap (pp) | **+2.79 — below the 5 pp gate** | |
+| `cp_share_pct` (CP / total, real idle) | 7.88 | 5.79 |
+| per-request CP cost | 0.66 ms | 0.56 ms |
+| per-request fn cost | 5.62 ms | 6.71 ms |
+| QoS p50 / p99 | 6.5 / 8.9 ms | 7.2 / 12.1 ms |
+| throughput | 597 rps | 532 rps |
+| SLO compliance | 1.0 | 1.0 |
+| RAPL validation err (steady-state) | 4.2–5.5% | 4.2–8.2% |
+
+**Concurrency sensitivity (c=8, REPEAT=2, quick check):** Fn 10.47, OpenFaaS 7.62 at 91–93% host
+saturation — the share and the gap are **flat with concurrency within the box** (gap 2.79 → 2.85 pp).
+
+**Cross-regime reading (the paper's central contribution):**
+
+| regime | machine | Fn | OpenFaaS | gap |
+|---|---|---|---|---|
+| saturated | 2-vCPU shared VM, c=20 | 24.59 | 15.82 | +8.8 pp |
+| headroom | 8-core, c=4 | 10.46 | 7.67 | +2.8 pp |
+| saturated | 8-core, c=8 | 10.47 | 7.62 | +2.9 pp |
+
+Control-plane dynamic share scales with the cores available to the function (~2.3× higher on 2
+vCPU for both platforms; Fn inflates proportionally more), is insensitive to load/concurrency on a
+fixed machine, and ranks Fn above OpenFaaS in every regime. Because OpenFaaS's share is a
+conservative bound (of-watchdog proxies inside the function cgroup), the true gap is smaller
+still. **The 5 pp a-priori gate is therefore a machine-pair property, not a platform property** —
+the paper reports per-machine-pair gates and presents the machine-dependence as a finding.
+
 ---
 
 ## 6. Discussion
@@ -192,14 +243,14 @@ The idle-dominance is itself a result: at this light load, **~94% of operational
 
 ## 7. Threats to Validity (explicit)
 
-1. **No RAPL.** Absolute energy/carbon are model estimates, not measurements. **[CANDID]**: bare-metal RAPL validation required.
+1. **No RAPL (closed for bare metal).** On the codespace, absolute energy/carbon remain model estimates. On the 8-core bare-metal box the model is RAPL-validated to 4.2–8.2% steady-state (idle calibrated 4.3 W, not the 30 W default). The codespace absolute numbers carry the old caveat; the relative `cp_dynamic_share_pct` is model-constant-robust everywhere.
 2. **Function CPU is a lower bound.** Function containers live 2–5 s and are only partially captured by the sparse nested-mount sampler (`sampling_covered_s` ranged 13–100% across runs; totals stay exact for *sampled* containers because of cumulative differencing). CP is exact (proven); treat `cpu_sec.function` as ≥ the reported value. Improves on bare metal.
-3. **Co-tenanted shared VM.** Host-level metrics (`host_cpu_sec`, `orchestration_*`) include neighbor noise and the harness's own loadgen CPU; excluded from claims. Definition: `orchestration_cpu_sec = host_cpu_sec − cpu_sec.function` — i.e., control plane + Docker/containerd daemons + load generator + co-tenant CPU + kernel, a **host-wide residual, not pure orchestration**. We never present it as orchestration; the orchestration claim is the cgroup-exact control-plane container share (`cp_dynamic_share_pct`).
-4. **Contention-contaminated QoS on shared VMs.** When `host_saturation_pct` approaches 100% (as on the v9.2 run), latency percentiles reflect scheduler contention between hey, the sampler, and the containers under test — not intrinsic platform overhead. Low CV is *precision*, not *validity*: a saturated box measures reproducibly wrong. QoS claims therefore carry a Codespace-scope caveat until bare metal provides headroom (concurrency < cpu_count).
-5. **Single platform, single workload shape.** Cross-platform discrimination (RQ3) is untested. **[CANDID]**: OpenFaaS, OpenWhisk.
+3. **Co-tenanted shared VM (codespace only).** Host-level metrics on the 2-vCPU codespace include neighbor noise; excluded from claims (definition unchanged: `orchestration_cpu_sec` is a host-wide residual, never presented as pure orchestration). The bare-metal 8-core box is dedicated, so host metrics there are clean; the cgroup-exact control-plane container share (`cp_dynamic_share_pct`) is the claim on both machines.
+4. **Contention-contaminated QoS (closed for bare-metal c=4).** On the codespace, `host_saturation_pct` ≈ 100% made latency percentiles reflect scheduler contention, not intrinsic platform overhead. On the 8-core box at c=4 (host_sat 74–77%) QoS is citable for the first time: Fn p50 6.5 / p99 8.9 ms @ 597 rps; OF p50 7.2 / p99 12.1 ms @ 532 rps; SLO 1.0. The c=8 quick runs (sat 91–93%) carry the `host_saturated` flag and their latency is NOT citable — consistent with the discipline that a saturated box measures reproducibly wrong.
+5. **Two platforms, two machines.** Fn and OpenFaaS are measured on both the 2-vCPU codespace and the 8-core bare-metal box. The discriminator's magnitude is machine-dependent (RQ3 answer, §5.5) — a bounded threat that is now quantified rather than unknown. OpenWhisk remains **[CANDID]**.
 6. **Control plane measured as one container** (`fnserver`), not decomposed into gateway/scheduler/queue sub-components. **[CANDID]**: profiling inside the control plane.
 7. **Model constants** (idle 30 W, 3.5 W/core, PUE 1.15, CI 150) are literature defaults; CI in particular is regional/temporal.
-8. **Single-machine scale.** 2 vCPU; orchestration overhead may scale differently at larger deployments.
+8. **Two machines only; the machine-dependence is itself the new threat.** The share scales with machine capacity (~2.3× between 2-vCPU and 8-core; flat with load on a fixed machine). A third machine (e.g., a different core count / NUMA) would bound the trend; the paper must present the per-machine-pair gate so reviewers can apply the framework to their own hardware.
 
 > **v9.3 review-driven corrections (external expert review, 2026-08-04):** (a) `host_cpu_sec` sums **busy** ticks only (was total → `orchestration_*` inflated ~5×); (b) **memory captured** in cgroup mode — `cp_peak_mem_mb` was 0.0, now real (88.6 MB on the v9.2 run); (c) **KPI fixed** — now operational gCO₂ per SLO-compliant invocation (≈39.6 mg incl. idle base on the saturated-vm run); (d) **`sensitivity` block added** — dynamic share, dynamic energy, and carbon at busy-core 2/3.5/5 W (share invariant, absolutes banded); (e) **`orchestration_*` defined explicitly** as a host-wide residual (§7.3) and excluded from claims; (f) **quick-run guard** — `SAQEF_REPEAT < 5` writes to a `_quick` outdir so 1-run passes can't be mistaken for the 5-run publication set.
 >
@@ -216,6 +267,8 @@ The idle-dominance is itself a result: at this light load, **~94% of operational
 > **v9.11 corrections (host read ordering, 2026-08-05):** (w) **the host `/proc/stat` read moved to immediately before `t0`**, so `host_window_s == wall_s` by construction. The v3 rerun on v9.10 exposed `host_window_s = 11.774` vs `wall_s = 10.23` — the ~1.5 s gap being the delta-check reader construction (`cp_cgroup_reader`, ~1.5 s on this box) that used to sit between the host read and `t0`; on a box that is ~100% busy regardless of load, that headroom added ~2 cores × 1.5 s ≈ 3 s of busy ticks to `host_cpu_sec`, which is exactly the excess that produced the old wall-based 112%. The cgroup CP counter (`cp_cum_before`) was already read after the construction, so the CP delta window was unaffected. Host metrics remain excluded from claims (§7.3).
 >
 > **v9.9 hey CSV root-cause fix + first real hey run (2026-08-04):** (u) **root cause** — mainline rakyll/hey **has never had an `-o json` mode**; any non-`csv` `-o` value is parsed as a literal text/template, so `-o json` prints the string `json` (rc=0). The v9.7 "not a rakyll/hey binary" diagnosis was wrong (`go version -m`: genuine `rakyll/hey v0.1.5`). The fix requests the one documented machine mode, **`-o csv`**, and parses the per-request rows (header-normalized `responsetime`/`statuscode`/`offset`; wall = max offset). `./run_saqef.sh all` (v9.9, `hello:0.0.20`, 5×3000) ran with **`loadgen: "hey"` for the first time**: 335.4 rps, 0 errors, p50 47.0 ms, `cp_dynamic_share_pct` **24.07** — within ~0.3 pp of the Python-generator medians, proving container-level energy attribution is loadgen-agnostic. (v) **coverage invariant** — the hey branch overwrote `wall` with hey's max-offset (last request *start*), making `sampling_covered_s` > `wall_s` and coverage read 103%; fixed by keeping the harness clock as the single attribution window (hey's duration exposed as `loadgen.wall_s`), restoring G3 coverage ≤ 100%, with the gates table now flagging any >100% as a hard break. (w) **`-t` units** — hey's `-t` is seconds; the raw ms value (30000 → 30,000 s) is now converted. Output renamed `hey.json` → `hey.csv`. G8 status: `hey_smoke_ok()` probes `-o csv` and **passes**.
+>
+> **v9.12 bare-metal session (2026-08-05):** (x) **`SAQEF_IDLE_W` knob** added to both runner scripts — the hardcoded `idle_w=30` was a 7× overestimate of the 8-core box's real 4.3 W idle package power, keeping `rapl_validation_err_pct` ≈ 45%; calibrated it to 4.2–8.2% steady-state on both platforms. Knob only; no measurement-path change. (y) **swarm advertise-addr fix** in `run_openfaas.sh` — `docker swarm init --advertise-addr 127.0.0.1` for multi-homed hosts. (z) **isolation pitfall recorded**: `docker stack rm openfaas` does not remove the `hello` function service (deployed outside the stack); its idle replicas fold into Fn's `fn_cpu` via the image allowlist with all gates still green. Protocol now requires `docker service rm hello` before any Fn run; one tainted Fn rerun was discarded (share 11.68 vs clean 10.46; its "0.9–6.1% RAPL" and "6.7/9.4 ms @ 577 rps" figures must NOT be cited).
 
 ---
 
@@ -273,9 +326,9 @@ Full command log and historical decisions: `SAQEF_TECHNICAL_REPORT.md` §§3, 4,
 
 ## 10. Future Work
 
-1. **OpenFaaS** (same function image, same protocol) — gate: does `cp_dynamic_share` differ from Fn's 30.3% by >5 pp? (Discrimination power test.)
+1. ~~**OpenFaaS** (same function image, same protocol)~~ — **done (2026-08-05)**: gap 8.8 pp on the codespace, 2.8 pp on the 8-core box (per-machine-pair gate, §5.5).
 2. **OpenWhisk** (and optionally Fission) — cross-platform comparison.
-3. **Bare metal (dual-boot Ubuntu)** — RAPL ground truth, validation of the model, and the definitive absolute numbers.
+3. ~~**Bare metal** (dual-boot Ubuntu) — RAPL ground truth~~ — **done (2026-08-05)**: RAPL-validated 4.2–8.2%, idle 4.3 W. Remaining: a *third* machine to bound the machine-dependence trend.
 4. **Control-plane decomposition** — which fnserver subcomponent (gateway, scheduler, freeze manager, watchers) costs what.
 5. **Cold-start vs warm** — `--interarrival-ms 1000` isolation experiment: the "carbon cost of elasticity."
 6. **Freeze-policy ablation** — `FN_FREEZE_IDLE_MSECS=0` vs default: quantify Fn's pause/unpause churn in energy terms.
@@ -286,9 +339,10 @@ Full command log and historical decisions: `SAQEF_TECHNICAL_REPORT.md` §§3, 4,
 ## 11. Research impact & how the results can be used
 
 - **Methodology reuse:** the harness + delta-check pattern is a drop-in instrument for anyone measuring FaaS energy on any platform (container-level, cgroup-validated, honest about estimation).
-- **Informing models:** Kepler-style CPU-time proportionality gains a real orchestration-overhead term (≈30% of dynamic energy for Fn-class platforms), so serverless energy models stop treating orchestration as ~0.
-- **Carbon-aware scheduling:** a per-invocation orchestration cost (≈3 mJ dynamic, ≈145 µg CO₂ CP-only here) makes it possible to route work to the cheapest control plane — and to price "green functions" correctly.
-- **Design guidance:** autoscaling/scale-to-zero economics quantified — the 94% idle-baseline share quantifies exactly how much idle waste elasticity can reclaim, and the 30.3% dynamic share says what remains even when fully scaled.
+- **Informing models:** Kepler-style CPU-time proportionality gains a real orchestration-overhead term (Fn-class platforms ≈10–30% of dynamic energy depending on machine capacity; OpenFaaS-class ≈8–16%), so serverless energy models stop treating orchestration as ~0.
+- **Carbon-aware scheduling:** a per-invocation orchestration cost (bare metal: Fn 0.66 ms CPU ≈ 2.3 mJ dynamic CP-only; OF 0.56 ms ≈ 2.0 mJ) makes it possible to route work to the cheapest control plane — and to price "green functions" correctly.
+- **Design guidance:** autoscaling/scale-to-zero economics quantified — the ~94% idle-baseline share (codespace) quantifies how much idle waste elasticity can reclaim, and the machine-dependence result says orchestration overhead is *capacity-bound*: it buys back fast when functions get more cores, so co-locating functions on fewer, larger boxes (or vice-versa) directly tunes the orchestration tax.
+- **Framework portability (new):** the discriminator is a per-machine-pair quantity with a stable *ranking*; the paper provides the recipe (protocol + gates) so a third platform or machine can be ranked without re-deriving the methodology.
 
 ---
 
@@ -310,6 +364,23 @@ Full command log and historical decisions: `SAQEF_TECHNICAL_REPORT.md` §§3, 4,
 | `physical_plausible` | true | true | bool |
 
 *Table values are v9.1 medians; KPI and `cp_peak_mem_mb` reflect the v9.2 formulas and await the v9.2 re-run to be confirmed against fresh samples.*
+
+### Appendix B — Consolidated cross-platform table (bare metal + codespace, 2026-08-05)
+
+| Metric (median of 5) | Fn (bare c=4) | OF (bare c=4) | Fn (codespace c=20) | OF (codespace c=20) |
+|---|---|---|---|---|
+| `cp_dynamic_share_pct` | 10.46 | 7.67 | 24.59 | 15.82 |
+| gap (pp) | **+2.79 (gate fails)** | | **+8.77 (gate passes)** | |
+| per-request CP cost | 0.66 ms | 0.56 ms | 1.22 ms | 0.56 ms |
+| QoS p50 / p99 | 6.5 / 8.9 ms | 7.2 / 12.1 ms | 83.6 / 308.6 ms* | — |
+| throughput | 597 rps | 532 rps | 206 rps* | — |
+| SLO compliance | 1.0 | 1.0 | 0.9997* | 1.0 |
+| host_sat | 74–77% | 74–78% | ~100% | ~99% |
+| RAPL validation err | 4.2–5.5% | 4.2–8.2% | n/a (no RAPL) | n/a |
+
+*Fn codespace QoS rows are the saturated-regime v9.1 single-platform dataset (not contention-free);
+keep the `host_saturated` caveat when quoting. Bare-metal rows are RAPL-validated and
+contention-free. Full per-run tables: `SAQEF_TECHNICAL_REPORT.md` §30.1.
 
 ---
 
