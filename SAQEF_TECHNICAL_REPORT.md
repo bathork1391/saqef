@@ -927,3 +927,75 @@ cgroup v2 cumulative counters, `--delta-check`. Harness version: v9.11 + `SAQEF_
 - Energy is now RAPL-validated (4–8% steady-state) on bare metal; the codespace numbers remain the
   saturated-regime dataset under their existing caveats. QoS is citable for the first time (Fn p50
   6.5 / p99 8.9 ms @ 597 rps; OF p50 7.2 / p99 12.1 ms @ 532 rps; SLO 1.0, host_sat <85%).
+
+## 31. CPU-count effect CONFIRMED — controlled same-instrument 2-core experiment (2026-08-06)
+
+Closes the expert-review catch on §30 (the 8.8-pp codespace gap vs 2.8-pp bare-metal gap was
+"observed across mismatched instruments, not proven"). This section records the controlled
+experiment that resolves it and the bug it surfaced. Bare metal only; codespace appears solely as
+the historical "regime differs" context row.
+
+**Design.** THIS 8-core box was restricted to 2 logical cores *without* a kernel reboot:
+`pin_cpuset.sh` (repo script, formalized this day) loops `docker update --cpuset-cpus` over every
+running container every 0.5 s for the life of the benchmark. A ONE-SHOT pin is not enough — Fn's
+function containers are ephemeral (new ones appear under load; OpenFaaS's swarm replicas are
+static), and any container born after a one-shot pin runs unpinned, silently breaking the
+restriction mid-run. `pin_cpuset.sh` pins by "every running container", deliberately NOT by image
+tag: Fn's function image tag changed between the two sessions (0.0.10→0.0.11 on rebuild) and a
+tag-based filter would have silently missed it. The harness + hey were also wrapped in
+`taskset -c 0,1`. Physical-core selection: `lscpu -e` CORE column (0,1 = two physical cores, not
+two hyperthreads of one).
+
+**The numerator/ceiling bug caught mid-experiment (a gate working as intended).** First attempt set
+only `--cpu-count-override=2` (the host_sat ceiling denominator). Result: host_sat 111–121%
+(impossible >105%), correctly tripped `host_plausible=false` because `host_cpu_ticks()` was still
+summing the whole-machine `/proc/stat` aggregate, including background activity (dockerd, swarm
+kworkers, the harness's own shell) on the 6 un-pinned cores. Fix: new `--host-cpu-list`/`SAQEF_HOST_CPU_LIST`
+knob scopes the busy-tick numerator to the pinned cores' own `cpuN` lines, so numerator and
+denominator agree. Both knobs are now permanent in `saqef_harness.py` + both runner scripts. The
+invalid attempt is preserved at `results/openfaas_cpubound_2core_hostmetric_invalid` for the audit
+trail (its `cp_dynamic_share_pct` ~6.9 was actually fine — only host metrics were wrong — but its
+gates table must not be cited).
+
+**Protocol.** Per platform, REPEAT=5, TOTAL=10000, c=4 (> 2 pinned cores → expected saturation),
+`SAQEF_IDLE_W=4.3`, `SAQEF_CPU_COUNT_OVERRIDE=2`, `SAQEF_HOST_CPU_LIST=0,1`, OpenFaaS scaled to
+4 replicas (2×N), OpenFaaS run FIRST with full teardown (`docker stack rm openfaas` + `docker
+service rm hello`) before Fn. Full independent reproduction session 2 same day: teardown,
+redeploy, re-pin from scratch.
+
+**Results (all runs: host_plausible=true, coverage 100%, delta% ~0, delta-check 6/6, unclass 0.0):**
+
+Fn session 1 shares 13.34 / 13.40 / 14.07 / 13.91 / 14.06 → **median 13.91** (CV 2.6%, CI
+13.34–14.07). OpenFaaS session 1: 6.73 / 6.95 / 6.82 / 6.28 / 6.96 → **median 6.82** (CV 4.1%).
+Gap **7.09 pp**.
+
+Fn session 2: 13.69 / 14.08 / 14.38 / 14.28 / 14.07 → **median 14.08** (CV 1.9%). OpenFaaS
+session 2: 6.90 / 7.17 / 7.20 / 7.11 / 7.27 → **median 7.17** (CV 2.0%). Gap **6.91 pp**.
+
+Across the two independent sessions: Fn 13.91/14.08 (median 14.00), OpenFaaS 6.82/7.17 (median
+7.00), **gap 7.09/6.91 pp — CV 1.3% across sessions**. Tight agreement, not a one-off. This is the
+paper's 2-core row. `host_sat` 98.3–98.7% everywhere → `host_saturated=true` (c=4 > 2 pinned
+cores) → latency/QoS from this pair is NOT citable, same discipline as the c=8 sensitivity rows.
+
+**Reading.** The gap jumps from 2.79/2.85 pp (4/8 cores, same box) to ~7.0 pp at 2 pinned cores —
+close to the 8.8-pp codespace value, on a clean, same-instrument, same-protocol run where ONLY
+core count changed. **Core count drives the gap magnitude: earned and reproduced.**
+
+**Mechanism is asymmetric — NOT the earlier (retracted) "both platforms scale ~2.3×" reading of
+the flawed 2-vCPU data.** Controlled result: Fn's share rose +33–34% under core scarcity (10.46 →
+13.91/14.00) while OpenFaaS was flat-to-lower (−9 to −11%; 7.67 → 6.82/7.17). Core scarcity
+inflates Fn's control-plane overhead specifically. **[CANDID, observed-not-explained]** leading
+hypothesis: fnserver scheduling contention under thread starvation vs of-watchdog's per-replica
+isolation model — a follow-up micro-benchmark (e.g. perf stat context-switch/migration counts on
+fnserver at 2 vs 8 cores) is required before any causal claim.
+
+**Energy/carbon NOT citable from the pinned runs.** `rapl_validation_err_pct` ran 43–60% on both
+platforms at 2 pinned cores (transient runs 1–2 ~48–60%, steady ~44–45%) — the same magnitude the
+box showed under the OLD wrong `idle_w=30`, despite using the correct `SAQEF_IDLE_W=4.3`. Likely
+cause: the 4.3 W idle baseline was calibrated with all 8 cores idle; under partial-core pinning the
+2 active cores' turbo/frequency behavior differs from the flat `busy_core_w` model and/or the 6
+un-pinned-but-present idle cores' package contribution no longer matches the whole-box baseline.
+`cp_dynamic_share_pct` is a pure cgroup CPU-time ratio (no energy model) and is unaffected — the
+ONLY citable number from this experiment. Closing the energy question would require re-deriving
+idle-w for the pinned configuration and confirming per-core frequency parity (scaling_cur_freq /
+turbostat) between the pinned and full-core runs — recorded here as open, not run.

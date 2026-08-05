@@ -14,6 +14,8 @@
 #   SAQEF_TOTAL SAQEF_CONCURRENCY SAQEF_DURATION SAQEF_WARMUP SAQEF_REPEAT
 #   SAQEF_FN_IMAGES (function-image allowlist; default = the hello function image)
 #   SAQEF_IDLE_W (machine-measured idle package watts for the energy model; default = 30)
+#   SAQEF_CPU_COUNT_OVERRIDE (use instead of /proc/cpuinfo's count for saturation ceilings;
+#     required if the platform is cpuset/taskset-pinned to fewer cores than this machine has)
 #   e.g.  SAQEF_TOTAL=600 SAQEF_REPEAT=1 ./run_saqef.sh bench
 #   If SAQEF_REPEAT < 5, results go to results/<name>_quick (never the final
 #   outdir), so a 1-run pass cannot be mistaken for the 5-run publication set.
@@ -55,6 +57,12 @@ OUT="${SAQEF_OUT:-results/fn_cpubound_v9}"
 IDLE_W="${SAQEF_IDLE_W:-}"
 IDLE_W_ARG=""
 [ -n "$IDLE_W" ] && IDLE_W_ARG="--idle-w $IDLE_W"
+CPU_COUNT_OVERRIDE="${SAQEF_CPU_COUNT_OVERRIDE:-}"
+CPU_COUNT_OVERRIDE_ARG=""
+[ -n "$CPU_COUNT_OVERRIDE" ] && CPU_COUNT_OVERRIDE_ARG="--cpu-count-override $CPU_COUNT_OVERRIDE"
+HOST_CPU_LIST="${SAQEF_HOST_CPU_LIST:-}"
+HOST_CPU_LIST_ARG=""
+[ -n "$HOST_CPU_LIST" ] && HOST_CPU_LIST_ARG="--host-cpu-list $HOST_CPU_LIST"
 VERIFY_N=100
 VERIFY_BUDGET_MS=5
 TOTAL="${SAQEF_TOTAL:-3000}"
@@ -160,13 +168,13 @@ run_bench() {
     echo "#######################################################################"
     echo ""
     python3 saqef_harness.py --url "$URL" --platform "$PLATFORM" --cp-containers "$CP" \
-      $FN_IMAGES_ARG $IDLE_W_ARG \
+      $FN_IMAGES_ARG $IDLE_W_ARG $CPU_COUNT_OVERRIDE_ARG $HOST_CPU_LIST_ARG \
       --total "$TOTAL" --concurrency "$CONCURRENCY" --duration "$DURATION" \
       --warmup "$WARMUP" --repeat "$REPEAT" \
       --sampler cgroup --delta-check --loadgen hey --outdir "${OUT}_quick"
   else
     python3 saqef_harness.py --url "$URL" --platform "$PLATFORM" --cp-containers "$CP" \
-      $FN_IMAGES_ARG $IDLE_W_ARG \
+      $FN_IMAGES_ARG $IDLE_W_ARG $CPU_COUNT_OVERRIDE_ARG $HOST_CPU_LIST_ARG \
       --total "$TOTAL" --concurrency "$CONCURRENCY" --duration "$DURATION" \
       --warmup "$WARMUP" --repeat "$REPEAT" \
       --sampler cgroup --delta-check --loadgen hey --outdir "$OUT"

@@ -120,13 +120,39 @@ def env_frequency():
     return mhz, gov
 
 
+_HOST_CPU_LIST_OVERRIDE = None  # set from --host-cpu-list / SAQEF_HOST_CPU_LIST, e.g. "0,1"
+
+
 def host_cpu_ticks():
-    """BUSY CPU ticks across all cores from /proc/stat, or None.
+    """BUSY CPU ticks from /proc/stat, or None.
     Busy = user+nice+system+irq+softirq+steal (total minus idle and iowait);
-    excludes guest/guest_nice which double-count user/system ticks."""
+    excludes guest/guest_nice which double-count user/system ticks.
+
+    By default sums the aggregate "cpu " line (all cores). If the platform is
+    cpuset/taskset-pinned to a subset of cores (--host-cpu-list / cpu_count
+    override), that default is wrong: background activity on the OTHER,
+    un-pinned cores (dockerd, kworkers, this very harness's own host) still
+    counts toward the aggregate line, inflating host_saturation_pct past the
+    pinned-core ceiling even past 100%/the 105% plausibility bound. In that
+    case sum only the specific per-core "cpuN" lines that were actually
+    pinned, matching cpu_count_override's denominator."""
     try:
         with open("/proc/stat") as f:
-            parts = f.readline().split()
+            lines = f.readlines()
+        if _HOST_CPU_LIST_OVERRIDE is not None:
+            wanted = {"cpu%d" % c for c in _HOST_CPU_LIST_OVERRIDE}
+            total = 0
+            found = 0
+            for line in lines:
+                parts = line.split()
+                if parts and parts[0] in wanted:
+                    if len(parts) < 9:
+                        return None
+                    vals = [int(v) for v in parts[1:9]]
+                    total += sum(vals) - vals[3] - vals[4]
+                    found += 1
+            return total if found == len(wanted) else None
+        parts = lines[0].split()
         if len(parts) < 9:
             return None
         vals = [int(v) for v in parts[1:9]]
@@ -158,7 +184,20 @@ def steal_ticks():
     return None
 
 
+_CPU_COUNT_OVERRIDE = None  # set from --cpu-count-override / SAQEF_CPU_COUNT_OVERRIDE
+
+
 def cpu_count():
+    """Physical/logical CPU count used for saturation ceilings.
+
+    Reads /proc/cpuinfo (whole-machine count) unless overridden. An override is
+    required for any experiment that restricts the platform to fewer cores via
+    cgroup/cpuset/taskset rather than a kernel boot parameter (nr_cpus=/maxcpus=):
+    without it, host_saturation_pct = busy_ticks / (cpu_count()*window) stays
+    diluted by the idle, un-pinned cores and can never trip the 85% saturated
+    gate even at true 100% saturation of the pinned cores."""
+    if _CPU_COUNT_OVERRIDE is not None:
+        return _CPU_COUNT_OVERRIDE
     try:
         with open("/proc/cpuinfo") as f:
             return sum(1 for line in f if line.startswith("processor"))
@@ -1202,6 +1241,16 @@ def main():
     ap.add_argument("--slo-ms", type=float, default=500.0, help="SLO latency target in ms")
     ap.add_argument("--auth", default="", help="HTTP Basic auth 'user:pass' (OpenFaaS admin creds)")
     ap.add_argument("--idle-w", type=float, default=P_IDLE_BASE_W)
+    ap.add_argument("--cpu-count-override", type=int, default=None,
+                     help="use this instead of /proc/cpuinfo's count for saturation ceilings "
+                          "(required if the platform is cpuset/taskset-pinned to fewer cores "
+                          "than the physical machine has; not needed for a nr_cpus=/maxcpus= "
+                          "kernel-restricted box, which reports the restricted count natively)")
+    ap.add_argument("--host-cpu-list", default="", help="comma-separated core ids actually "
+                     "pinned (e.g. '0,1') -- sums only those /proc/stat cpuN lines for "
+                     "host_cpu_ticks instead of the whole-machine aggregate line; pair with "
+                     "--cpu-count-override so numerator and denominator agree, or background "
+                     "activity on the un-pinned cores will still inflate host_saturation_pct")
     ap.add_argument("--ci", type=float, default=CI_GCO2_PER_KWH, help="grid carbon intensity gCO2/kWh")
     ap.add_argument("--verify", action="store_true", help="workload sanity check (N calls, per-inv function CPU)")
     ap.add_argument("--verify-n", type=int, default=100)
@@ -1221,6 +1270,14 @@ def main():
     ap.add_argument("--idle-probe", action="store_true",
                     help="platform up, zero traffic for --duration s: static orchestration baseline")
     args = ap.parse_args()
+
+    if args.cpu_count_override is not None:
+        global _CPU_COUNT_OVERRIDE
+        _CPU_COUNT_OVERRIDE = args.cpu_count_override
+
+    if args.host_cpu_list:
+        global _HOST_CPU_LIST_OVERRIDE
+        _HOST_CPU_LIST_OVERRIDE = [int(c) for c in args.host_cpu_list.split(",")]
 
     if args.check:
         ds = docker_stats_once()

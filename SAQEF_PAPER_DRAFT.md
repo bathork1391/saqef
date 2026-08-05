@@ -14,19 +14,7 @@ two regimes). Draft for refinement into the final research paper.
 
 ## Abstract
 
-Serverless computing shifts infrastructure management to platform operators, but the *orchestration overhead* — the control-plane work that schedules, freezes, and coordinates function invocations — is rarely charged to the function. This paper presents **SAQEF**, a sustainability-aware QoS evaluation framework that attributes CPU time and energy to the control plane versus the function under controlled load, cross-validated against direct kernel counters. On the Fn platform, we find the control plane consumes **30.3% of the dynamic (non-idle) CPU/energy** while serving a CPU-bound 5 ms function at ~206 requests/second — a small fraction of total machine energy (1.9%) but a *dominant fraction of the marginal cost that scales with load*. The framework's built-in delta-check caught and eliminated a 52× sampling overcount during development, demonstrating that the validation approach works as intended. Methodology is validated; absolute energy numbers remain model estimates pending RAPL ground truth on bare metal.
-
-> **[Bare-metal addendum (2026-08-05) — read after §1–§2 for the current claims.]** RAPL is now
-> available and validated (4.2–8.2% steady-state), and OpenFaaS has been measured under the same
-> protocol on an 8-core box. Two findings supersede parts of the abstract: (1) **the discriminator
-> is machine-dependent, not load-dependent** — Fn's control-plane dynamic share is 10.46 (8-core
-> box) vs 24.59 (2-vCPU codespace), OpenFaaS 7.67 vs 15.82, and within the 8-core box the share is
-> flat from ~75% to ~93% host saturation (c=4 vs c=8); (2) **the a-priori 5 pp Fn-vs-OpenFaaS gate
-> passes only on the 2-vCPU machine (gap 8.8 pp), failing on the 8-core box (gap 2.8 pp)** — the
-> gate must be per-machine-pair, and the machine-dependence (both platforms' shares ~2.3× higher
-> on 2 vCPU; Fn inflates proportionally more) is a contribution, not a bug. The 30.3% Fn-only
-> codespace figure is superseded for cross-platform claims (see §5.5); it remains valid as the
-> saturated-regime single-platform measurement.
+Serverless computing shifts infrastructure management to platform operators, but the *orchestration overhead* — the control-plane work that schedules, freezes, and coordinates function invocations — is rarely charged to the function. This paper presents **SAQEF**, a sustainability-aware QoS evaluation framework that attributes CPU time and energy to the control plane versus the function under controlled load, cross-validated against direct kernel counters and, on bare metal, against RAPL (steady-state error 4–8%). We apply it to two platforms (Fn and OpenFaaS) serving an identical CPU-bound 5 ms function. The headline finding is that the control plane's share of dynamic CPU — and therefore the Fn-vs-OpenFaaS gap — is a property of the machine's core count, not of the platform alone. On an 8-core box, Fn's control plane consumes **10.5% of dynamic CPU** vs OpenFaaS's **7.7%** (gap 2.8 pp, below our 5 pp discrimination gate). Cpuset-pinning the same box to 2 cores — same protocol, same instrument, all validation gates green, reproduced in two independent sessions — raises Fn to **14.0%** while OpenFaaS stays at **7.0%** (gap 7.1 pp, 1.3% CV across sessions): core scarcity inflates Fn's control-plane overhead specifically, an asymmetric, platform-specific sensitivity. **The 5 pp gate is a per-machine-pair quantity, not a platform constant**; the machine-dependence and its asymmetry are the central contributions. The framework's built-in delta-check also caught and eliminated a 52× sampling overcount during development, demonstrating that the validation approach works as intended.
 
 ---
 
@@ -34,7 +22,7 @@ Serverless computing shifts infrastructure management to platform operators, but
 
 Serverless (FaaS) platforms promise "scale to zero," pay-per-invocation pricing, and operational simplicity. Their environmental cost, however, is hidden in two places: (i) the **idle baseline** of always-on gateways, schedulers, and coordinators, and (ii) the **dynamic overhead** of orchestrating each invocation — route lookups, container spawn/freeze churn, queueing, and watchers. When operators report "the control plane uses ~2% of CPU," they are describing the *static* fraction of total machine capacity — which, on an idle-leaning, co-tenanted VM, obscures the fact that the marginal work attributable to a function is disproportionately orchestration.
 
-**Central claim:** for a light CPU-bound function, the control plane is not a rounding error — it is roughly **one third of the marginal (dynamic) energy cost** (saturated 2-vCPU machine; see §5.5 — the share is ~10–16% of dynamic cost on an 8-core box, so the claim is *capacity-dependent* and the direction is always Fn > OpenFaaS). This changes how serverless energy must be modeled: orchestration is a first-class cost, not an overhead line item.
+**Central claim:** for a light CPU-bound function, the control plane is not a rounding error — on an 8-core box it is ~10% of the marginal (dynamic) CPU cost for Fn and ~8% for OpenFaaS, and its share — and the platform gap — grows as the machine gets smaller (Fn 14.0% vs OpenFaaS 7.0% when the same box is pinned to 2 cores; see §5.5). Orchestration is a first-class, capacity-dependent cost, not an overhead line item.
 
 **Contributions:**
 1. A reproducible, platform-agnostic measurement harness (`saqef_harness.py`) that attributes CPU/energy between control plane and function under controlled load, with built-in self-validation.
@@ -60,7 +48,7 @@ The gap we target: most prior work reports QoS (latency/throughput) and/or aggre
 
 - **RQ1 (methodology):** Can container-level sampling attribute marginal CPU/energy to the control plane vs the function with a *verifiable* error bound?
 - **RQ2 (measurement):** What fraction of dynamic CPU/energy does the Fn control plane consume for a CPU-bound function under a realistic load?
-- **RQ3 (comparison):** Does the framework discriminate between platforms (Fn vs OpenFaaS)? — **answered (2026-08-05):** yes, with a caveat. On the 2-vCPU saturated codespace the gap is 8.8 pp (gate passes); on the 8-core bare-metal box it is 2.8 pp (gate fails), and the share is flat with concurrency within each machine. Direction is stable (Fn's share higher everywhere); the *magnitude* is a machine-pair property (see §5.5). OpenWhisk remains future work.
+- **RQ3 (comparison):** Does the framework discriminate between platforms (Fn vs OpenFaaS)? — **answered (2026-08-06, core-count confirmed):** yes, with a caveat. On the 2-vCPU saturated codespace the gap is 8.8 pp (gate passes); on the 8-core bare-metal box it is 2.8 pp (gate fails), flat with concurrency within each machine. A controlled same-instrument test (this 8-core box cpuset-pinned to 2 cores) confirms the gap is core-count-driven: it returns to 7.1 pp at 2 pinned cores. Direction is stable (Fn's share higher everywhere); the *magnitude* is a machine-pair property, and the mechanism is asymmetric — Fn's share is what inflates under core scarcity, not both platforms proportionally (see §5.5). OpenWhisk remains future work.
 
 ---
 
@@ -212,22 +200,54 @@ replicas, all gates green (`host_saturated=false`, delta-map 6/6, coverage 100%)
 | RAPL validation err (steady-state) | 4.2–5.5% | 4.2–8.2% |
 
 **Concurrency sensitivity (c=8, REPEAT=2, quick check):** Fn 10.47, OpenFaaS 7.62 at 91–93% host
-saturation — the share and the gap are **flat with concurrency within the box** (gap 2.79 → 2.85 pp).
+saturation — the share and the gap look **flat with concurrency within the box** (gap 2.79 → 2.85
+pp). REPEAT=2 is sufficient to confirm flatness against the already-validated c=4 baseline but is
+**not yet the basis for a citable headline number** — bump to REPEAT=5 before this row is cited
+standalone in the paper.
 
-**Cross-regime reading (the paper's central contribution):**
+**Cross-regime reading (central contribution — core-count effect CONFIRMED 2026-08-06 with a
+controlled, same-instrument experiment):**
 
 | regime | machine | Fn | OpenFaaS | gap |
 |---|---|---|---|---|
-| saturated | 2-vCPU shared VM, c=20 | 24.59 | 15.82 | +8.8 pp |
-| headroom | 8-core, c=4 | 10.46 | 7.67 | +2.8 pp |
-| saturated | 8-core, c=8 | 10.47 | 7.62 | +2.9 pp |
+| saturated, flawed instrument | 2-vCPU shared VM, c=20 | 24.59 | 15.82 | +8.8 pp |
+| headroom, clean | 8-core, c=4 | 10.46 | 7.67 | +2.8 pp |
+| saturated, clean | 8-core, c=8 | 10.47 | 7.62 | +2.9 pp |
+| saturated, clean, SAME instrument, 2 independent sessions | 8-core box cpuset-pinned to 2 cores, c=4 | 14.00 (13.91/14.08) | 7.00 (6.82/7.17) | +7.0 pp (6.91/7.09, CV 1.3%) |
 
-Control-plane dynamic share scales with the cores available to the function (~2.3× higher on 2
-vCPU for both platforms; Fn inflates proportionally more), is insensitive to load/concurrency on a
-fixed machine, and ranks Fn above OpenFaaS in every regime. Because OpenFaaS's share is a
-conservative bound (of-watchdog proxies inside the function cgroup), the true gap is smaller
-still. **The 5 pp a-priori gate is therefore a machine-pair property, not a platform property** —
-the paper reports per-machine-pair gates and presents the machine-dependence as a finding.
+The last row is the controlled confirmation: same box, same corrected protocol (fixed spin,
+RAPL-calibrated idle-w, `--cpu-count-override`/`--host-cpu-list` so the saturation gate is scoped
+to the 2 pinned cores, not the whole 8-core machine), REPEAT=5, all citability gates green — only
+the core count changed. It was reproduced in a full independent second session (fresh
+teardown/redeploy/re-pin; Fn's rebuilt image even changed tag, 0.0.10→0.0.11, with no effect since
+the pinning daemon targets "every running container," not an image tag) — the two sessions agree
+tightly (gap CV 1.3% across sessions). The gap jumps from 2.8–2.9 pp at 8 cores to ~7.0 pp at 2
+cores, close to the original flawed-instrument codespace gap (8.8 pp) and far from the clean
+8-core gap. **Core count driving the gap's magnitude is therefore an earned, reproduced finding,
+not an inference across mismatched instruments.**
+
+The mechanism is *not* the symmetric "~2.3× on both platforms" pattern an earlier (unconfirmed)
+reading of the flawed 2-vCPU data suggested. The controlled data shows an asymmetric effect: Fn's
+share rose sharply under core scarcity (10.46 → 14.00, +34%) while OpenFaaS's share was flat to
+slightly lower (7.67 → 7.00, −9%). **[CANDID]** why Fn's control-plane overhead specifically is
+sensitive to core scarcity (fnserver scheduling contention under thread starvation is the leading
+hypothesis, vs of-watchdog's per-replica isolation model) is observed, not yet mechanistically
+explained — a follow-up micro-benchmark, not a claim, is the honest way to close this. Because
+OpenFaaS's share is also a conservative bound (of-watchdog proxies inside the function cgroup),
+its true share (and the true gap) is smaller still in every regime. **The 5 pp a-priori gate is a
+machine-pair property, not a platform property** — the paper reports per-machine-pair gates and
+presents both the machine-dependence and its asymmetry as findings.
+
+> **Caveat — energy/carbon not citable from the 2-core-pinned row.** `rapl_validation_err_pct`
+> ran **43–60%** on both platforms under core pinning (the same magnitude as the OLD, wrong
+> `idle_w=30` calibration), even though the correct RAPL-calibrated `idle_w=4.3` was used. Likely
+> cause: the 4.3 W idle baseline was measured with all 8 cores idle; under 2-core pinning the
+> active cores' turbo/frequency behavior and/or the idle contribution of the 6 un-pinned-but-present
+> cores no longer match that baseline. `cp_dynamic_share_pct` is a pure cgroup CPU-time ratio and
+> is unaffected — it is the only number from this row that is citable; do not report absolute J or
+> gCO2 for it without re-deriving idle-w for the pinned configuration specifically. **Close-out
+> (open, not run):** re-derive idle-w for the pinned config and confirm per-core frequency parity
+> (`/sys/.../cpufreq/scaling_cur_freq` or turbostat) between pinned and full-core runs.
 
 ---
 
