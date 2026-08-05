@@ -744,8 +744,41 @@ def start_sampler(mode="docker", rescan_s=0.25):
     return samples, stop, first_sample, th
 
 
+def assert_platform_isolation(platform):
+    """Fail loud if the OTHER platform is still up. Turns the documented teardown
+    discipline ('docker service rm hello' before Fn; fnserver torn down before
+    OpenFaaS) into an enforced precondition instead of a remembered step.
+    Why this is necessary: BOTH platforms' function images are named 'hello', so
+    the --fn-images allowlist substring match cannot distinguish Fn's ULID-named
+    function containers from OpenFaaS's swarm replicas. A leftover OpenFaaS
+    'hello' service (deployed OUTSIDE the stack -- 'docker stack rm openfaas'
+    does not remove it) would have its replicas silently folded into fn_cpu and
+    taint the headline number. Fn never uses swarm services, so ANY running
+    service during a Fn session is contamination. Returns (ok, message)."""
+    if platform == "fn":
+        out = run("docker service ls --format '{{.Name}}'")
+        if out.returncode == 0:
+            services = [l.strip() for l in out.stdout.splitlines() if l.strip()]
+            if services:
+                return False, (
+                    "platform isolation check FAILED: %d swarm service(s) running during an Fn "
+                    "session (Fn never uses swarm): %s. Likely offender: the OpenFaaS function "
+                    "service 'hello' (outside the stack). Run: docker service rm hello"
+                    % (len(services), ", ".join(services)))
+    elif platform == "openfaas":
+        inv = docker_inventory()
+        if "fnserver" in inv:
+            return False, (
+                "platform isolation check FAILED: Fn's 'fnserver' container is still running "
+                "during an OpenFaaS session. Tear Fn down first (docker rm -f fnserver).")
+    return True, ""
+
+
 def run_once(args, cp_sub):
     """One full measurement window (warmup + sampler + load). Returns summary dict."""
+    ok, why = assert_platform_isolation(args.platform)
+    if not ok:
+        sys.exit("ERROR: " + why)
     headers = None
     if args.auth:
         user, _, pw = args.auth.partition(":")

@@ -166,7 +166,10 @@ cores (repeat per-platform, OpenFaaS first, same teardown discipline as above):
 - OpenFaaS autoscaler lag: scale statically before the run.
 - **`docker stack rm openfaas` does NOT remove the `hello` function service** (it is deployed
   outside the stack). Its replicas fold into Fn's `fn_cpu` via the `hello` image allowlist and
-  taint the Fn run — always `docker service rm hello` before Fn.
+  taint the Fn run — always `docker service rm hello` before Fn. **Enforced since 2026-08-06
+  (§31.9):** `saqef_harness.py` now asserts platform isolation at the top of every bench run —
+  Fn sessions fail loud if ANY swarm service is up, OpenFaaS sessions fail loud if `fnserver` is
+  up. The rule is a precondition check, not a measurement-path change; no citable run invalidated.
 - **Calibrate `SAQEF_IDLE_W`** to the machine's measured idle package watts (60 s RAPL read,
   stack up, zero traffic) or `rapl_validation_err_pct` stays ~45% on bare metal.
 - Codespace git push needs device-flow `gh auth login` after `unset GITHUB_TOKEN`.
