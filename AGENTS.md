@@ -93,17 +93,18 @@ a contention-robust discriminator. Decision gate: platform gap in the share must
   - **Expert-review disposition (2026-08-06; full review recorded in report §31.7).** (a) The
     core-count effect — 2.79 → 7.0 pp, same instrument, both sessions at full REPEAT=5 with per-run
     gates — is judged an **earned, publishable result**, and the machine-dependence of the 5 pp
-    gate is a methodological contribution on its own. (b) **Frequency parity under pinning is the
-    one open verification** (expert: "not the paper yet" without it). First-order analysis: the
-    share is frequency-robust by construction — numerator and denominator accrue cgroup CPU-time on
-    the same 2 pinned cores, and Linux CPU-time is frequency-normalized, so a common boost cancels
-    in the ratio. The residual is a second-order per-core-DVFS term (cores 0 vs 1 at different
-    clocks; a systematic CP-on-faster-core split would bias the ratio) — bounded but unverified.
-    The closing measurement is reading `/sys/devices/system/cpu/cpu*/cpufreq/scaling_cur_freq` (or
-    turbostat) during a pinned run vs a c=4 run. Energy is dead regardless (RAPL 43–60%). (c)
-    Mechanism stays observed-not-explained; concrete future work: `perf stat
-    -e context-switches,migrations` on the fnserver process (or /proc/<pid>/status
-    voluntary_ctxt_switches) at 2 vs 8 cores.
+    gate is a methodological contribution on its own. (b) **Frequency parity — VERIFIED
+    (2026-08-06 evening; §31.8, evidence in `results/freqcheck_evidence/`).** Direct
+    `scaling_cur_freq` sampling during a short pinned 2-core run vs a c=4 run: loaded cores 0,1 sit
+    at **3.60/3.60 GHz (identical — no per-core DVFS asymmetry)** vs **3.30 GHz** on the c=4 loaded
+    cores. The reviewer's turbo-headroom mechanism is REAL (pinned cores ~+9% higher; this is the
+    measured cause of the 43–60% RAPL error, plus the un-pinned idle cores downclocking to 400
+    MHz), but it does NOT confound the share: Linux cgroup CPU-time accrues via sched_clock /
+    invariant TSC — wall-time-on-core, not cycles — so a ratio of CPU-times is frequency-invariant
+    by construction, and with cores 0/1 at identical clocks there is no CP-on-faster-core channel
+    either. **Original 2-core results stand as final.** (c) Mechanism stays observed-not-explained;
+    concrete future work: `perf stat -e context-switches,migrations` on the fnserver process (or
+    /proc/<pid>/status voluntary_ctxt_switches) at 2 vs 8 cores.
   - **The 8/2-core mechanism fix, if reusing this method:** `cpu_count()` and `host_cpu_ticks()`
     both default to whole-machine values from `/proc/cpuinfo`/`/proc/stat`. `--cpu-count-override`
     (`SAQEF_CPU_COUNT_OVERRIDE`) alone is NOT sufficient — the first pass at this experiment used
