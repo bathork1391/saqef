@@ -1,0 +1,285 @@
+{
+  "platform": "fn",
+  "url": "http://localhost:8080/t/app1/hello",
+  "mode": "load",
+  "wall_s": 2.62,
+  "wall_harness_s": 2.62,
+  "sampling_covered_s": 2.62,
+  "requests": 3000,
+  "successes": 3000,
+  "availability": 1.0,
+  "throughput_rps": 1145.02,
+  "latency_ms": {
+    "p50": 15.7,
+    "p90": 24.2,
+    "p99": 40.7,
+    "max": 68.5
+  },
+  "slo_ms": 500.0,
+  "slo_compliance": 1.0,
+  "compliance_source": "hey_interp",
+  "energy_J": {
+    "total": 127.4,
+    "dynamic": 48.8,
+    "control_plane": 5.4,
+    "function": 43.4
+  },
+  "cp_share_pct": 4.24,
+  "cp_dynamic_share_pct": 11.07,
+  "cpu_sec": {
+    "control_plane": 1.54,
+    "function": 12.39
+  },
+  "cpu_sec_ceiling": 20.96,
+  "physical_plausible": true,
+  "unclassified_cpu_s": 0.0,
+  "container_inventory": [
+    "01KZ96PN4VNG8G00GZJ0000005",
+    "01KZ96PV85NG8G00GZJ000000A",
+    "01KZ96PV85NG8G00GZJ000000C",
+    "01KZ96PV87NG8G00GZJ000000F",
+    "01KZ96PV88NG8G00GZJ000000G",
+    "01KZ96PV88NG8G00GZJ000000J",
+    "01KZ96PV8BNG8G00GZJ000000N",
+    "01KZ96PV8BNG8G00GZJ000000P",
+    "01KZ96PV8DNG8G00GZJ000000R",
+    "01KZ96PV8MNG8G00GZJ000000T",
+    "01KZ96Q14SNG8G00GZJ000004H",
+    "01KZ96Q3F9NG8G00GZJ000005A",
+    "01KZ96Q3F9NG8G00GZJ000005D",
+    "01KZ96Q3F9NG8G00GZJ000005F",
+    "01KZ96Q3F9NG8G00GZJ000005G",
+    "01KZ96Q3FANG8G00GZJ000005J",
+    "01KZ96Q3FANG8G00GZJ000005M",
+    "01KZ96Q3FENG8G00GZJ000005P",
+    "01KZ96Q3FJNG8G00GZJ000005R",
+    "01KZ96Q3FKNG8G00GZJ000005T",
+    "01KZ96Q3TTNG8G00GZJ00000FH",
+    "01KZ96Q5ESNG8G00GZJ00001YH",
+    "01KZ96QBANNG8G00GZJ0000569",
+    "01KZ96QBAPNG8G00GZJ000056B",
+    "fnserver"
+  ],
+  "container_labels": {
+    "01KZ96PN4VNG8G00GZJ0000005": {
+      "image": "hello:0.0.6",
+      "labels": [
+        "io.buildah.version=1.43.1"
+      ]
+    },
+    "01KZ96PV85NG8G00GZJ000000A": {
+      "image": "hello:0.0.6",
+      "labels": [
+        "io.buildah.version=1.43.1"
+      ]
+    },
+    "01KZ96PV85NG8G00GZJ000000C": {
+      "image": "hello:0.0.6",
+      "labels": [
+        "io.buildah.version=1.43.1"
+      ]
+    },
+    "01KZ96PV87NG8G00GZJ000000F": {
+      "image": "hello:0.0.6",
+      "labels": [
+        "io.buildah.version=1.43.1"
+      ]
+    },
+    "01KZ96PV88NG8G00GZJ000000G": {
+      "image": "hello:0.0.6",
+      "labels": [
+        "io.buildah.version=1.43.1"
+      ]
+    },
+    "01KZ96PV88NG8G00GZJ000000J": {
+      "image": "hello:0.0.6",
+      "labels": [
+        "io.buildah.version=1.43.1"
+      ]
+    },
+    "01KZ96PV8BNG8G00GZJ000000N": {
+      "image": "hello:0.0.6",
+      "labels": [
+        "io.buildah.version=1.43.1"
+      ]
+    },
+    "01KZ96PV8BNG8G00GZJ000000P": {
+      "image": "hello:0.0.6",
+      "labels": [
+        "io.buildah.version=1.43.1"
+      ]
+    },
+    "01KZ96PV8DNG8G00GZJ000000R": {
+      "image": "hello:0.0.6",
+      "labels": [
+        "io.buildah.version=1.43.1"
+      ]
+    },
+    "01KZ96PV8MNG8G00GZJ000000T": {
+      "image": "hello:0.0.6",
+      "labels": [
+        "io.buildah.version=1.43.1"
+      ]
+    },
+    "01KZ96Q14SNG8G00GZJ000004H": {
+      "image": "hello:0.0.6",
+      "labels": [
+        "io.buildah.version=1.43.1"
+      ]
+    },
+    "01KZ96Q3F9NG8G00GZJ000005A": {
+      "image": "hello:0.0.6",
+      "labels": [
+        "io.buildah.version=1.43.1"
+      ]
+    },
+    "01KZ96Q3F9NG8G00GZJ000005D": {
+      "image": "hello:0.0.6",
+      "labels": [
+        "io.buildah.version=1.43.1"
+      ]
+    },
+    "01KZ96Q3F9NG8G00GZJ000005F": {
+      "image": "hello:0.0.6",
+      "labels": [
+        "io.buildah.version=1.43.1"
+      ]
+    },
+    "01KZ96Q3F9NG8G00GZJ000005G": {
+      "image": "hello:0.0.6",
+      "labels": [
+        "io.buildah.version=1.43.1"
+      ]
+    },
+    "01KZ96Q3FANG8G00GZJ000005J": {
+      "image": "hello:0.0.6",
+      "labels": [
+        "io.buildah.version=1.43.1"
+      ]
+    },
+    "01KZ96Q3FANG8G00GZJ000005M": {
+      "image": "hello:0.0.6",
+      "labels": [
+        "io.buildah.version=1.43.1"
+      ]
+    },
+    "01KZ96Q3FENG8G00GZJ000005P": {
+      "image": "hello:0.0.6",
+      "labels": [
+        "io.buildah.version=1.43.1"
+      ]
+    },
+    "01KZ96Q3FJNG8G00GZJ000005R": {
+      "image": "hello:0.0.6",
+      "labels": [
+        "io.buildah.version=1.43.1"
+      ]
+    },
+    "01KZ96Q3FKNG8G00GZJ000005T": {
+      "image": "hello:0.0.6",
+      "labels": [
+        "io.buildah.version=1.43.1"
+      ]
+    },
+    "01KZ96Q3TTNG8G00GZJ00000FH": {
+      "image": "hello:0.0.6",
+      "labels": [
+        "io.buildah.version=1.43.1"
+      ]
+    },
+    "01KZ96Q5ESNG8G00GZJ00001YH": {
+      "image": "hello:0.0.6",
+      "labels": [
+        "io.buildah.version=1.43.1"
+      ]
+    },
+    "01KZ96QBANNG8G00GZJ0000569": {
+      "image": "hello:0.0.6",
+      "labels": [
+        "io.buildah.version=1.43.1"
+      ]
+    },
+    "01KZ96QBAPNG8G00GZJ000056B": {
+      "image": "hello:0.0.6",
+      "labels": [
+        "io.buildah.version=1.43.1"
+      ]
+    },
+    "fnserver": {
+      "image": "fnproject/fnserver",
+      "labels": [
+        "io.buildah.version=1.41.8"
+      ]
+    }
+  },
+  "cp_peak_mem_mb": 40.4,
+  "carbon_gCO2": {
+    "op_total": 6.103,
+    "op_control_plane": 0.259,
+    "idle_band": {
+      "15": 4.22,
+      "30": 6.103,
+      "45": 7.986
+    }
+  },
+  "model": {
+    "idle_w": 30.0,
+    "busy_core_w": 3.5,
+    "pue": 1.15,
+    "ci": 150.0
+  },
+  "sensitivity": {
+    "cp_dynamic_share_pct_by_busy_w": {
+      "2.0": 11.07,
+      "3.5": 11.07,
+      "5.0": 11.07
+    },
+    "dynamic_energy_J_by_busy_w": {
+      "2.0": 27.9,
+      "3.5": 48.8,
+      "5.0": 69.7
+    },
+    "op_carbon_gCO2_by_busy_w": {
+      "2.0": 5.102,
+      "3.5": 6.103,
+      "5.0": 7.105
+    }
+  },
+  "kpi_gco2_per_slo_compliant_inv": 0.002,
+  "kpi_gco2_per_inv_dynamic": 0.000779,
+  "embodied_dram_g_per_gb_h": 0.0317,
+  "host_cpu_sec": 19.06,
+  "host_window_s": 2.62,
+  "host_saturation_pct": 90.9,
+  "host_plausible": true,
+  "host_saturated": true,
+  "host_overhead_cpu_sec": 5.13,
+  "orchestration_cpu_sec": 6.67,
+  "orchestration_share_pct": 34.99,
+  "steal_sec": null,
+  "steal_pct": null,
+  "cp_delta_sec": 1.539,
+  "cp_sampler_vs_delta_pct": 0.24,
+  "delta_check_map": {
+    "fnserver": "ok"
+  },
+  "env": {
+    "cpu_count": 8,
+    "governor": "powersave",
+    "freq_mhz_before": 1046.6,
+    "freq_mhz_after": 694.9,
+    "sampler": "cgroup",
+    "loadgen": "hey",
+    "loadgen_requested": "hey",
+    "loadgen_fallback": false
+  },
+  "rapl_validation_err_pct": 49.15,
+  "rapl_available": true,
+  "loadgen": {
+    "source": "hey",
+    "rps": 1178.64298903862,
+    "avg_ms": 16.66,
+    "errors": 0,
+    "wall_s": 2.55
+  }
+}

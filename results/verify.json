@@ -5,12 +5,12 @@
   "successes": 100,
   "availability": 1.0,
   "latency_ms": {
-    "p50": 27.38,
-    "p99": 351.01
+    "p50": 11.87,
+    "p99": 35.36
   },
-  "function_cpu_sec_total": 0.345,
-  "function_cpu_ms_per_inv": 3.45,
-  "control_plane_cpu_sec_total": 0.11,
+  "function_cpu_sec_total": 0.606,
+  "function_cpu_ms_per_inv": 6.06,
+  "control_plane_cpu_sec_total": 0.079,
   "budget_ms": 5.0,
   "budget_check": "MATCHES budget within 50-150%",
   "env": {

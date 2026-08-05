@@ -147,10 +147,17 @@ docker ps --format '{{.Names}}' | grep hello # expect hello.1.<id> x4
 ```
 All replicas carry the `hello:*` image → `--fn-images hello` still attributes every one of them to function CPU. Same step on bare metal with `N = 2 × $(nproc)`.
 
+> **The function service lives OUTSIDE the stack** (`faas-cli deploy` creates it as a bare swarm service, not part of the `openfaas` stack). Consequently `docker stack rm openfaas` does NOT remove it, and its replicas will taint a subsequent Fn run (they match `--fn-images hello`). If you remove it for isolation (`docker service rm hello`), re-deploy it before the next OpenFaaS run — `run_openfaas.sh all` redeploys the stack but NOT the function service:
+> ```bash
+> faas-cli deploy -f hello.yml --gateway http://127.0.0.1:8080   # hello service restored
+> docker service scale hello=16                                   # then scale statically (Step 1.5)
+> ```
+> Set the read/write timeout in `hello.yml` ≥ the load window, or the watchdog recycles containers mid-run and the function CPU budget silently shortens (bare-metal troubleshooting, report §30.4 item 6/8).
+
 ## 7. Expected output + comparison gate
 
 - `summary.json` median + `spread_min_max` per run.
-- **Gate:** Fn baseline = `cp_dynamic_share_pct` **23.59–24.59** (five clean sessions, report G6). If OpenFaaS differs from Fn by **>5pp** → the metric discriminates → proceed to bare metal (RAPL) for the definitive numbers. If within noise → redesign the metric *before* paying for bare-metal experiments.
+- **Gate (superseded 2026-08-05 by the bare-metal milestone):** the original a-priori gate — Fn `cp_dynamic_share_pct` baseline **23.59–24.59** (five clean codespace sessions, report G6); if OpenFaaS differs by **>5 pp** the metric discriminates. **Outcome:** the gate is machine-pair-dependent, not a platform constant — OpenFaaS is below Fn everywhere, but the gap is +8.8 pp on the 2-vCPU codespace (gate passes) and +2.8 pp on the 8-core bare-metal box (gate fails, report §30). Protocol-conformant bare-metal medians: Fn **10.46**, OpenFaaS **7.67** (c=4, TOTAL=10000, REPEAT=5, RAPL-validated). Current guidance: compute the gate per machine pair; treat the machine-dependence as the finding.
 - **Workload cross-check first:** `--verify` should report `function_cpu_ms_per_inv` in the same band as Fn (near-uncontended ≈3.5–4.0; the bench value will read lower, ~1.9, because host saturation dilutes per-call CPU attribution on the 2-vCPU box). If verify lands near 0, the deployed handler is sleeping, not spinning — stop and fix §4 before comparing.
 
 ## 8. Known pitfalls
