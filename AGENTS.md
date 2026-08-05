@@ -181,3 +181,47 @@ cores (repeat per-platform, OpenFaaS first, same teardown discipline as above):
 - `SAQEF_PAPER_DRAFT.md` — paper structure + corrections log (v9.3…v9.11, methodology fixes).
 - `OPENFAAS_SETUP.md` — OpenFaaS deployment + protocol steps (incl. §6 Step 1.5 concurrency parity).
 - `pin_cpuset.sh` — live cpuset-pinning daemon for the core-restricted variant (see that section).
+
+## Next-session plan (agreed 2026-08-06, user + external expert greenlighted)
+**Sequencing — do in this order:**
+1. **Figures from committed data** (zero measurement risk; data already in `results/*/summary.json`
+   + `samples.csv`): (a) share-by-regime grouped bar — Fn vs OpenFaaS at 8-core vs 2-core (10.46/7.67
+   vs 14.00/7.00, shows the asymmetry), (b) per-run scatter of all 5 runs per platform/regime
+   (honestly shows the bounded Fn drift), (c) attribution split (CP vs fn vs unclassified). Generate
+   via a small script under `figures/` (matplotlib, install if needed; harness stays stdlib-only).
+   Paper is tables-only today (78 rows, 0 figures) — this is the reviewer-facing weakness.
+2. **Adapter refactor** (fn + openfaas) WITH an automated **regression gate** before the new
+   plumbing is trusted: `saqef regression` reruns c=4 8-core both platforms and FAILS if median
+   `cp_dynamic_share_pct` deviates > ~0.5 pp from known-good **10.46 / 7.67**. Do NOT trust by code
+   review alone; prove by rerun.
+3. **OpenWhisk as a NEW adapter**, tested in isolation only after the framework is proven on
+   fn+openfaas (don't mix abstraction bugs with platform bugs in one session).
+
+**Architecture decisions (agreed):**
+- Adapter-per-platform (`platforms/<name>.py`), metric-as-config (JSON recipes under `metrics/`,
+  NOT scripts — metrics are modes of the existing harness), single CLI entrypoint:
+  `saqef run --platform X --metric Y --iterations N --total ... --concurrency ...`.
+- Adapter protocol must allow **bespoke sampling/hooks**, not just different flag values — a future
+  platform may not express its control plane as container names (systemd service, non-container CP,
+  dynamic function count). Design the adapter interface for that now.
+- **`assert_platform_isolation` becomes data-driven — THE point of the refactor.** Each adapter
+  declares `expected_containers` / `forbidden_containers` / `forbidden_services`; the guard
+  consumes them. Today it is hardcoded elif for fn/openfaas (`saqef_harness.py:747`) — the exact
+  copy-paste-drift surface that caused the original taint bug.
+- Do NOT let the future-GUI idea shape the design. Build for 3 platforms, not imagined N. A clean
+  scriptable CLI is good practice regardless; if a real GUI requirement appears, its shape will be
+  known then. (GUI would only ever call the same `saqef` CLI.)
+- **Harness measurement path stays byte-identical** during refactor; adapters are thin config +
+  deploy/teardown orchestration. Old `run_saqef.sh`/`run_openfaas.sh` stay working until the new
+  path passes regression — no capability loss.
+
+**"Do not regress" manifest — each previously-fixed bug must still be enforced after refactor:**
+1. hello-allowlist overlap → isolation guard (data-driven, mandatory per-adapter fields).
+2. `docker service rm hello` ordering / OpenFaaS-leftover taint.
+3. GIL concurrency parity: static replicas, never single-replica.
+4. `SAQEF_IDLE_W` calibrated per platform (idle-wats, not the 30 W default).
+5. host-window alignment (v9.10/v9.11) + `host_plausible` gate.
+6. delta-check 6/6 `ok`, delta% ~0; coverage ≤100%; `unclassified_cpu_s` informative (fail-open).
+7. Count-bound runs (TOTAL), `--duration` only a safety cap.
+Make each of these a *mandatory* field/assertion in the adapter contract so a fixed bug cannot
+silently vanish. Existing pitfalls list above remains authoritative.
