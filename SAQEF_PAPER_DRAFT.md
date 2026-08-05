@@ -27,7 +27,7 @@ Serverless (FaaS) platforms promise "scale to zero," pay-per-invocation pricing,
 **Contributions:**
 1. A reproducible, platform-agnostic measurement harness (`saqef_harness.py`) that attributes CPU/energy between control plane and function under controlled load, with built-in self-validation.
 2. A workload-anchored methodology that fixes the "ratio of tiny quantities" instability that plagues no-op-workload energy comparisons.
-3. The first validated Fn control-plane overhead numbers (30.3% of dynamic energy at 206 rps, 5 ms function).
+3. The first RAPL-validated cross-platform control-plane overhead numbers on bare metal (Fn 10.5% vs OpenFaaS 7.7% of dynamic CPU on 8 cores; the machine/core-count dependence of the gap is quantified, not hand-waved — §5.5).
 4. A documented case study of the validation method catching a real 52× instrumentation bug (§8).
 
 ---
@@ -60,7 +60,7 @@ A single **measurement window** synchronizes: (a) QoS load generation, (b) per-c
 
 Two energy scopes are reported, because they answer different questions:
 - **`cp_share_pct`** = control-plane energy / *total* machine energy (idle + dynamic). Answers: "how much of the *facility* cost is orchestration?" (small here: 1.9%).
-- **`cp_dynamic_share_pct`** = control-plane energy / *dynamic* (function + control-plane) energy. Answers: "of the *marginal work that load creates*, how much is orchestration?" (**the headline: 30.3%**).
+- **`cp_dynamic_share_pct`** = control-plane energy / *dynamic* (function + control-plane) energy. Answers: "of the *marginal work that load creates*, how much is orchestration?" (**the headline; 10.5% on the 8-core box, 14.0% at 2 pinned cores — §5.5**).
 
 ### 4.2 Environment
 
@@ -151,6 +151,9 @@ Constants: `P_BUSY_CORE_W = 3.5`, `P_IDLE_BASE_W = 30.0`, `PUE = 1.15`, `CI = 15
 
 ### 5.2 Energy & CPU attribution
 
+> Worked example from the original (superseded, saturated-codespace) run, illustrating the
+> attribution math; current citable values are in §5.5.
+
 | Metric | Value | Meaning |
 |---|---|---|
 | `cpu_sec.control_plane` | 2.61 s | fnserver CPU over 14.6 s window |
@@ -213,15 +216,16 @@ controlled, same-instrument experiment):**
 | saturated, flawed instrument | 2-vCPU shared VM, c=20 | 24.59 | 15.82 | +8.8 pp |
 | headroom, clean | 8-core, c=4 | 10.46 | 7.67 | +2.8 pp |
 | saturated, clean | 8-core, c=8 | 10.47 | 7.62 | +2.9 pp |
-| saturated, clean, SAME instrument, 2 independent sessions | 8-core box cpuset-pinned to 2 cores, c=4 | 14.00 (13.91/14.08) | 7.00 (6.82/7.17) | +7.0 pp (6.91/7.09, CV 1.3%) |
+| saturated, clean, SAME instrument, 2 independent sessions | 8-core box cpuset-pinned to 2 cores, c=4 | 14.00 (13.91/14.08) | 7.00 (6.82/7.17) | +7.0 pp (6.91/7.09) |
 
 The last row is the controlled confirmation: same box, same corrected protocol (fixed spin,
 RAPL-calibrated idle-w, `--cpu-count-override`/`--host-cpu-list` so the saturation gate is scoped
 to the 2 pinned cores, not the whole 8-core machine), REPEAT=5, all citability gates green — only
 the core count changed. It was reproduced in a full independent second session (fresh
 teardown/redeploy/re-pin; Fn's rebuilt image even changed tag, 0.0.10→0.0.11, with no effect since
-the pinning daemon targets "every running container," not an image tag) — the two sessions agree
-tightly (gap CV 1.3% across sessions). The gap jumps from 2.8–2.9 pp at 8 cores to ~7.0 pp at 2
+the pinning daemon targets "every running container," not an image tag) — the two sessions, each
+at the full REPEAT=5 protocol with per-run gate tables, give session gaps of 7.09 and 6.91 pp,
+reproduced to within 0.2 pp. The gap jumps from 2.8–2.9 pp at 8 cores to ~7.0 pp at 2
 cores, close to the original flawed-instrument codespace gap (8.8 pp) and far from the clean
 8-core gap. **Core count driving the gap's magnitude is therefore an earned, reproduced finding,
 not an inference across mismatched instruments.**
@@ -244,20 +248,25 @@ presents both the machine-dependence and its asymmetry as findings.
 > cause: the 4.3 W idle baseline was measured with all 8 cores idle; under 2-core pinning the
 > active cores' turbo/frequency behavior and/or the idle contribution of the 6 un-pinned-but-present
 > cores no longer match that baseline. `cp_dynamic_share_pct` is a pure cgroup CPU-time ratio and
-> is unaffected — it is the only number from this row that is citable; do not report absolute J or
-> gCO2 for it without re-deriving idle-w for the pinned configuration specifically. **Close-out
-> (open, not run):** re-derive idle-w for the pinned config and confirm per-core frequency parity
-> (`/sys/.../cpufreq/scaling_cur_freq` or turbostat) between pinned and full-core runs.
+> is unaffected **to first order** — numerator and denominator accrue CPU-time on the same 2 pinned
+> cores, and Linux CPU-time is frequency-normalized, so a common turbo boost cancels in the ratio.
+> The residual is a small second-order per-core-DVFS term (cores 0 vs 1 at different clocks with a
+> systematic CP-on-faster-core split), bounded but unverified. The share from this row is citable
+> with that caveat; absolute J/gCO2 are not, without re-deriving idle-w for the pinned
+> configuration. **Open verifications (external expert review, report §31.7):** (1) per-core
+> frequency parity — read `/sys/.../cpufreq/scaling_cur_freq` (or turbostat) during a pinned run
+> vs the c=4 run; (2) mechanism (future work): `perf stat -e context-switches,migrations` on
+> fnserver at 2 vs 8 cores to explain the asymmetric sensitivity.
 
 ---
 
 ## 6. Discussion
 
-**Why the headline is `cp_dynamic_share_pct`, not `cp_share_pct`.** The static share (1.9%) is what an operator sees on a dashboard; it hides the fact that the *marginal* cost of serving a function is one-third orchestration. The dynamic share is the economically relevant quantity for per-invocation pricing, carbon-aware scheduling, and "green function" claims.
+**Why the headline is `cp_dynamic_share_pct`, not `cp_share_pct`.** The static share (`cp_share_pct`) is what an operator sees on a dashboard; it hides the fact that the *marginal* cost of serving a function is dominated by orchestration — the dynamic share is ~10–14% and core-count dependent (§5.5). The dynamic share is the economically relevant quantity for per-invocation pricing, carbon-aware scheduling, and "green function" claims.
 
 **Workload anchoring.** Ratios over near-zero denominators are noise (the no-op workload case). A CPU-anchored function makes the dynamic share measurable and reproducible (±3 pp across runs, ±0.3 pp across reproductions).
 
-**What is measured vs estimated (honest line).** Measured directly: QoS, per-container CPU (validated to 0.01% against direct counters), physical plausibility. Modeled: absolute Joules and carbon (CPU-time proportionality, literature constants). The **relative** dynamic share is robust to the model constant (3.5 W/core scales both numerator and denominator), so the 30.3% claim is the most defensible number we produce.
+**What is measured vs estimated (honest line).** Measured directly: QoS, per-container CPU (validated to 0.01% against direct counters), physical plausibility, RAPL package Joules (bare metal). Modeled: absolute Joules and carbon (CPU-time proportionality, literature constants). The **relative** dynamic share is robust to the model constant (3.5 W/core scales both numerator and denominator), so `cp_dynamic_share_pct` is the most defensible number we produce.
 
 ---
 

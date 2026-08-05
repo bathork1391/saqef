@@ -65,8 +65,12 @@ a contention-robust discriminator. Decision gate: platform gap in the share must
     (Fn's function image tag even changed, 0.0.10→0.0.11, on rebuild — irrelevant, since
     `pin_cpuset.sh` pins by "every running container," not by image tag): session 2 gave Fn 14.08,
     OpenFaaS 7.17, gap 6.91 pp. Across the two independent sessions: Fn 13.91/14.08 (median 14.00),
-    OpenFaaS 6.82/7.17 (median 7.00), **gap 7.09/6.91 pp (CV 1.3% across sessions)** — tight
-    agreement, not a one-off. This is the number to cite in the paper for the 2-core row.
+    OpenFaaS 6.82/7.17 (median 7.00), **gap 7.09/6.91 pp across sessions** — reproduced to within
+    0.2 pp. Note: BOTH sessions ran the full REPEAT=5 protocol with per-run gate tables (delta 6/6,
+    host_plausible, coverage%) — the n=2 is the count of independent SESSIONS, not runs; each
+    session already matches the reproducibility standard applied to every other citable number.
+    Do NOT write "CV across sessions" (n=2 is not a distribution). This is the number to cite in
+    the paper for the 2-core row.
     Results: `results/{fn,openfaas}_cpubound_2core` (session 1) and
     `results/{fn,openfaas}_cpubound_2core_session2` (session 2).
   - **Correction to the mechanism — it is NOT symmetric.** The retracted hypothesis said "both
@@ -86,6 +90,20 @@ a contention-robust discriminator. Decision gate: platform gap in the share must
     the whole-box idle baseline. `cp_dynamic_share_pct` is unaffected (pure cgroup CPU-time ratio,
     no energy model involved) and remains the citable number; do not report absolute J/gCO2 from
     the `*_2core` result sets without re-deriving idle_w for the pinned configuration specifically.
+  - **Expert-review disposition (2026-08-06; full review recorded in report §31.7).** (a) The
+    core-count effect — 2.79 → 7.0 pp, same instrument, both sessions at full REPEAT=5 with per-run
+    gates — is judged an **earned, publishable result**, and the machine-dependence of the 5 pp
+    gate is a methodological contribution on its own. (b) **Frequency parity under pinning is the
+    one open verification** (expert: "not the paper yet" without it). First-order analysis: the
+    share is frequency-robust by construction — numerator and denominator accrue cgroup CPU-time on
+    the same 2 pinned cores, and Linux CPU-time is frequency-normalized, so a common boost cancels
+    in the ratio. The residual is a second-order per-core-DVFS term (cores 0 vs 1 at different
+    clocks; a systematic CP-on-faster-core split would bias the ratio) — bounded but unverified.
+    The closing measurement is reading `/sys/devices/system/cpu/cpu*/cpufreq/scaling_cur_freq` (or
+    turbostat) during a pinned run vs a c=4 run. Energy is dead regardless (RAPL 43–60%). (c)
+    Mechanism stays observed-not-explained; concrete future work: `perf stat
+    -e context-switches,migrations` on the fnserver process (or /proc/<pid>/status
+    voluntary_ctxt_switches) at 2 vs 8 cores.
   - **The 8/2-core mechanism fix, if reusing this method:** `cpu_count()` and `host_cpu_ticks()`
     both default to whole-machine values from `/proc/cpuinfo`/`/proc/stat`. `--cpu-count-override`
     (`SAQEF_CPU_COUNT_OVERRIDE`) alone is NOT sufficient — the first pass at this experiment used
