@@ -115,7 +115,9 @@ Run profile: 3000 requests, concurrency 20, warmup 20, repeat 5, SLO 500 ms, dur
 cpu_sec(container) = Σ (cum_{i+1} - cum_i)                    # cgroup mode (exact)
 dynamic_J(container) = cpu_sec × P_BUSY_CORE_W                # 3.5 W/busy core (Caribou, SOSP'24)
 total_J = P_IDLE_BASE_W × wall_s + Σ dynamic_J                # idle 30 W baseline
-carbon_gCO2 = (Wh) × PUE × CI                                 # PUE 1.15, CI 150 gCO2/kWh
+carbon_gCO2 = kWh × PUE × CI                              # kWh = J / 3.6e6; PUE 1.15, CI 150 gCO2/kWh
+                                                          # (historical bug: J/3600 gave Wh, i.e. a spurious
+                                                          # 1000× in every gCO2 figure -- fixed 2026-08-06)
 cp := containers matching --cp-containers (here: "fnserver")
 KPI = operational_gCO2 / N_SLO-compliant_invocations        # incl. idle baseline (window-dependent)
 KPI_dynamic = dynamic_gCO2 / N_SLO-compliant_invocations    # load-created carbon only (wall-independent)
@@ -191,8 +193,8 @@ Constants: `P_BUSY_CORE_W = 3.5`, `P_IDLE_BASE_W = 30.0`, `PUE = 1.15`, `CI = 15
 |---|---|
 | Control-plane CPU | 2.61 s / 3000 = **0.87 ms CPU** |
 | Control-plane dynamic energy | 9.1 J / 3000 = **3.03 mJ** |
-| Control-plane carbon (dynamic) | ≈ **145 µg CO₂** |
-| Total operational carbon (incl. idle base) | ≈ **7.5 mg CO₂** (idle dominates: ~94%) |
+| Control-plane carbon (dynamic) | ≈ **0.145 µg CO₂** |
+| Total operational carbon (incl. idle base) | ≈ **7.5 µg CO₂** (idle dominates: ~94%) |
 The idle-dominance is itself a result: at this light load, **~94% of operational carbon is the always-on baseline**, and the marginal cost of serving is split 30/70 orchestration/function. This is precisely the regime where autoscaling ("scale to zero") pays off — and where the orchestration tax is most visible per unit of useful work.
 
 ### 5.5 Cross-platform, RAPL-validated results (bare metal, 2026-08-05)
@@ -296,7 +298,7 @@ presents both the machine-dependence and its asymmetry as findings.
 7. **Model constants** (idle 30 W, 3.5 W/core, PUE 1.15, CI 150) are literature defaults; CI in particular is regional/temporal.
 8. **Two machines only; the machine-dependence is itself the new threat.** The share scales with machine capacity (~2.3× between 2-vCPU and 8-core; flat with load on a fixed machine). A third machine (e.g., a different core count / NUMA) would bound the trend; the paper must present the per-machine-pair gate so reviewers can apply the framework to their own hardware.
 
-> **v9.3 review-driven corrections (external expert review, 2026-08-04):** (a) `host_cpu_sec` sums **busy** ticks only (was total → `orchestration_*` inflated ~5×); (b) **memory captured** in cgroup mode — `cp_peak_mem_mb` was 0.0, now real (88.6 MB on the v9.2 run); (c) **KPI fixed** — now operational gCO₂ per SLO-compliant invocation (≈39.6 mg incl. idle base on the saturated-vm run); (d) **`sensitivity` block added** — dynamic share, dynamic energy, and carbon at busy-core 2/3.5/5 W (share invariant, absolutes banded); (e) **`orchestration_*` defined explicitly** as a host-wide residual (§7.3) and excluded from claims; (f) **quick-run guard** — `SAQEF_REPEAT < 5` writes to a `_quick` outdir so 1-run passes can't be mistaken for the 5-run publication set.
+> **v9.3 review-driven corrections (external expert review, 2026-08-04):** (a) `host_cpu_sec` sums **busy** ticks only (was total → `orchestration_*` inflated ~5×); (b) **memory captured** in cgroup mode — `cp_peak_mem_mb` was 0.0, now real (88.6 MB on the v9.2 run); (c) **KPI fixed** — now operational gCO₂ per SLO-compliant invocation (≈39.6 mg incl. idle base on the saturated-vm run; note: this v9.3-era figure carried the pre-2026-08-06 J/3600 Wh bug and is ÷1000 → ≈39.6 µg under the corrected kWh formula); (d) **`sensitivity` block added** — dynamic share, dynamic energy, and carbon at busy-core 2/3.5/5 W (share invariant, absolutes banded); (e) **`orchestration_*` defined explicitly** as a host-wide residual (§7.3) and excluded from claims; (f) **quick-run guard** — `SAQEF_REPEAT < 5` writes to a `_quick` outdir so 1-run passes can't be mistaken for the 5-run publication set.
 >
 > **v9.4 review-driven corrections (second external expert review, 2026-08-04):** (g) **host plausibility gate** — `host_plausible = host_cpu_sec ≤ cpu_count × wall × 1.05`, with the cgroup quota (`cpu.max`) printed by `--check`; (h) **host saturation ratio** reported per run and flagged ≥ 85% (QoS caveat, §7.4); (i) **fn allowlist** (`--fn-containers`) — non-matching containers land in an `unclassified_cpu_s` bucket + `container_inventory` audit, never silently in `fn_cpu`; (j) **count-bound runs** — `-n` only, `--duration` is a safety cap with a post-run wall assertion (hey's `-z`/`-n` precedence is build-dependent); (k) **`--rescan-s`** (default 0.25) shrinks the blind spot for ephemeral containers; (l) **`iqr`** reported alongside `bootstrap_ci`/`cv_pct`, N≥10 for publication.
 >
@@ -314,7 +316,8 @@ presents both the machine-dependence and its asymmetry as findings.
 >
 > **v9.12 bare-metal session (2026-08-05):** (x) **`SAQEF_IDLE_W` knob** added to both runner scripts — the hardcoded `idle_w=30` was a 7× overestimate of the 8-core box's real 4.3 W idle package power, keeping `rapl_validation_err_pct` ≈ 45%; calibrated it to 4.2–8.2% steady-state on both platforms. Knob only; no measurement-path change. (y) **swarm advertise-addr fix** in `run_openfaas.sh` — `docker swarm init --advertise-addr 127.0.0.1` for multi-homed hosts. (z) **isolation pitfall recorded**: `docker stack rm openfaas` does not remove the `hello` function service (deployed outside the stack); its idle replicas fold into Fn's `fn_cpu` via the image allowlist with all gates still green. Protocol now requires `docker service rm hello` before any Fn run; one tainted Fn rerun was discarded (share 11.68 vs clean 10.46; its "0.9–6.1% RAPL" and "6.7/9.4 ms @ 577 rps" figures must NOT be cited).
 >
-> **v9.13 structural isolation guard + drift analysis (2026-08-06, §31.9):** (aa) **`assert_platform_isolation` enforced at `run_once()` start** — Fn sessions fail loud if ANY swarm service is up (Fn never uses swarm; the known offender is OpenFaaS's `hello` service, deployed outside the stack and invisible to `docker stack rm`), OpenFaaS sessions fail loud if `fnserver` is up. Both platforms' function images are named `hello`, so the allowlist substring match cannot distinguish them; the `unclassified` bucket catches only neither-match strays, leaving a wrong-platform-but-name-matching stray silent (the exact mechanism of the §30 discarded tainted run). The guard is a precondition check, not a measurement-path change — no citable run invalidated. (bb) **run-order drift bounded and characterized (report §31.9)** — the Fn CV 8.1% drift (runs 4–5 ≈ 11.7) is NOT accumulation: per-run live container counts were 11, 11, 9, 9, 9 (flat-to-shrinking) and fnserver RSS from the committed `samples.csv` traces is a run-1 warm-up spike (max 126.5 MB) then flat 34.0/33.8/33.3/33.1 MB across runs 2–5, while fnserver CPU% settles 28.9 → 33.9 then down to 32.7 at run_5. It is a bounded warm-up/settling transient, not a session-length scaling term, so longer sessions (REPEAT=10) would not drift higher — external validity preserved. Threads/FD counts were not measured (needs a ~15-min diagnostic; deferred); the underlying mechanism stays future work per §31.7(c).
+> **v9.14 review findings — carbon unit bug + isolation-guard data-driven port (2026-08-06):** (cc) **carbon ×1000 unit bug fixed** — `carbon_gCO2` was computed as `(J/3600) × PUE × CI`: `J/3600` yields **Wh**, but `CI` is **gCO2/kWh**, so every gCO₂ figure (op/cp totals, idle_band, KPI, sensitivity `op_carbon_gCO2_by_busy_w`) was 1000× too high. Formula now `J/3.6e6` (kWh) before `× PUE × CI`. `energy_J`, `cp_dynamic_share_pct` (unit-free ratio), and `rapl_validation_err_pct` were never affected. §5.4/Table §7.2 values corrected (145 µg → 0.145 µg dynamic; 7.5 mg → 7.5 µg total); the v9.3-era 39.6 mg KPI is ÷1000 → ≈39.6 µg. (dd) **`assert_platform_isolation` made data-driven** — previously hardcoded elif for fn/openfaas (OpenWhisk fell through to `(True,"")`, a copy-paste-drift surface); now consumes the adapter's `--forbidden-services`/`--forbidden-containers` argv (manifest #1/#2), so every platform's isolation contract is enforced at measurement time. Harness now diverges from `saqef-v2.0-frozen` (carbon + isolation); new frozen tag required after test pass. (ee) **verify output namespace** — `cmd_verify` default now `results/<platform>_verify` (was the shared `results/`, which an OpenWhisk verify silently overwrote on the tracked `results/verify.json` working artifact). (ff) **stale faas-cli comment** corrected in `saqef deploy` (OpenFaaS uses direct `docker service create`, not faas-cli). (gg) **`run_openfaas.sh` replica default 4 → 16** (protocol is 16 static replicas; the drift default silently weakened the GIL-concurrency parity guarantee if `SAQEF_REPLICAS` was forgotten).
+
 
 ---
 
@@ -404,8 +407,8 @@ Full command log and historical decisions: `SAQEF_TECHNICAL_REPORT.md` §§3, 4,
 | `cp_share_pct` | 1.94 | 1.86–1.95 | % |
 | dynamic energy | 30.1 | 18.4–30.6 | J |
 | `cp_peak_mem_mb` | pending v9.2 | — | MB |
-| KPI (op. gCO₂ per SLO-compliant invocation, incl. idle base) | ≈7.5 | — | mg CO₂ |
-| control-plane carbon per invocation (dynamic only) | ≈145 | — | µg CO₂ |
+| KPI (op. gCO₂ per SLO-compliant invocation, incl. idle base) | ≈7.5 | — | µg CO₂ |
+| control-plane carbon per invocation (dynamic only) | ≈0.145 | — | µg CO₂ |
 | `cp_sampler_vs_delta_pct` | 0.01 | 0.01–0.15 | % |
 | `physical_plausible` | true | true | bool |
 

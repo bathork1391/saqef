@@ -154,7 +154,27 @@ a contention-robust discriminator. Decision gate: platform gap in the share must
     deployment-mode artifact.
   - `.gitignore` had CRLF line endings (broke the `vendor/docker` pattern); rewritten LF +
     `vendor/` + `results/*_quick*/` guard. `results/verify.json` is a tracked working artifact —
-    revert before committing (OpenWhisk verify overwrote it).
+    revert before committing (OpenWhisk verify overwrote it — now fixed: verify outdir defaults to
+    `results/<platform>_verify`, so cross-platform verify can no longer collide).
+- **External-review findings fixed (2026-08-06; verified by tests, not yet committed).**
+  - **🔴 Carbon ×1000 unit bug — FIXED in `saqef_harness.py`.** `carbon_gCO2` used `J/3600` (Wh)
+    with `CI` in gCO2/kWh → every gCO₂ figure was 1000× too high. Formula now `J/3.6e6` (kWh).
+    `energy_J`, `cp_dynamic_share_pct` (unit-free), `rapl_validation_err_pct` NEVER affected. Paper
+    values corrected (§5.4 145 µg → 0.145 µg; 7.5 mg → 7.5 µg; v9.3-era 39.6 mg → ≈39.6 µg).
+  - **🟠 Isolation guard is now data-driven.** `assert_platform_isolation()` in the harness consumes
+    `--forbidden-services`/`--forbidden-containers` argv (OpenWhisk was silently falling through
+    the old hardcoded fn/openfaas elif to `(True,"")`). Adapter `isolation` fields now enforced at
+    measurement time on all three platforms.
+  - **🟡 `cmd_verify` default outdir** → `results/<platform>_verify` (was shared `results/`).
+  - **🟡 `saqef` deploy comment** corrected (OpenFaaS = `docker service create`, not faas-cli).
+  - **🟡 `run_openfaas.sh` replica default 4 → 16** (protocol is 16 static replicas).
+  - **Replica audit (reviewer's "10" was a misread):** OpenFaaS runs are protocol-clean — baremetal
+    and regression = 16 replicas (16/16/16/16/16 across runs 1–5), 2-core = 4 (2×N protocol),
+    legacy codespace = 4/1 (pre-citable). "10" was Fn's *dynamic function-container count*.
+  - **⚠️ `saqef_harness.py` NOW DIVERGES from `saqef-v2.0-frozen`** (carbon fix + isolation port).
+    New frozen tag (e.g. `saqef-v2.2`) must be cut AFTER the full suite passes and, per the
+    refactor discipline, a `saqef regression` rerun confirms 11.60/7.67 before the next citable run.
+    Measurement-path bytes beyond those two edits are untouched.
 
 ## Bare-metal protocol (proven on this box)
 1. `sudo bash setup_baremetal.sh` (docker + CLIs + RAPL readable by the user).

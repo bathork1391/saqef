@@ -82,6 +82,35 @@ def run_sub(cmd, dry_run=False):
     return subprocess.run(cmd)
 
 
+def _count_fn_containers(s):
+    """Count function-container replicas via the RUN's OWN platform adapter
+    fn_images allowlist (matched against each container's image, same
+    substring semantics as the harness's _class_matches), not a hardcoded
+    name -- container naming schemes differ per platform: Fn uses ULIDs,
+    OpenFaaS names swarm tasks 'hello.N.hash', OpenWhisk names action
+    containers 'wsk0_N_guest_hello'. A hardcoded startswith('hello') check
+    silently reads 0 for both Fn and OpenWhisk regardless of the real replica
+    count. Falls back to that legacy heuristic only for pre-refactor result
+    dirs that predate the 'container_labels' field."""
+    inventory = s.get("container_inventory", [])
+    labels = s.get("container_labels")
+    platform = s.get("platform")
+    if not labels or not platform:
+        return sum(1 for n in inventory if n.startswith("hello"))
+    try:
+        subs = get_adapter(platform).fn_images
+    except Exception:
+        return sum(1 for n in inventory if n.startswith("hello"))
+    if not subs:
+        return 0
+    count = 0
+    for n in inventory:
+        image = (labels.get(n) or {}).get("image", "") or ""
+        if any(sub in image.lower() for sub in subs):
+            count += 1
+    return count
+
+
 def gates_for(out):
     """Print the per-run accept/reject gate table (unified across platforms)."""
     import glob
@@ -97,7 +126,7 @@ def gates_for(out):
         cov = round(100 * s["sampling_covered_s"] / wall, 1) if wall else 0.0
         m = s.get("delta_check_map") or {}
         okmap = sum(1 for v in m.values() if v == "ok")
-        nfn = sum(1 for n in s.get("container_inventory", []) if n.startswith("hello"))
+        nfn = _count_fn_containers(s)
         satflag = "  <-- QoS CONTENTION-CONTAMINATED (>=85%): do not cite latency" \
             if s.get("host_saturated") else ""
         covflag = "  <-- COVERAGE INVARIANT BROKEN (>100%): do not cite" if cov > 100 else ""
@@ -138,7 +167,8 @@ def cmd_deploy(args):
         print("ERROR:", why)
         sys.exit(1)
     ad.deploy()
-    ad.deploy_function()   # no-op for Fn; OpenFaaS deploys the hello service (faas-cli)
+    ad.deploy_function()   # no-op for Fn; OpenFaaS creates the hello swarm service directly
+                           # (docker service create -- NOT faas-cli: that needs the template store)
 
 
 def cmd_teardown(args):
@@ -157,9 +187,27 @@ def cmd_scale(args):
 def cmd_verify(args):
     ad = get_adapter(args.platform)
     metric = load_metric(args.metric)
-    cmd = ad.harness_argv(metric, 0, 0, 0, 0, 0,
-                          args.out, verify=True)
+    # harness_argv's verify branch does NOT emit --outdir (only the bench
+    # branch does), so the harness falls back to its own "results" default --
+    # args.out would otherwise be silently ignored (this is what corrupted
+    # the tracked results/verify.json working artifact in the OpenWhisk
+    # session; see AGENTS.md). Pin it explicitly here, same as _regression()
+    # already has to. Default is per-platform (results/<platform>_verify) so
+    # verifying fn then openwhisk cannot clobber one file.
+    out = args.out or os.path.join(REPO, "results", "%s_verify" % args.platform)
+    cmd = ad.harness_argv(metric, 0, 0, 0, 0, 0, out, verify=True)
+    cmd += ["--outdir", out]
     run_sub(cmd, dry_run=args.dry_run)
+    if args.dry_run:
+        return
+    v = load_verify(out)
+    if v is None:
+        sys.exit("ERROR: --verify wrote no %s/verify.json" % out)
+    print("verify: %d/%d successes (function_cpu_ms_per_inv=%s, budget=%s)"
+          % (v["successes"], v["calls"], v.get("function_cpu_ms_per_inv"),
+             metric.get("defaults", {}).get("verify_budget_ms", ad.verify_budget_ms)))
+    if v["successes"] < v["calls"]:
+        sys.exit(1)
 
 
 def cmd_run(args):
@@ -229,7 +277,7 @@ def _regression(metric, dry_run):
                          "aborting instead of benching a dead platform"
                          % (v["successes"], v["calls"], ad.label))
             print("verify OK: %d/%d successes (function_cpu_ms_per_inv=%s)"
-                  % (v["successes"], v["calls"], v.get("ms_per_inv")))
+                  % (v["successes"], v["calls"], v.get("function_cpu_ms_per_inv")))
         print("--- bench (c=%d total=%d repeat=%d idle_w=%s)" % (
             rg["concurrency"], rg["total"], rg["repeat"], rg["idle_w"]))
         bcmd = ad.harness_argv(metric, rg["total"], rg["concurrency"], rg["duration"],

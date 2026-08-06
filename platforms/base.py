@@ -232,6 +232,10 @@ class Adapter:
                 cmd += ["--cp-labels", self.cp_labels_arg()]
             if self.fn_labels:
                 cmd += ["--fn-labels", self.fn_labels_arg()]
+            if self.isolation and self.isolation.forbidden_services:
+                cmd += ["--forbidden-services", ",".join(self.isolation.forbidden_services)]
+            if self.isolation and self.isolation.forbidden_containers:
+                cmd += ["--forbidden-containers", ",".join(self.isolation.forbidden_containers)]
             cmd += ["--verify-n", str(metric.get("defaults", {}).get("verify_n", self.verify_n)),
                     "--verify-budget-ms",
                     str(metric.get("defaults", {}).get("verify_budget_ms", self.verify_budget_ms))]
@@ -250,6 +254,10 @@ class Adapter:
             cmd += ["--cp-labels", self.cp_labels_arg()]
         if self.fn_labels:
             cmd += ["--fn-labels", self.fn_labels_arg()]
+        if self.isolation and self.isolation.forbidden_services:
+            cmd += ["--forbidden-services", ",".join(self.isolation.forbidden_services)]
+        if self.isolation and self.isolation.forbidden_containers:
+            cmd += ["--forbidden-containers", ",".join(self.isolation.forbidden_containers)]
         if idle_w:
             cmd += ["--idle-w", str(idle_w)]
         if cpu_count_override:
