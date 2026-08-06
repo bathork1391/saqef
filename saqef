@@ -284,27 +284,27 @@ def main(argv=None):
     p.set_defaults(func=cmd_check)
 
     p = sub.add_parser("deploy", help="deploy a platform")
-    p.add_argument("--platform", required=True, choices=["fn", "openfaas"])
+    p.add_argument("--platform", required=True, choices=["fn", "openfaas", "openwhisk"])
     p.set_defaults(func=cmd_deploy)
 
     p = sub.add_parser("teardown", help="remove a platform")
-    p.add_argument("--platform", required=True, choices=["fn", "openfaas"])
+    p.add_argument("--platform", required=True, choices=["fn", "openfaas", "openwhisk"])
     p.set_defaults(func=cmd_teardown)
 
     p = sub.add_parser("scale", help="static function replica scale (OpenFaaS)")
-    p.add_argument("--platform", required=True, choices=["fn", "openfaas"])
+    p.add_argument("--platform", required=True, choices=["fn", "openfaas", "openwhisk"])
     p.add_argument("--replicas", type=int, default=None)
     p.set_defaults(func=cmd_scale)
 
     p = sub.add_parser("verify", help="confirm the handler burns ~verify_budget_ms CPU/inv")
-    p.add_argument("--platform", required=True, choices=["fn", "openfaas"])
+    p.add_argument("--platform", required=True, choices=["fn", "openfaas", "openwhisk"])
     p.add_argument("--metric", default="cpubound")
     p.add_argument("--out", default=None)
     p.add_argument("--dry-run", action="store_true")
     p.set_defaults(func=cmd_verify)
 
     p = sub.add_parser("run", help="full bench; prints gates at the end")
-    p.add_argument("--platform", required=True, choices=["fn", "openfaas"])
+    p.add_argument("--platform", required=True, choices=["fn", "openfaas", "openwhisk"])
     p.add_argument("--metric", default="cpubound")
     p.add_argument("--out", default=None)
     p.add_argument("--total", type=int, default=None)

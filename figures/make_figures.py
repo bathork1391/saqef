@@ -26,8 +26,7 @@ OUTDIR = sys.argv[1] if len(sys.argv) > 1 else os.path.join(os.path.dirname(__fi
 PLATFORMS = {
     "fn":       {"label": "Fn",       "color": "#1f77b4"},
     "openfaas": {"label": "OpenFaaS", "color": "#ff7f0e"},
-    # Future platform data slots in here, e.g.:
-    # "openwhisk": {"label": "OpenWhisk", "color": "#2ca02c"},
+    "openwhisk": {"label": "OpenWhisk", "color": "#2ca02c"},
 }
 
 # regime -> label + per-platform list of result dirs (each dir is one independent

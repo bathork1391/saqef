@@ -109,6 +109,30 @@ class TestArgvByteIdentical(unittest.TestCase):
         self.assertEqual(["python3", saqef.HARNESS, "--check"],
                          ["python3", saqef.HARNESS, "--check"])
 
+    def test_ow_bench_defaults(self):
+        # OpenWhisk web action URL (GET-invocable; harness is GET-only and frozen).
+        ad = get_adapter("openwhisk")
+        cmd = ad.harness_argv(METRIC, 3000, 20, 60, 20, 5, "results/openwhisk_cpubound")
+        self.assertEqual(cmd, [
+            "python3", "saqef_harness.py",
+            "--url", "http://127.0.0.1:3233/api/v1/web/guest/default/hello",
+            "--platform", "openwhisk", "--cp-containers", "openwhisk",
+            "--fn-images", "action-python-v3.11",
+            "--total", "3000", "--concurrency", "20", "--duration", "60",
+            "--warmup", "20", "--repeat", "5",
+            "--sampler", "cgroup", "--delta-check", "--loadgen", "hey",
+            "--outdir", "results/openwhisk_cpubound"])
+
+    def test_ow_verify(self):
+        ad = get_adapter("openwhisk")
+        cmd = ad.harness_argv(METRIC, 0, 0, 0, 0, 0, "results/x", verify=True)
+        self.assertEqual(cmd, [
+            "python3", "saqef_harness.py", "--verify", "--sampler", "cgroup",
+            "--url", "http://127.0.0.1:3233/api/v1/web/guest/default/hello",
+            "--platform", "openwhisk", "--cp-containers", "openwhisk",
+            "--fn-images", "action-python-v3.11",
+            "--verify-n", "100", "--verify-budget-ms", "5.0"])
+
 
 class TestQuickGuard(unittest.TestCase):
     """SAQEF_REPEAT < 5 must write to *_quick (never the published outdir)."""
@@ -124,7 +148,7 @@ class TestAdapterSchema(unittest.TestCase):
     """The 'do not regress' manifest encoded as mandatory adapter fields."""
 
     def test_all_adapters_complete(self):
-        for name in ("fn", "openfaas"):
+        for name in ("fn", "openfaas", "openwhisk"):
             ad = get_adapter(name)
             self.assertTrue(ad.name and ad.label and ad.url)
             self.assertTrue(ad.cp_containers)          # cp classifiers present
@@ -156,6 +180,27 @@ class TestAdapterSchema(unittest.TestCase):
         # manifest #3: GIL concurrency parity -> static replicas, never single-replica
         self.assertEqual(get_adapter("openfaas").default_replicas, 16)
         self.assertIsNone(get_adapter("fn").default_replicas)
+
+    def test_openwhisk_scales_dynamically(self):
+        # OpenWhisk's invoker spawns action containers per activation (like Fn);
+        # no static replica concept -> the CLI's scale command must refuse.
+        self.assertIsNone(get_adapter("openwhisk").default_replicas)
+        with self.assertRaises(NotImplementedError):
+            get_adapter("openwhisk").scale(8)
+
+    def test_openwhisk_web_action_url(self):
+        # The frozen GET-only harness needs a GET-invocable endpoint: the action
+        # must be exposed as a web action (REST native invoke is POST).
+        ad = get_adapter("openwhisk")
+        self.assertIn("/api/v1/web/", ad.url)
+        self.assertNotIn("/api/v1/namespaces/", ad.url)
+
+    def test_openwhisk_forbids_swarm_and_fn(self):
+        # OpenWhisk never uses swarm -> any service is contamination (like Fn);
+        # Fn's fnserver must be down too.
+        pol = get_adapter("openwhisk").isolation
+        self.assertIn("*", pol.forbidden_services)
+        self.assertIn("fnserver", pol.forbidden_containers)
 
 
 class TestDeploymentContract(unittest.TestCase):
