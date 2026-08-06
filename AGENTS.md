@@ -364,3 +364,74 @@ cores (repeat per-platform, OpenFaaS first, same teardown discipline as above):
 7. Count-bound runs (TOTAL), `--duration` only a safety cap.
 Make each of these a *mandatory* field/assertion in the adapter contract so a fixed bug cannot
 silently vanish. Existing pitfalls list above remains authoritative.
+
+## Handoff log — user out (2026-08-07 evening; box NOT quiet — an agent was burning ~2.8 cores)
+
+**Do NOT start any benchmark while an agent is running.** This list is the accepted plan for the
+next human/quiet session. Order matters; the two reruns below are the only new measurements the
+paper still needs.
+
+### Confidence tiering (honest, agreed 2026-08-07)
+- **Defensible as-is (measurement-path + multiple sessions):** OpenFaaS 8-core share ~7.5–7.7%
+  (three independent measurements within ~0.15 pp); the **2-core pinned gap ≈ 7.0 pp** (Fn 14.00
+  vs OF 7.00, two independent sessions, frequency-parity verified, invariant-TSC ratio → DVFS-safe);
+  Fn-vs-OF 8-core direction (Fn higher, magnitude ~2.8 pp, below the 5 pp gate); the fixed carbon
+  values (0.145 µg/inv etc., hand-recomputed with J/3.6e6); OF per-inv CP 0.56 ms / Fn 0.66–0.79 ms.
+- **Fishy — needs one quiet rerun each before citation:** OpenWhisk 82.54 and Knative 13.99
+  (single sessions, box contaminated, attribution caveats). **OW is the highest risk**: how much of
+  82.5% is "control plane" vs standalone-emulator `docker logs` artifact? Kn's queue-proxy-in-fn /
+  kourier-in-CP asymmetry + invisible k3s apiserver/etcd are what an expert will probe.
+- **NOT citable by design:** energy/carbon from 2-core, OW, Kn runs (RAPL error 22–60% — linear
+  busy-core model doesn't fit JVM/always-on-k8s stacks); QoS from OW/Kn (agent-contaminated). Only
+  Fn/OF quiet QoS (p50 6.5 vs 7.2 ms) is citable.
+- **Biggest scientific risk to pre-empt:** the 8-core result *failed* the 5 pp gate; the 2-core
+  rescue came after. Framed honestly as regime-dependence, but the paper must lead with the
+  controlled same-instrument defense (and the ~25% Fn box drift 10.46→12.92 needs a stated cause or
+  an explicit box-state caveat, not a footnote).
+
+### 1. Quiet-box rerun runbook for OW + Kn (do FIRST, before any other measurement)
+Both need a box quiet of agents/this shell, `SAQEF_REPEAT=5`, fresh deploy, and idle-w calibrated
+per platform with the stack up (OW 5.29 W, Kn 11.14 W — measured with stack up, zero traffic).
+- OpenWhisk: full `saqef run --platform openwhisk ... --idle-w 5.29` (deploy/verify/bench/gates).
+  Kill/never-run the previous standalones (host_load was rising 47→25 rps). `results/verify.json`
+  is a tracked artifact — revert before commit.
+- Knative: `saqef run --platform knative ... --idle-w 11.14`. Expect share ≈ 13–14 (confirm),
+  QoS now citable (was p50 8.3–8.7/p99 13.8–14.8 @ ~440 rps, agent-contaminated), energy STILL NOT
+  citable even quiet (idle 11.14 W breaks the linear model — rapl err 22–32% is structural).
+- After each: `gates` must show host_saturated=false, delta ~0, coverage 100%, CPmapped ok.
+- Outcome for the paper: OW energy/QoS either become citable (quiet) or get a permanent
+  "deployment-mode artifact" qualification; Kn energy/QoS get their clean provenance.
+
+### 2. Fn-drift investigation (mechanism; share values themselves are fine)
+The 11.60-vs-12.92 range is a *box-state* drift (RSS flat, fnserver per-request CP 0.61→0.75 ms),
+observed-not-explained. Concrete plan: `perf stat -e context-switches,migrations` on the fnserver
+process (or `/proc/<pid>/status` voluntary_ctxt_switches) at 8 cores vs 2 pinned cores, plus the
+recalibration A/B: rerun OLD runner `run_saqef.sh all` on a quiet box same-day to re-anchor the
+regression reference (AGENTS.md §"fn reference recalibrated" — do NOT trust 11.60 or 12.92 as a
+constant; pick the fresh quiet-box value and note it is day-sensitive). The regression gate's job
+is to catch refactor-scale breaks, not ~0.5 pp noise.
+
+### 3. Codespace disposition — DECISION (user asked 2026-08-07; agreed)
+- **Remove ALL codespace results/findings from tables/figures.** Already done 2026-08-07 — the
+  only remaining mentions are (a) the §4.2 hardware-table origin row ("origin instrument, no
+  results cited") and (b) the §7.4 contention-contamination lesson (what a saturated co-tenanted
+  box does to QoS) — both narrative, zero codespace numbers.
+- **The ONE thing worth keeping is the story, not the numbers:** the origin instrument's
+  saturated-regime *direction* (gap larger under core scarcity) was later confirmed by the clean
+  2-core pinned experiment — worth one sentence in §4.2 as narrative arc ("the direction observed
+  on the origin instrument was confirmed on a clean instrument"), NEVER with codespace figures.
+  The flawed-instrument lesson (co-tenancy + no RAPL + saturation ⇒ reproducible-but-worthless
+  QoS) is a methodology contribution for §7, not a result.
+- **Do not re-add codespace columns** to any table, and do not cite Fn 23.59–24.59 / OF 15.82 / gap
+  ~8 pp anywhere. The clean 2-core result supersedes them on a defensible instrument.
+
+### 4. Methodology rewrite — IN PROGRESS (2026-08-07, partially applied, uncommitted)
+Session applied: §4.1 design overview (clean two-scope framing, removed stale 1.9%), §4.2 kept
+origin table + hardware-dependence note, §4.3 workload (removed N≥10 contradiction; added the
+"count-bound + fresh CP" rationale), §4.4 instrumentation (stripped v9.x fix-chatter, kept the
+design rationales), §4.5 model (removed historical-bug comment + "pending" RAPL + stale 30 W;
+calibrated idle-w now per platform), §4.6 (N=5 + session medians + GIL parity), §4.7 gates table
+(stripped v9.x markers). **REMAINING:** §5.5/§5.6 numbers vs prose pass; a "how to read this
+table" note for §5.1–5.4 QoS/attribution tables and Appendix A/B self-sufficiency pass; verify no
+codespace-era protocol numbers anywhere in §4–§5 (grep clean as of this session: only the §4.2
+origin row). Then update this file's "Current state" block, commit, push.

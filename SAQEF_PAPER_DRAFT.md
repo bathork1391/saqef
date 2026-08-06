@@ -60,11 +60,22 @@ container-visible control-plane share spans an order of magnitude — OpenFaaS 7
 
 ### 4.1 Design overview
 
-A single **measurement window** synchronizes: (a) QoS load generation, (b) per-container CPU sampling, and (c) pre/post direct-counter reads for validation. The window is repeated N times; per-run ratios are computed *inside* each run and then summarized (never reconstructed from independently-medianed components — §4.6).
+A single **measurement window** synchronizes three things: (a) QoS load generation, (b)
+per-container CPU sampling, and (c) pre/post direct-counter reads for validation. The window is
+repeated N times; per-run ratios are computed *inside* each run and then summarized across runs
+(never reconstructed from independently-medianed components — §4.6).
 
-Two energy scopes are reported, because they answer different questions:
-- **`cp_share_pct`** = control-plane energy / *total* machine energy (idle + dynamic). Answers: "how much of the *facility* cost is orchestration?" (small here: 1.9%).
-- **`cp_dynamic_share_pct`** = control-plane energy / *dynamic* (function + control-plane) energy. Answers: "of the *marginal work that load creates*, how much is orchestration?" (**the headline; 10.5% on the 8-core box, 14.0% at 2 pinned cores — §5.5**).
+We report two energy scopes because they answer different questions:
+
+- **`cp_share_pct`** = control-plane energy / *total* machine energy (idle + dynamic). Answers:
+  "how much of the *facility* cost is orchestration?" (small — 5.8–7.9% on the platforms we
+  measure).
+- **`cp_dynamic_share_pct`** = control-plane energy / *dynamic* (function + control-plane)
+  energy, where the idle baseline is excluded. Answers: "of the *marginal work that load creates*,
+  how much is orchestration?" This is the headline metric (10.5% on the 8-core box, 14.0% at 2
+  pinned cores — §5.5). It is a pure ratio of cgroup CPU-times, so it is invariant to the energy
+  model's power constant and, by the invariant-TSC argument (§5.5 caveat), robust to per-core
+  frequency/turbo differences.
 
 ### 4.2 Environment
 
@@ -72,8 +83,8 @@ Two energy scopes are reported, because they answer different questions:
 |---|---|---|
 | Host | GitHub Codespaces, x86_64, 2 vCPU, Docker 29.3.0, Python 3.12 | 8-core Ubuntu, 16 GB, docker + swarm, RAPL readable |
 | CPU | 2 shared vCPU (cloud VM, co-tenanted) | 11th Gen Intel Core i5-1145G7 @ 2.60 GHz — 4 cores / 8 threads, 1 socket, turbo to 4.4 GHz, governors ondemand/performance (3.30 GHz loaded at c=4; 3.60 GHz when pinned to 2 cores, report §31.8) |
-| Platform | Fn — `fnproject/fnserver:latest` (0.3.x), containerized, iofs socket fix | Fn 0.3.x; OpenFaaS 0.8.3 (6-container CP, of-watchdog) |
-| Function runtime | Python 3.12 FDK (`fnproject/python:3.12`) | Python FDK (hello:0.0.7 Fn / hello:latest OF) |
+| Platform | Fn — `fnproject/fnserver:latest` (0.3.x), containerized, iofs socket fix | Fn 0.3.x; OpenFaaS 0.8.3 (6-container CP, of-watchdog); OpenWhisk standalone:nightly; Knative Serving v1.23 + Kourier on k3s v1.36.3 |
+| Function runtime | Python 3.12 FDK (`fnproject/python:3.12`) | Python FDK (hello:0.0.7 Fn / hello:latest OF; identical 5 ms spin handler on all four platforms) |
 | Load generator | `hey` (Go) preferred; Python stdlib fallback | `hey -o csv`, TOTAL=10000, warmup 20 |
 | RAPL | Unavailable (cloud VM) → CPU-time model | **Available** → model RAPL-validated 4.2–8.2% (idle 4.3 W) |
 
@@ -95,9 +106,10 @@ Two energy scopes are reported, because they answer different questions:
 `hello/func.py` is a genuine **5 ms CPU spin** (`while time.perf_counter() - t0 < 0.005: pass`). Rationale: a *CPU-anchored* workload makes the function's marginal CPU measurable and stable. A no-op "hello" handler was evaluated and rejected: with a near-free function, both ratio numerator and denominator become tiny and noisy (fn freeze churn between calls → 0% CPU → `cp_dynamic_share` swings ±13 pp). **The metric must be workload-anchored** — itself a reviewer-relevant methodological finding.
 
 Run profile (reported results, bare metal): 10000 requests, concurrency 4, warmup 20, repeat 5,
-SLO 500 ms, duration cap 300 s, 16 static OpenFaaS replicas. Runs are **count-bound** (exactly N
-requests per platform; `--duration` is a *safety cap*, not a hard stop) so cross-platform windows
-are identical in composition even when wall time differs. Publication runs: repeat ≥ 10 (§4.6).
+SLO 500 ms, duration cap 300 s, 16 static OpenFaaS replicas (GIL-concurrency parity: every
+platform serves the same 5 ms spin with a static, multi-replica warm set — see §4.6). Runs are
+**count-bound** (exactly N requests per platform; `--duration` is a *safety cap*, not a hard stop)
+so cross-platform windows are identical in composition even when wall time differs.
 **Every benchmark session starts from a freshly-restarted control plane** (`reset` in
 `run_saqef.sh`): leftover warm/zombie function containers from a prior session were found to fold
 into `fn_cpu` under the old denylist and inflate it (report §18), so a reused server is no longer
@@ -105,46 +117,92 @@ measurable via the runner.
 
 ### 4.4 Instrumentation
 
-**Sampler (v9 architecture).** A background thread reads per-container CPU. Two modes:
+**Per-container CPU sampler.** A background thread reads per-container CPU in two modes:
 - `--sampler cgroup` (primary): maps each running container to its cgroup dir and reads the **raw cumulative CPU seconds** (`cpu.stat` → `usage_usec`). Samples are stored as cumulative counters with true wall timestamps.
 - `--sampler docker` (fallback): 1 Hz `docker stats` percentages.
 
-**Key design decision — raw cumulative + true-timestamp differencing.** The reducer differences *consecutive cumulative reads* using *true sample timestamps* (`dt = t_{i+1} - t_i`). This makes the totals **exact regardless of sampling cadence** — slow cgroup reads, scheduling jitter, or spurious wakeups cannot bias the integral (the reducer never re-multiplies by a sampler-internal dt). This property is what lets the delta-check pass to 0.01% even when sampling coverage is low on the nested mount (§5.3). Memory is captured the same way (`memory.current` / `memory.usage_in_bytes`) so `cp_peak_mem_mb` is a real measurement in cgroup mode (v9.2+).
+**Key design decision — raw cumulative + true-timestamp differencing.** The reducer differences
+*consecutive cumulative reads* using *true sample timestamps* (`dt = t_{i+1} - t_i`). This makes
+the totals **exact regardless of sampling cadence** — slow cgroup reads, scheduling jitter, or
+spurious wakeups cannot bias the integral (the reducer never re-multiplies by a sampler-internal
+dt). This property is what lets the delta-check pass to 0.01% even when sampling coverage is low
+on the nested mount (§5.3). Memory is captured the same way (`memory.current` /
+`memory.usage_in_bytes`) so `cp_peak_mem_mb` is a real measurement in cgroup mode.
 
-**Classification is allowlist-based.** Control-plane = containers matching `--cp-containers`/`--cp-images`/`--cp-labels`; function = containers matching `--fn-containers`/`--fn-images`/`--fn-labels`. When no function allowlist is given, *everything not CP* is function (denylist default, back-compat). When an allowlist IS given, any container matching neither CP nor function goes to a logged `unclassified_cpu_s` bucket (warn if > 0.5 CPU-s) — **so a stray container can never silently inflate `fn_cpu`**; and if the allowlist matches *nothing*, the harness warns instead of silently falling back (a wrong image is loud). `run_saqef.sh` passes `--fn-images hello` by default — the **deployed** function image name, not the base runtime `fnproject/python:*` (Fn names function containers with opaque ULIDs, and the running containers carry the built image, so the deployed image is the only reliable signal). `container_inventory` (names) and `container_labels` (name → image + labels) are embedded in every summary for audit. cgroup rescans run every `--rescan-s` s (default 0.25) to bound the blind spot for containers born and dying within one scan.
+**Classification is allowlist-based.** Control-plane = containers matching
+`--cp-containers`/`--cp-images`/`--cp-labels`; function = containers matching
+`--fn-containers`/`--fn-images`/`--fn-labels`. When no function allowlist is given, *everything
+not CP* is function (denylist default, back-compat). When an allowlist IS given, any container
+matching neither CP nor function goes to a logged `unclassified_cpu_s` bucket (warn if > 0.5
+CPU-s) — **so a stray container can never silently inflate `fn_cpu`**; and if the allowlist
+matches *nothing*, the harness warns instead of silently falling back (a wrong image is loud).
+`run_saqef.sh` passes `--fn-images hello` by default — the **deployed** function image name, not
+the base runtime `fnproject/python:*` (Fn names function containers with opaque ULIDs, and the
+running containers carry the built image, so the deployed image is the only reliable signal).
+`container_inventory` (names) and `container_labels` (name → image + labels) are embedded in
+every summary for audit. cgroup rescans run every `--rescan-s` s (default 0.25) to bound the
+blind spot for containers born and dying within one scan.
 
-**`--delta-check` (independent validation).** The cumulative counters of **all** control-plane containers matching `--cp-containers` are read *directly* immediately before and after the window (container list re-resolved on each read, so swarm task restarts cannot wedge the reader); the summed direct delta is compared with the sampler's accumulated total: `cp_sampler_vs_delta_pct = (sampler_total / direct_delta - 1) × 100`. ≈0 ⇒ the whole sampling path is validated. (v9.9 fix: the reader originally snapshotted only the *first* matching container, so a multi-container control plane — OpenFaaS = 6 containers — compared the sampler sum against a single idle container's counter and reported a spurious ~18900% mismatch; summing the whole set makes the check like-for-like.)
+**`--delta-check` (independent validation).** The cumulative counters of **all** control-plane
+containers matching `--cp-containers` are read *directly* immediately before and after the window
+(container list re-resolved on each read, so swarm task restarts cannot wedge the reader); the
+summed direct delta is compared with the sampler's accumulated total:
+`cp_sampler_vs_delta_pct = (sampler_total / direct_delta - 1) × 100`. ≈0 ⇒ the whole sampling
+path is validated. For a multi-container control plane (OpenFaaS = 6 containers), the direct read
+sums the entire set so the comparison is like-for-like.
 
-**`--idle-probe` (static baseline).** Platform up, zero traffic for `--duration` s: measures the orchestration baseline that exists even with no invocations (gateway, scheduler daemons).
+**`--idle-probe` (static baseline).** Platform up, zero traffic for `--duration` s: measures the
+orchestration baseline that exists even with no invocations (gateway, scheduler daemons).
 
-**Load generator.** `hey` (external Go binary) removes the harness's own Python/GIL footprint from host accounting; falls back to a Python generator. QoS percentiles parsed from `hey -o csv` per-request rows (the only machine-readable mode mainline hey ships) or measured request latencies. As of v9.9, real `hey` runs are the default on both platforms (the earlier JSON-era failure is fully diagnosed — see corrections below).
+**Load generator.** `hey` (external Go binary) removes the harness's own Python/GIL footprint
+from host accounting; falls back to a Python generator. QoS percentiles are parsed from
+`hey -o csv` per-request rows (the only machine-readable mode mainline hey ships) or from
+measured request latencies.
 
 ### 4.5 Metrics & energy/carbon model
 
 ```
 cpu_sec(container) = Σ (cum_{i+1} - cum_i)                    # cgroup mode (exact)
 dynamic_J(container) = cpu_sec × P_BUSY_CORE_W                # 3.5 W/busy core (Caribou, SOSP'24)
-total_J = P_IDLE_BASE_W × wall_s + Σ dynamic_J                # idle 30 W baseline
+total_J = P_IDLE_BASE_W × wall_s + Σ dynamic_J                # idle base: calibrated per platform
 carbon_gCO2 = kWh × PUE × CI                              # kWh = J / 3.6e6; PUE 1.15, CI 150 gCO2/kWh
-                                                          # (historical bug: J/3600 gave Wh, i.e. a spurious
-                                                          # 1000× in every gCO2 figure -- fixed 2026-08-06)
-cp := containers matching --cp-containers (here: "fnserver")
+cp := containers matching --cp-containers (platform-specific)
 KPI = operational_gCO2 / N_SLO-compliant_invocations        # incl. idle baseline (window-dependent)
 KPI_dynamic = dynamic_gCO2 / N_SLO-compliant_invocations    # load-created carbon only (wall-independent)
 embodied_DRAM = 1390 gCO2/GB ÷ (5 yr × 8760 h)                # amortized, reported for context
 ```
 
-Constants: `P_BUSY_CORE_W = 3.5`, `P_IDLE_BASE_W = 30.0`, `PUE = 1.15`, `CI = 150 gCO2/kWh`, `SAMPLE_S = 1.0`.
+Constants: `P_BUSY_CORE_W = 3.5`, `PUE = 1.15`, `CI = 150 gCO2/kWh`, `SAMPLE_S = 1.0`. The idle
+baseline `P_IDLE_BASE_W` is **calibrated per platform** from a 60 s RAPL read with the stack up,
+zero traffic (Fn/OpenFaaS 4.3 W; OpenWhisk 5.29 W; Knative 11.14 W — §5.6); the model default of
+30 W is never used for the reported numbers.
 
-**This is estimation, not measurement** for absolute Joules (±50% typical on absolute energy). It is defensible as: (a) a transparent, reproducible model; (b) a *relative* cross-platform comparator on identical hardware; (c) RAPL-validated on bare metal (pending).
+**This is estimation, not measurement** for absolute Joules (±50% typical on absolute energy). It
+is defensible as: (a) a transparent, reproducible model; (b) a *relative* cross-platform
+comparator on identical hardware; (c) RAPL-validated on bare metal to 4.2–8.2% steady-state
+error (Fn/OpenFaaS, where the calibrated idle-w makes the linear model fit).
 
-**Model constant sources & sensitivity.** `busy_core_w = 3.5` follows Caribou (SOSP '24) per-core dynamic power; `idle_w = 30` is a typical low-end server idle draw (the SPECpower family is the standard methodology for server power values). Neither is chip-measured here (see §7). Every summary emits a `sensitivity` block that recomputes the dynamic share, dynamic energy, and operational carbon at busy-core 2/3.5/5 W, plus `idle_band` (carbon at idle 15/30/45 W): the **dynamic share is invariant to the busy-core constant** (it cancels in the ratio), so the headline ratio is model-robust; absolute energy/carbon scale linearly and are honestly bounded by these bands until RAPL ground truth exists.
+**Model constant sources & sensitivity.** `busy_core_w = 3.5` follows Caribou (SOSP '24)
+per-core dynamic power; `idle_w` is the RAPL-calibrated value per platform. Every summary emits a
+`sensitivity` block that recomputes the dynamic share, dynamic energy, and operational carbon at
+busy-core 2/3.5/5 W, plus `idle_band` (carbon at idle 15/30/45 W): the **dynamic share is
+invariant to the busy-core constant** (it cancels in the ratio), so the headline ratio is
+model-robust; absolute energy/carbon scale linearly and are honestly bounded by these bands.
 
 ### 4.6 Statistical protocol
 
-- N=5 repeats per configuration (N≥10 for publication); every numeric leaf summarized as **median + min/max spread**.
-- **Ratios are computed per-run and then medianed** (never reconstructed from medians of raw components) — prevents internally-impossible aggregated ratios.
-- `bootstrap_ci` (percentile bootstrap over runs), `cv_pct`, **and `iqr` (Q3−Q1)** report repeat-run uncertainty. At N=5 the bootstrap CI mostly reflects resampling combinatorics, so the IQR is the honest companion measure; the paper reports both.
+- N=5 repeats per configuration, and every reported number is the **median across runs** of a
+  per-run leaf, with min/max spread. Where the headline depends on reproducibility (the 2-core
+  regime), the whole run is repeated as an *independent session* (fresh teardown/redeploy), so the
+  headline is a median of session medians.
+- **Ratios are computed per-run and then medianed** (never reconstructed from medians of raw
+  components) — prevents internally-impossible aggregated ratios.
+- `bootstrap_ci` (percentile bootstrap over runs), `cv_pct`, **and `iqr` (Q3−Q1)** report
+  repeat-run uncertainty. At N=5 the bootstrap CI mostly reflects resampling combinatorics, so the
+  IQR is the honest companion measure; the paper reports both.
+- GIL-concurrency parity: every platform serves the identical 5 ms CPU-bound handler with a
+  **static, multi-replica warm set** (16 replicas), never a single replica — otherwise Python's
+  GIL serializes the handler and the function CPU collapses, inflating the share.
 - JSON outputs sanitized (NaN/Inf → null) for strict downstream parsers.
 
 ### 4.7 Validation gates (must ALL pass per run)
@@ -153,8 +211,8 @@ Constants: `P_BUSY_CORE_W = 3.5`, `P_IDLE_BASE_W = 30.0`, `PUE = 1.15`, `CI = 15
 |---|---|---|
 | Delta-check | `cp_sampler_vs_delta_pct` | ≈ 0 (single-digit %) |
 | Physical plausibility | `cpu_sec.fn + cpu_sec.cp ≤ cpu_count × wall_s` | true |
-| **Host plausibility** | `host_cpu_sec ≤ cpu_count × host_window_s × 1.05`, where `host_window_s` is the host's *own* sampling window (`t_host_after − t_host_before`), not the load `wall_s` (v9.10) — self-consistent by construction: `/proc/stat` busy ticks over a window `W` can never exceed `cpu_count × W`, so the gate trips only on a real CPU-count/counter anomaly, never on fast-run window-edge alignment | true |
-| **Host saturation** | `host_cpu_sec / (cpu_count × host_window_s)` | report per run; `host_saturated` flag (v9.8, enforced in code) if ≥ 85% — QoS is contention-contaminated |
+| **Host plausibility** | `host_cpu_sec ≤ cpu_count × host_window_s × 1.05`, where `host_window_s` is the host's *own* sampling window (`t_host_after − t_host_before`), not the load `wall_s` — self-consistent by construction: `/proc/stat` busy ticks over a window `W` can never exceed `cpu_count × W`, so the gate trips only on a real CPU-count/counter anomaly, never on fast-run window-edge alignment | true |
+| **Host saturation** | `host_cpu_sec / (cpu_count × host_window_s)` | report per run; `host_saturated` flag if ≥ 85% — QoS is contention-contaminated |
 | Coverage | `sampling_covered_s / wall_s` | ≥ 95% (bare-metal target) |
 | QoS integrity | availability, SLO compliance | ≥ 99% |
 | Determinism | two independent runs reproduce | within repeat variance |
