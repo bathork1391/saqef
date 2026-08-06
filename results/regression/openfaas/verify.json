@@ -1,0 +1,19 @@
+{
+  "platform": "openfaas",
+  "url": "http://127.0.0.1:8080/function/hello",
+  "calls": 100,
+  "successes": 100,
+  "availability": 1.0,
+  "latency_ms": {
+    "p50": 13.13,
+    "p99": 91.22
+  },
+  "function_cpu_sec_total": 0.654,
+  "function_cpu_ms_per_inv": 6.54,
+  "control_plane_cpu_sec_total": 0.118,
+  "budget_ms": 5.0,
+  "budget_check": "MATCHES budget within 50-150%",
+  "env": {
+    "sampler": "cgroup"
+  }
+}

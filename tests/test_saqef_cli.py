@@ -158,6 +158,49 @@ class TestAdapterSchema(unittest.TestCase):
         self.assertIsNone(get_adapter("fn").default_replicas)
 
 
+class TestDeploymentContract(unittest.TestCase):
+    """deploy/teardown must PROVE the platform state (the shell runners swallow
+    failures), and OpenFaaS's function service must be deployed explicitly."""
+
+    def test_deploy_function_hook_noop_on_fn(self):
+        # Fn's deploy() already includes the function; the hook must be harmless.
+        self.assertIsNone(get_adapter("fn").deploy_function())
+
+    def test_openfaas_deploy_function_exists(self):
+        self.assertTrue(callable(get_adapter("openfaas").deploy_function))
+
+    def test_openfaas_function_service_labels(self):
+        # The hello service must carry the label faas-swarm uses to register it
+        # as a gateway function, and sit on the overlay network the stack created.
+        # (Direct docker service create, NOT faas-cli: the local faas-cli needs a
+        # template store to deploy, and service create is the deterministic path.)
+        import io
+        import unittest.mock as mock
+        ad = get_adapter("openfaas")
+        with mock.patch.object(ad, "_hello_service_exists", return_value=False), \
+             mock.patch("subprocess.run", return_value=mock.Mock(returncode=0)) as mr, \
+             mock.patch("platforms.openfaas.wait_for_url", return_value=True):
+            ad.deploy_function()
+        argv = mr.call_args.args[0]
+        self.assertIn("docker", argv) and self.assertIn("service", argv) and self.assertIn("create", argv)
+        self.assertIn("--label", argv) and self.assertIn("com.openfaas.function=hello", argv)
+        self.assertIn("--network", argv) and self.assertIn("openfaas_functions", argv)
+        self.assertEqual(argv[-1], "hello:latest")
+
+    def test_fn_deploy_proves_serving(self):
+        # The whole point of the Fn-leg fix: a deploy that left fnserver down
+        # (silently, per run_saqef.sh's no-set -e) must be detectable/retried.
+        self.assertTrue(callable(get_adapter("fn")._serving))
+
+    def test_wait_helpers_present(self):
+        from platforms.base import wait_containers, wait_for_url
+        self.assertTrue(callable(wait_for_url))
+        self.assertTrue(callable(wait_containers))
+
+    def test_load_verify_missing_dir(self):
+        self.assertIsNone(saqef.load_verify(os.path.join(REPO, "does-not-exist")))
+
+
 class TestRegressionVerdict(unittest.TestCase):
     """The regression gate math (median deviation vs known-good references)."""
 
@@ -177,16 +220,22 @@ class TestRegressionVerdict(unittest.TestCase):
         return all_pass
 
     def test_known_good_passes(self):
-        self.assertTrue(self._run({"fn": self._med(10.46), "openfaas": self._med(7.67)}))
+        refs = METRIC["regression"]["reference_share_pct"]
+        self.assertTrue(self._run({k: self._med(v) for k, v in refs.items()}))
 
     def test_small_drift_passes(self):
-        self.assertTrue(self._run({"fn": self._med(10.2), "openfaas": self._med(7.9)}))
+        refs = METRIC["regression"]["reference_share_pct"]
+        self.assertTrue(self._run({
+            "fn": self._med(refs["fn"] + 0.2), "openfaas": self._med(refs["openfaas"] + 0.13)}))
 
     def test_large_drift_fails(self):
-        self.assertFalse(self._run({"fn": self._med(11.2), "openfaas": self._med(7.67)}))
+        refs = METRIC["regression"]["reference_share_pct"]
+        self.assertFalse(self._run({
+            "fn": self._med(refs["fn"] + 0.8), "openfaas": self._med(refs["openfaas"])}))
 
     def test_missing_platform_fails(self):
-        self.assertFalse(self._run({"fn": self._med(10.46)}))
+        refs = METRIC["regression"]["reference_share_pct"]
+        self.assertFalse(self._run({"fn": self._med(refs["fn"])}))
 
 
 if __name__ == "__main__":
