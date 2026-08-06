@@ -1,0 +1,32 @@
+{
+  "name": "cpubound",
+  "description": "Identical CPU-bound handler (~5 ms busy-spin per invocation) on each platform; the SAQEF protocol. Runs are COUNT-BOUND (exactly total requests); duration is a safety cap only.",
+  "defaults": {
+    "total": 3000,
+    "concurrency": 20,
+    "duration": 60,
+    "warmup": 20,
+    "repeat": 5,
+    "slo_ms": 500.0,
+    "sampler": "cgroup",
+    "loadgen": "hey",
+    "delta_check": true,
+    "verify_n": 100,
+    "verify_budget_ms": 5.0
+  },
+  "regression": {
+    "description": "c=4, 8-core bare metal, REPEAT=5, calibrated IDLE_W=4.3. Must reproduce the known-good medians (fn 10.46 / openfaas 7.67) within tolerance_pp, or the refactor is NOT trusted. OpenFaaS runs first, torn down (stack rm + service rm hello), then Fn.",
+    "concurrency": 4,
+    "total": 10000,
+    "duration": 60,
+    "warmup": 20,
+    "repeat": 5,
+    "idle_w": 4.3,
+    "replicas_openfaas": 16,
+    "reference_share_pct": {
+      "fn": 10.46,
+      "openfaas": 7.67
+    },
+    "tolerance_pp": 0.5
+  }
+}
