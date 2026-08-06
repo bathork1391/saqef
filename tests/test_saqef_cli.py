@@ -140,6 +140,40 @@ class TestArgvByteIdentical(unittest.TestCase):
             "--forbidden-services", "*", "--forbidden-containers", "fnserver",
             "--verify-n", "100", "--verify-budget-ms", "5.0"])
 
+    def test_kn_bench_defaults(self):
+        # Knative function URL (sslip.io -> 127.0.0.1, kourier gateway on :80).
+        ad = get_adapter("knative")
+        cmd = ad.harness_argv(METRIC, 3000, 20, 60, 20, 5, "results/knative_cpubound")
+        self.assertEqual(cmd, [
+            "python3", "saqef_harness.py",
+            "--url", "http://hello.default.127.0.0.1.sslip.io",
+            "--platform", "knative", "--cp-containers",
+            "activator-,controller-,autoscaler-,webhook-,net-kourier-controller,"
+            "kourier-gateway,svclb-kourier",
+            "--fn-images", "kn-hello",
+            "--fn-containers", "user-container,queue-proxy",
+            "--forbidden-services", "*", "--forbidden-containers",
+            "fnserver,openwhisk,openfaas",
+            "--total", "3000", "--concurrency", "20", "--duration", "60",
+            "--warmup", "20", "--repeat", "5",
+            "--sampler", "cgroup", "--delta-check", "--loadgen", "hey",
+            "--outdir", "results/knative_cpubound"])
+
+    def test_kn_verify(self):
+        ad = get_adapter("knative")
+        cmd = ad.harness_argv(METRIC, 0, 0, 0, 0, 0, "results/x", verify=True)
+        self.assertEqual(cmd, [
+            "python3", "saqef_harness.py", "--verify", "--sampler", "cgroup",
+            "--url", "http://hello.default.127.0.0.1.sslip.io",
+            "--platform", "knative", "--cp-containers",
+            "activator-,controller-,autoscaler-,webhook-,net-kourier-controller,"
+            "kourier-gateway,svclb-kourier",
+            "--fn-images", "kn-hello",
+            "--fn-containers", "user-container,queue-proxy",
+            "--forbidden-services", "*", "--forbidden-containers",
+            "fnserver,openwhisk,openfaas",
+            "--verify-n", "100", "--verify-budget-ms", "5.0"])
+
 
 class TestQuickGuard(unittest.TestCase):
     """SAQEF_REPEAT < 5 must write to *_quick (never the published outdir)."""
@@ -155,7 +189,7 @@ class TestAdapterSchema(unittest.TestCase):
     """The 'do not regress' manifest encoded as mandatory adapter fields."""
 
     def test_all_adapters_complete(self):
-        for name in ("fn", "openfaas", "openwhisk"):
+        for name in ("fn", "openfaas", "openwhisk", "knative"):
             ad = get_adapter(name)
             self.assertTrue(ad.name and ad.label and ad.url)
             self.assertTrue(ad.cp_containers)          # cp classifiers present

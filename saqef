@@ -83,13 +83,14 @@ def run_sub(cmd, dry_run=False):
 
 
 def _count_fn_containers(s):
-    """Count function-container replicas via the RUN's OWN platform adapter
-    fn_images allowlist (matched against each container's image, same
-    substring semantics as the harness's _class_matches), not a hardcoded
-    name -- container naming schemes differ per platform: Fn uses ULIDs,
+    """Count function-container replicas via the RUN's OWN platform adapter:
+    fn_images matched against each container's image and fn_containers matched
+    against each container's name (same substring semantics as the harness's
+    _class_matches). Knative runs the function under a bare-digest image so
+    the NAME pattern is the only stable classifier there; Fn uses ULIDs,
     OpenFaaS names swarm tasks 'hello.N.hash', OpenWhisk names action
     containers 'wsk0_N_guest_hello'. A hardcoded startswith('hello') check
-    silently reads 0 for both Fn and OpenWhisk regardless of the real replica
+    silently reads 0 for Fn and OpenWhisk regardless of the real replica
     count. Falls back to that legacy heuristic only for pre-refactor result
     dirs that predate the 'container_labels' field."""
     inventory = s.get("container_inventory", [])
@@ -98,15 +99,20 @@ def _count_fn_containers(s):
     if not labels or not platform:
         return sum(1 for n in inventory if n.startswith("hello"))
     try:
-        subs = get_adapter(platform).fn_images
+        ad = get_adapter(platform)
+        img_subs = ad.fn_images
+        name_subs = ad.fn_containers
     except Exception:
         return sum(1 for n in inventory if n.startswith("hello"))
-    if not subs:
+    if not img_subs and not name_subs:
         return 0
     count = 0
     for n in inventory:
+        if any(sub in n.lower() for sub in name_subs):
+            count += 1
+            continue
         image = (labels.get(n) or {}).get("image", "") or ""
-        if any(sub in image.lower() for sub in subs):
+        if any(sub in image.lower() for sub in img_subs):
             count += 1
     return count
 
@@ -332,27 +338,27 @@ def main(argv=None):
     p.set_defaults(func=cmd_check)
 
     p = sub.add_parser("deploy", help="deploy a platform")
-    p.add_argument("--platform", required=True, choices=["fn", "openfaas", "openwhisk"])
+    p.add_argument("--platform", required=True, choices=["fn", "openfaas", "openwhisk", "knative"])
     p.set_defaults(func=cmd_deploy)
 
     p = sub.add_parser("teardown", help="remove a platform")
-    p.add_argument("--platform", required=True, choices=["fn", "openfaas", "openwhisk"])
+    p.add_argument("--platform", required=True, choices=["fn", "openfaas", "openwhisk", "knative"])
     p.set_defaults(func=cmd_teardown)
 
     p = sub.add_parser("scale", help="static function replica scale (OpenFaaS)")
-    p.add_argument("--platform", required=True, choices=["fn", "openfaas", "openwhisk"])
+    p.add_argument("--platform", required=True, choices=["fn", "openfaas", "openwhisk", "knative"])
     p.add_argument("--replicas", type=int, default=None)
     p.set_defaults(func=cmd_scale)
 
     p = sub.add_parser("verify", help="confirm the handler burns ~verify_budget_ms CPU/inv")
-    p.add_argument("--platform", required=True, choices=["fn", "openfaas", "openwhisk"])
+    p.add_argument("--platform", required=True, choices=["fn", "openfaas", "openwhisk", "knative"])
     p.add_argument("--metric", default="cpubound")
     p.add_argument("--out", default=None)
     p.add_argument("--dry-run", action="store_true")
     p.set_defaults(func=cmd_verify)
 
     p = sub.add_parser("run", help="full bench; prints gates at the end")
-    p.add_argument("--platform", required=True, choices=["fn", "openfaas", "openwhisk"])
+    p.add_argument("--platform", required=True, choices=["fn", "openfaas", "openwhisk", "knative"])
     p.add_argument("--metric", default="cpubound")
     p.add_argument("--out", default=None)
     p.add_argument("--total", type=int, default=None)
