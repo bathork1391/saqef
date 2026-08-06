@@ -42,7 +42,10 @@ CPU_COUNT_OVERRIDE_ARG=""
 HOST_CPU_LIST="${SAQEF_HOST_CPU_LIST:-}"
 HOST_CPU_LIST_ARG=""
 [ -n "$HOST_CPU_LIST" ] && HOST_CPU_LIST_ARG="--host-cpu-list $HOST_CPU_LIST"
-REPLICAS="${SAQEF_REPLICAS:-4}"
+# Protocol default is 16 static replicas (GIL concurrency parity -- static
+# replicas, never single-replica; see AGENTS.md). Set SAQEF_REPLICAS explicitly
+# for anything else.
+REPLICAS="${SAQEF_REPLICAS:-16}"
 VERIFY_N=100
 VERIFY_BUDGET_MS=5
 TOTAL="${SAQEF_TOTAL:-3000}"

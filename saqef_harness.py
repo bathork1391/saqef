@@ -744,7 +744,7 @@ def start_sampler(mode="docker", rescan_s=0.25):
     return samples, stop, first_sample, th
 
 
-def assert_platform_isolation(platform):
+def assert_platform_isolation(platform, forbidden_services="", forbidden_containers=""):
     """Fail loud if the OTHER platform is still up. Turns the documented teardown
     discipline ('docker service rm hello' before Fn; fnserver torn down before
     OpenFaaS) into an enforced precondition instead of a remembered step.
@@ -754,7 +754,39 @@ def assert_platform_isolation(platform):
     'hello' service (deployed OUTSIDE the stack -- 'docker stack rm openfaas'
     does not remove it) would have its replicas silently folded into fn_cpu and
     taint the headline number. Fn never uses swarm services, so ANY running
-    service during a Fn session is contamination. Returns (ok, message)."""
+    service during a Fn session is contamination.
+
+    Data-driven by default: the CLI passes the adapter's IsolationPolicy as
+    --forbidden-services / --forbidden-containers, so every platform (incl.
+    OpenWhisk) gets the same defense-in-depth check at measurement time. When
+    those args are absent (legacy shell runners), fall back to the historical
+    hardcoded fn/openfaas checks. Returns (ok, message)."""
+    fsvc = [s.strip() for s in forbidden_services.split(",") if s.strip()]
+    fcnt = [c.strip() for c in forbidden_containers.split(",") if c.strip()]
+    if fsvc or fcnt:
+        offenders = []
+        if fsvc:
+            out = run("docker service ls --format '{{.Name}}'")
+            if out.returncode == 0:
+                services = [l.strip() for l in out.stdout.splitlines() if l.strip()]
+                if "*" in fsvc:
+                    bad = services
+                else:
+                    bad = [s for s in services if any(f in s for f in fsvc)]
+                if bad:
+                    offenders.append("swarm service(s): %s" % ", ".join(bad))
+        if fcnt:
+            inv = docker_inventory()
+            bad = [n for n in inv if any(f in n for f in fcnt)]
+            if bad:
+                offenders.append("container(s): %s" % ", ".join(bad))
+        if offenders:
+            return False, (
+                "platform isolation check FAILED for %s: %s running during the session; "
+                "tear it down first (docker service rm hello / docker rm -f fnserver)"
+                % (platform, "; ".join(offenders)))
+        return True, ""
+    # --- legacy fallback (pre-data-driven shell runners) -----------------------
     if platform == "fn":
         out = run("docker service ls --format '{{.Name}}'")
         if out.returncode == 0:
@@ -776,7 +808,8 @@ def assert_platform_isolation(platform):
 
 def run_once(args, cp_sub):
     """One full measurement window (warmup + sampler + load). Returns summary dict."""
-    ok, why = assert_platform_isolation(args.platform)
+    ok, why = assert_platform_isolation(args.platform,
+                                        args.forbidden_services, args.forbidden_containers)
     if not ok:
         sys.exit("ERROR: " + why)
     headers = None
@@ -981,17 +1014,21 @@ def run_once(args, cp_sub):
     availability = ok / n if n else 0.0
 
     # --- carbon ---------------------------------------------------------------
-    wh = e_total / 3600.0
-    op_gco2 = wh * args.ci * PUE
-    cp_wh = e_cp / 3600.0
-    cp_gco2 = cp_wh * args.ci * PUE
+    # args.ci is gCO2 PER KILOwatt-hour; energy here is Joules. J -> kWh is
+    # J / 3.6e6 (NOT the old Wh conversion -- divide by 3600 then multiply by a
+    # per-kWh intensity leaves a spurious 1000x in every gCO2 figure, the
+    # historical unit bug, fixed 2026-08-06).
+    kwh = e_total / 3.6e6
+    op_gco2 = kwh * args.ci * PUE
+    cp_kwh = e_cp / 3.6e6
+    cp_gco2 = cp_kwh * args.ci * PUE
     n_compliant = int(round(compliance * n)) if compliance is not None and n else 0
     kpi = (op_gco2 / n_compliant) if n_compliant else float("nan")
     # Marginal KPI: dynamic (load-created) carbon only, NOT the idle baseline.
     # The operational KPI is ~90%+ idle-power-dominated, so it is extremely
     # sensitive to wall-clock duration (a 3x wall swing moves it 3x). The
     # dynamic-only figure is the wall-independent per-invocation cost of serving.
-    kpi_dynamic = (e_dynamic / 3600.0 * args.ci * PUE) / n_compliant if n_compliant else float("nan")
+    kpi_dynamic = (e_dynamic / 3.6e6 * args.ci * PUE) / n_compliant if n_compliant else float("nan")
     embodied_per_gb = DRAM_EMBODIED_G_PER_GB / (LIFESPAN_YEARS * 365 * 24)
 
     # --- RAPL validation -------------------------------------------------------
@@ -1029,7 +1066,7 @@ def run_once(args, cp_sub):
         "container_labels": {n: {"image": img, "labels": lbls} for n, (img, lbls) in sorted(inv.items())},
         "cp_peak_mem_mb": round(cp_peak_mem_mb, 1),
         "carbon_gCO2": {"op_total": round(op_gco2, 3), "op_control_plane": round(cp_gco2, 3),
-                        "idle_band": {str(w): round((w * wall + e_dynamic) / 3600.0 * args.ci * PUE, 3)
+                        "idle_band": {str(w): round((w * wall + e_dynamic) / 3.6e6 * args.ci * PUE, 3)
                                       for w in (15, 30, 45)}},
         "model": {"idle_w": args.idle_w, "busy_core_w": P_BUSY_CORE_W, "pue": PUE, "ci": args.ci},
         "sensitivity": {
@@ -1039,11 +1076,13 @@ def run_once(args, cp_sub):
             "dynamic_energy_J_by_busy_w": {str(w): round((cp_cpu_s + fn_cpu_s) * w, 1)
                                            for w in (2.0, 3.5, 5.0)},
             "op_carbon_gCO2_by_busy_w": {str(w): round((args.idle_w * wall + (cp_cpu_s + fn_cpu_s) * w)
-                                                       / 3600.0 * args.ci * PUE, 3)
+                                                       / 3.6e6 * args.ci * PUE, 3)
                                          for w in (2.0, 3.5, 5.0)},
         },
-        "kpi_gco2_per_slo_compliant_inv": round(kpi, 4),
-        "kpi_gco2_per_inv_dynamic": round(kpi_dynamic, 6),
+        # Post-carbon-fix magnitudes are ~1e-5 g per invocation; round(..., 4)
+        # collapsed them to 0.0 (looked "fine" at the old 1000x-inflated scale).
+        "kpi_gco2_per_slo_compliant_inv": round(kpi, 8),
+        "kpi_gco2_per_inv_dynamic": round(kpi_dynamic, 8),
         "embodied_dram_g_per_gb_h": round(embodied_per_gb, 4),
         "host_cpu_sec": round(host_cpu_sec, 2) if host_cpu_sec is not None else None,
         "host_window_s": round(host_window_s, 3) if host_window_s is not None else None,
@@ -1265,6 +1304,13 @@ def main():
                     help="comma-separated docker label keys identifying control-plane containers")
     ap.add_argument("--fn-labels", default="",
                     help="comma-separated docker label keys identifying function containers")
+    ap.add_argument("--forbidden-services", default="",
+                    help="comma-separated swarm service name substrings that must NOT be up during "
+                         "the run; '*' means ANY service (platforms that never use swarm). Data-driven "
+                         "isolation guard; when absent the legacy hardcoded fn/openfaas checks apply.")
+    ap.add_argument("--forbidden-containers", default="",
+                    help="comma-separated container name substrings that must NOT be up (e.g. "
+                         "'fnserver' during OpenFaaS/OpenWhisk sessions). Empty = no container check.")
     ap.add_argument("--total", type=int, default=2000, help="total requests")
     ap.add_argument("--concurrency", type=int, default=10)
     ap.add_argument("--duration", type=int, default=60, help="window seconds (safety cap; runs are count-bound)")
