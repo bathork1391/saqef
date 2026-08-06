@@ -201,7 +201,7 @@ The idle-dominance is itself a result: at this light load, **~94% of operational
 
 ### 5.5 Cross-platform, RAPL-validated results (bare metal, 2026-08-05)
 
-*Figure 1 — share by regime:* ![figure1](figures/figure1_share_by_regime.png)
+*Figure 1 — share by regime (a: Fn-vs-OF core-count effect; b: four platforms, 8-core, same day 2026-08-07):* ![figure1](figures/figure1_share_by_regime.png)
 *Figure 2 — per-run scatter (all per-run values, honestly showing the bounded Fn drift):* ![figure2](figures/figure2_per_run_scatter.png)
 *Figure 3 — attribution split (CP / fn / unclassified CPU-time):* ![figure3](figures/figure3_attribution_split.png)
 *(PDF: `figures/figure*.pdf`; regenerate with `python3 figures/make_figures.py` — data-driven, no script edits.)*
@@ -284,7 +284,7 @@ presents both the machine-dependence and its asymmetry as findings.
 
 ### 5.6 Four-platform comparison (2026-08-07, same 8-core box, c=4, REPEAT=5)
 
-*Figure 4 — four-platform same-day ordering (attribution footnote on the figure):* ![figure4](figures/figure4_four_platforms.png)
+*Figure 4 — control-plane CPU per invocation (ms), all four platforms (fnserver 0.79, of-watchdog 0.56, Knative ~1.1, OpenWhisk ~27):* ![figure4](figures/figure4_cp_cost_per_inv.png)
 
 OpenWhisk (standalone) and Knative (Serving v1.23 + Kourier on k3s v1.36, docker runtime) were
 added to the same protocol. All rows are full REPEAT=5 runs with per-run gate tables (delta ~0,
@@ -452,41 +452,60 @@ Full command log and historical decisions: `SAQEF_TECHNICAL_REPORT.md` §§3, 4,
 
 ---
 
-## Appendix A — Consolidated results table
+## Appendix A — Consolidated results table (four platforms, bare-metal 8-core, same-day 2026-08-07)
 
-| Metric | Fn (v9.1, median) | Spread (min–max) | Units |
-|---|---|---|---|
-| throughput | 205.96 | 202–223 | rps |
-| SLO compliance | 0.9997 | 0.990–1.0 | frac |
-| latency p50 | 83.6 | 54.5–84.4 | ms |
-| latency p99 | 308.6 | 307–507 | ms |
-| `cp_dynamic_share_pct` | 30.3 | 30.2–44.4 | % |
-| `cp_share_pct` | 1.94 | 1.86–1.95 | % |
-| dynamic energy | 30.1 | 18.4–30.6 | J |
-| `cp_peak_mem_mb` | pending v9.2 | — | MB |
-| KPI (op. gCO₂ per SLO-compliant invocation, incl. idle base) | ≈7.5 | — | µg CO₂ |
-| control-plane carbon per invocation (dynamic only) | ≈0.145 | — | µg CO₂ |
-| `cp_sampler_vs_delta_pct` | 0.01 | 0.01–0.15 | % |
-| `physical_plausible` | true | true | bool |
+All rows are full REPEAT=5 runs on the same 8-core box with per-run gate tables (delta ~0,
+coverage 100%, host_plausible true). Fn appears twice in the paper because its 8-core share
+drifts between days (documented bounded drift, §5.5); the same-day value is used here and in
+figures 1(b)/2(b)/3(b). **Citable flags: Fn/OF rows rest on the quiet 2026-08-05 baseline
+(energy RAPL-validated 4.2–8.2%); Kn/OW rows ran under an active benchmark agent — shares are
+contention-robust and citable, but QoS/energy from those sessions are NOT.**
 
-*Table values are v9.1 medians; KPI and `cp_peak_mem_mb` reflect the v9.2 formulas and await the v9.2 re-run to be confirmed against fresh samples.*
-
-### Appendix B — Consolidated cross-platform table (bare metal + codespace, 2026-08-05)
-
-| Metric (median of 5) | Fn (bare c=4) | OF (bare c=4) | Fn (codespace c=20) | OF (codespace c=20) |
+| Metric (median of 5) | Fn | OpenFaaS | Knative | OpenWhisk |
 |---|---|---|---|---|
-| `cp_dynamic_share_pct` | 10.46 | 7.67 | 24.59 | 15.82 |
-| gap (pp) | **+2.79 (gate fails)** | | **+8.77 (gate passes)** | |
-| per-request CP cost | 0.66 ms | 0.56 ms | 1.22 ms | 0.56 ms |
-| QoS p50 / p99 | 6.5 / 8.9 ms | 7.2 / 12.1 ms | 83.6 / 308.6 ms* | — |
-| throughput | 597 rps | 532 rps | 206 rps* | — |
-| SLO compliance | 1.0 | 1.0 | 0.9997* | 1.0 |
-| host_sat | 74–77% | 74–78% | ~100% | ~99% |
-| RAPL validation err | 4.2–5.5% | 4.2–8.2% | n/a (no RAPL) | n/a |
+| `cp_dynamic_share_pct` | **12.27** | **7.53** | **13.99** | **82.54** |
+| spread (min–max) | 11.52–12.96 (3 same-day sessions) | 7.51–7.72 | 13.22–14.24 | 82.00–86.24 |
+| per-request CP cost | 0.79 ms | 0.56 ms | 1.12 ms | 27.1 ms (26.2–36.5) |
+| per-request fn cost | 5.64 ms | 6.64 ms | 6.88 ms | 5.74 ms |
+| QoS p50 / p99 | 6.5 / 8.9 ms ✓citable | 7.2 / 12.1 ms ✓citable | 8.3–8.7 / 13.8–14.8 ✗not | 84–154 / 131–230 ms ✗not |
+| throughput | 597 rps | 532 rps | 431–452 rps | 25–47 rps (declining) |
+| SLO compliance | 1.0 | 1.0 | 1.0 | 1.0 |
+| host_sat | 74–77% | 74–78% | 84–87% (3/5 ≥85, flagged) | 64–71% |
+| RAPL validation err | 4.2–5.5% | 4.2–8.2% | 22.6–32.2% | 36.3% (13.2–45.3) |
+| energy/carbon citable? | yes | yes | **no** | **no** |
+
+*Fn/OF per-request CP cost and QoS are the quiet 2026-08-05 c=4 values (the citable ones); the
+same-day 2026-08-07 Fn/OF QoS was agent-contaminated. Kn/OF fn cost includes the request-path
+sidecar/proxy inside the fn bucket (queue-proxy / of-watchdog); OW CP cost is the standalone
+JVM incl. per-activation docker-log log-store (deployment-mode caveat, §5.6). RAPL-validated
+Fn/OF energy: dynamic share only; absolute J/gCO₂ for Kn/OW uncitable (linear busy-core model
+under-fits). Full per-run tables: `SAQEF_TECHNICAL_REPORT.md` §30.1, `results/*_cpubound_baremetal`.*
+
+### Appendix B — Consolidated cross-platform table (regimes: bare metal + codespace)
+
+The regime table is necessarily Fn/OF in the 2-core and codespace columns — only Fn and OpenFaaS
+were ever run at 2-core pinning or on the 2-vCPU codespace (the controlled core-count experiment,
+§5.5). OpenWhisk and Knative exist only at 8-core bare metal (2026-08-07 same-day, non-quiet box;
+shares citable, energy/QoS not). The same-day four-platform comparison lives in Appendix A and
+figures 1(b)–3(b).
+
+| Metric (median of 5) | Fn (bare c=4) | OF (bare c=4) | Kn (bare c=4) | OW (bare c=4) | Fn (codespace c=20) | OF (codespace c=20) |
+|---|---|---|---|---|---|---|
+| `cp_dynamic_share_pct` | 10.46 | 7.67 | 13.99 | 82.54 | 24.59 | 15.82 |
+| gap Fn−OF (pp) | **+2.79 (gate fails)** | | (same-day +4.74, App. A) | | **+8.77 (gate passes)** | |
+| per-request CP cost | 0.66 ms | 0.56 ms | 1.12 ms | 27.1 ms | 1.22 ms | 0.56 ms |
+| QoS p50 / p99 | 6.5 / 8.9 ms ✓ | 7.2 / 12.1 ms ✓ | 8.3–8.7 / 13.8–14.8 ✗ | 84–154 / 131–230 ms ✗ | 83.6 / 308.6 ms* | — |
+| throughput | 597 rps | 532 rps | 431–452 rps | 25–47 rps | 206 rps* | — |
+| SLO compliance | 1.0 | 1.0 | 1.0 | 1.0 | 0.9997* | 1.0 |
+| host_sat | 74–77% | 74–78% | 84–87% (3/5 ≥85) | 64–71% | ~100% | ~99% |
+| RAPL validation err | 4.2–5.5% | 4.2–8.2% | 22.6–32.2% | 36.3% | n/a (no RAPL) | n/a |
+| energy/carbon citable | yes | yes | **no** | **no** | no (model only) | no (model only) |
 
 *Fn codespace QoS rows are the saturated-regime v9.1 single-platform dataset (not contention-free);
-keep the `host_saturated` caveat when quoting. Bare-metal rows are RAPL-validated and
-contention-free. Full per-run tables: `SAQEF_TECHNICAL_REPORT.md` §30.1.
+keep the `host_saturated` caveat when quoting. Bare-metal Fn/OF rows are RAPL-validated and
+contention-free (quiet 2026-08-05 baseline, c=4). Kn/OW bare rows ran under an active benchmark
+agent — QoS percentiles from those sessions are NOT citable (✓/✗ flags). Full per-run tables:
+`SAQEF_TECHNICAL_REPORT.md` §30.1.*
 
 ---
 

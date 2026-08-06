@@ -295,13 +295,13 @@ cores (repeat per-platform, OpenFaaS first, same teardown discipline as above):
 ## Next-session plan (agreed 2026-08-06, user + external expert greenlighted)
 **Sequencing — do in this order:**
 1. ~~**Figures from committed data**~~ — **DONE (2026-08-07).** `figures/make_figures.py`
-   (data-driven, matplotlib, harness stays stdlib-only) produces figure1 share-by-regime
-   (Fn vs OF 8-core vs 2-core asymmetry), figure2 per-run scatter (shows the bounded Fn drift),
-   figure3 attribution split (CP vs fn vs unclassified), and figure4 four-platform same-day
-   ordering (OF 7.53 < Fn 12.27 [11.52–12.96] ≈ Knative 13.99 < OW 82.54, with the attribution
-   footnote on the figure). Paper still tables-first but the reviewer-facing "0 figures" weakness
-   is gone. Regenerate anytime: `python3 figures/make_figures.py`; adding a platform/regime =
-   one dict entry in the CONFIG + rerun.
+   (data-driven, matplotlib, harness stays stdlib-only): figures 1–3 are two-panel —
+   panel (a) the controlled Fn-vs-OpenFaaS core-count story (8-core quiet vs 2-core pinned),
+   panel (b) ALL FOUR platforms same-day 2026-08-07 (OF 7.53 < Fn 12.27 [11.52–12.96] ≈
+   Knative 13.99 < OW 82.54, own y-scale since OW dwarfs). Figure 4 = control-plane CPU per
+   invocation, all four platforms (of-watchdog 0.56, fnserver 0.79, Kn ~1.1, OW ~27 ms).
+   Adding a platform/regime = one dict entry in REGIMES + panel-grouping tuple + rerun.
+   Regenerate: `python3 figures/make_figures.py`.
 2. **Adapter refactor** (fn + openfaas) WITH an automated **regression gate** before the new
    plumbing is trusted: `saqef regression` reruns c=4 8-core both platforms and FAILS if median
    `cp_dynamic_share_pct` deviates > ~0.5 pp from known-good **11.60 / 7.67**. Do NOT trust by code
