@@ -11,7 +11,7 @@ silently folded into fn_cpu.
 
 import subprocess
 
-from platforms.base import Adapter, IsolationPolicy, run
+from platforms.base import Adapter, IsolationPolicy, container_names, wait_containers, wait_for_url
 
 
 class FnAdapter(Adapter):
@@ -37,15 +37,40 @@ class FnAdapter(Adapter):
         expected_containers=("fnserver",),
     )
 
+    def _serving(self):
+        if not any("fnserver" in n for n in container_names()):
+            return False
+        return wait_for_url(self.url, timeout=20.0, interval=0.5)
+
     def deploy(self):
-        # Mirrors 'all' ordering minus measurement: reset then setup.
+        # Mirrors 'all' ordering minus measurement: reset then setup. The shell
+        # runner swallows a failed `docker run fnserver` (no 'set -e'), so after
+        # setup we PROVE fnserver serves the trigger URL. The most common cause
+        # of a silent miss is port 8080 still held by a dying OpenFaaS gateway
+        # from the previous leg -- a fresh reset+setup after the port frees up
+        # recovers cleanly, so retry once before declaring failure.
         self.teardown()
-        return subprocess.run(["bash", "run_saqef.sh", "setup"], text=True)
+        subprocess.run(["bash", "run_saqef.sh", "setup"], text=True)
+        if not self._serving():
+            print("WARNING: fnserver not serving %s after setup; retrying deploy once "
+                  "(port 8080 may still have been held by a dying OpenFaaS gateway)"
+                  % self.url)
+            subprocess.run(["bash", "run_saqef.sh", "reset"], text=True)
+            subprocess.run(["bash", "run_saqef.sh", "setup"], text=True)
+        if not self._serving():
+            raise RuntimeError("Fn deploy FAILED: fnserver did not come up to serve %s" % self.url)
+        print("Fn deploy OK: fnserver serving %s" % self.url)
 
     def teardown(self):
         # run_saqef.sh reset = fresh-session protocol: remove fnserver, orphaned
-        # hello:* function containers, and stale /tmp/iofs /tmp/data.
-        return subprocess.run(["bash", "run_saqef.sh", "reset"], text=True)
+        # hello:* function containers, and stale /tmp/iofs /tmp/data. Wait for
+        # the containers to actually be gone so the NEXT platform's deploy does
+        # not race a still-dying container on the same ports.
+        subprocess.run(["bash", "run_saqef.sh", "reset"], text=True)
+        ok, names = wait_containers(absent=("fnserver", "hello"), timeout=30.0)
+        if not ok:
+            print("WARNING: containers still present after Fn teardown: %s"
+                  % ", ".join(names or ["?"]))
 
     def scale(self, replicas):
         raise NotImplementedError("Fn function containers are ephemeral; no static replica scale")

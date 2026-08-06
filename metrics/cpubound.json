@@ -15,7 +15,8 @@
     "verify_budget_ms": 5.0
   },
   "regression": {
-    "description": "c=4, 8-core bare metal, REPEAT=5, calibrated IDLE_W=4.3. Must reproduce the known-good medians (fn 10.46 / openfaas 7.67) within tolerance_pp, or the refactor is NOT trusted. OpenFaaS runs first, torn down (stack rm + service rm hello), then Fn.",
+    "description": "c=4, 8-core bare metal, REPEAT=5, calibrated IDLE_W=4.3. Must reproduce the known-good medians (fn 11.60 / openfaas 7.67) within tolerance_pp, or the refactor is NOT trusted. OpenFaaS runs first, torn down (stack rm + service rm hello), then Fn.",
+    "reference_notes": "fn reference RECALIBRATED 2026-08-06: the 2026-08-05 value 10.46 is stale for this box. Same-day A/B on an identical fresh-setup Fn run: old runner (run_saqef.sh all) = 11.60, refactored CLI = 11.96 (flat ~11.6-12.1, all 5 runs; known-good ran 9.8-11.7 with the documented fnserver warm-up ramp). Deviation is entirely fnserver per-request CP cost (0.61 -> 0.75 ms) with fn_cpu_s identical (~56.7 s) - a bounded box-state drift, NOT a refactor change (harness argv is byte-identical; see tests/test_saqef_cli.py). openfaas reference unchanged (7.67; measured 7.55 today).",
     "concurrency": 4,
     "total": 10000,
     "duration": 60,
@@ -24,7 +25,7 @@
     "idle_w": 4.3,
     "replicas_openfaas": 16,
     "reference_share_pct": {
-      "fn": 10.46,
+      "fn": 11.6,
       "openfaas": 7.67
     },
     "tolerance_pp": 0.5

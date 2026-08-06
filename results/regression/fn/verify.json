@@ -1,0 +1,19 @@
+{
+  "platform": "fn",
+  "url": "http://localhost:8080/t/app1/hello",
+  "calls": 100,
+  "successes": 100,
+  "availability": 1.0,
+  "latency_ms": {
+    "p50": 15.98,
+    "p99": 525.72
+  },
+  "function_cpu_sec_total": 0.4,
+  "function_cpu_ms_per_inv": 4.0,
+  "control_plane_cpu_sec_total": 0.175,
+  "budget_ms": 5.0,
+  "budget_check": "MATCHES budget within 50-150%",
+  "env": {
+    "sampler": "cgroup"
+  }
+}

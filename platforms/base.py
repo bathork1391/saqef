@@ -21,6 +21,9 @@ bug cannot silently vanish (see AGENTS.md):
 
 import os
 import subprocess
+import time
+import urllib.error
+import urllib.request
 
 
 def run(cmd):
@@ -30,6 +33,52 @@ def run(cmd):
 def bash(*args):
     """Run a shell command list; return CompletedProcess (raise-on-fail=False)."""
     return subprocess.run(args, capture_output=True, text=True)
+
+
+# --------------------------------------------------------- deployment probing
+# The shell runners swallow failures (no 'set -e'; 'docker run fnserver' is
+# unchecked and 'fn deploy' ends in '|| true'), so an adapter MUST prove the
+# platform is actually serving after deploy() instead of trusting the exit
+# code. These helpers are orchestration-only; they never touch measurement.
+def http_get(url, timeout=5.0):
+    """Return (status, bytes) or (None, None) on any connection/HTTP error."""
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as r:
+            return r.status, r.read(64)
+    except Exception:
+        return None, None
+
+
+def wait_for_url(url, timeout=90.0, interval=1.0):
+    """Poll GET url until it returns HTTP 200. True on success, False on timeout."""
+    t0 = time.monotonic()
+    while time.monotonic() - t0 < timeout:
+        status, _ = http_get(url)
+        if status == 200:
+            return True
+        time.sleep(interval)
+    return False
+
+
+def container_names():
+    out = run("docker ps --format '{{.Names}}'")
+    if out.returncode != 0:
+        return []
+    return [l.strip() for l in out.stdout.splitlines() if l.strip()]
+
+
+def wait_containers(expected=(), absent=(), timeout=90.0, interval=1.0):
+    """Poll docker ps until every `expected` name-substring is present and no
+    `absent` substring is. Returns (ok, final snapshot of names)."""
+    t0 = time.monotonic()
+    while time.monotonic() - t0 < timeout:
+        names = container_names()
+        missing = [e for e in expected if not any(e in n for n in names)]
+        lingering = [a for a in absent if any(a in n for n in names)]
+        if not missing and not lingering:
+            return True, names
+        time.sleep(interval)
+    return False, container_names()
 
 
 class IsolationPolicy:
@@ -144,6 +193,13 @@ class Adapter:
     # tooling. A NEW platform implements these from scratch.
     def deploy(self):
         raise NotImplementedError
+
+    def deploy_function(self):
+        """Optional hook: deploy the platform's FUNCTION (beyond the control
+        plane), e.g. OpenFaaS's 'hello' service which faas-cli deploys OUTSIDE
+        the stack. No-op for platforms whose deploy() already includes it.
+        The adapter protocol explicitly allows bespoke hooks per platform."""
+        return None
 
     def teardown(self):
         raise NotImplementedError

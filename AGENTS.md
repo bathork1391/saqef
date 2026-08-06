@@ -192,8 +192,16 @@ cores (repeat per-platform, OpenFaaS first, same teardown discipline as above):
    Paper is tables-only today (78 rows, 0 figures) — this is the reviewer-facing weakness.
 2. **Adapter refactor** (fn + openfaas) WITH an automated **regression gate** before the new
    plumbing is trusted: `saqef regression` reruns c=4 8-core both platforms and FAILS if median
-   `cp_dynamic_share_pct` deviates > ~0.5 pp from known-good **10.46 / 7.67**. Do NOT trust by code
+   `cp_dynamic_share_pct` deviates > ~0.5 pp from known-good **11.60 / 7.67**. Do NOT trust by code
    review alone; prove by rerun.
+   - **fn reference recalibrated 2026-08-06 (was 10.46).** The refactored CLI's first full
+     `saqef regression` passed OpenFaaS (7.55, dev 0.12 pp) but "failed" Fn at 11.96. A same-day
+     A/B with the OLD runner (`run_saqef.sh all`, fresh setup, results/fn_cpubound_crosscheck)
+     measured **11.60** — same flat plateau, so the drift is the box, not the refactor (argv is
+     byte-identical). Cause: fnserver per-request CP cost 0.61→0.75 ms vs the 2026-08-05 runs
+     (which ramped 9.8→11.7). fn_cpu_s identical (~56.7 s) both days. Full context in
+     `metrics/cpubound.json` → `regression.reference_notes`. The gate is day-sensitive for Fn;
+     it catches refactor-scale breaks (100%/0-success bugs), not ~0.5 pp box noise.
 3. **OpenWhisk as a NEW adapter**, tested in isolation only after the framework is proven on
    fn+openfaas (don't mix abstraction bugs with platform bugs in one session).
 

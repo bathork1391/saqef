@@ -36,6 +36,11 @@ import statistics
 import subprocess
 import sys
 
+# Keep this process's prints in chronological order with subprocess output:
+# when piped, Python block-buffers stdout, so the CLI's own headers/gates would
+# otherwise flush in a burst at the end and scramble the regression log.
+sys.stdout.reconfigure(line_buffering=True)
+
 from platforms.base import run
 from platforms import get_adapter
 
@@ -111,6 +116,15 @@ def gates_for(out):
     return med
 
 
+def load_verify(out):
+    """Read the harness's --verify report (out/verify.json), or None."""
+    p = os.path.join(out, "verify.json")
+    if not os.path.exists(p):
+        return None
+    with open(p) as f:
+        return json.load(f)
+
+
 # ---------------------------------------------------------------------------
 def cmd_check(_a):
     return run_sub(["python3", HARNESS, "--check"])
@@ -124,6 +138,7 @@ def cmd_deploy(args):
         print("ERROR:", why)
         sys.exit(1)
     ad.deploy()
+    ad.deploy_function()   # no-op for Fn; OpenFaaS deploys the hello service (faas-cli)
 
 
 def cmd_teardown(args):
@@ -196,13 +211,25 @@ def _regression(metric, dry_run):
         print("--- deploy")
         if not dry_run:
             ad.deploy()
+            ad.deploy_function()
         if platform == "openfaas":
             print("--- scale -> %d replicas (GIL parity)" % rg["replicas_openfaas"])
             if not dry_run:
                 ad.scale(rg["replicas_openfaas"])
         print("--- verify")
         vcmd = ad.harness_argv(metric, 0, 0, 0, 0, 0, out, verify=True)
+        vcmd += ["--outdir", out]   # harness verify defaults to results/verify.json; pin it here
         run_sub(vcmd, dry_run=dry_run)
+        if not dry_run:
+            v = load_verify(out)
+            if v is None:
+                sys.exit("ERROR: --verify wrote no %s/verify.json; cannot trust the bench" % out)
+            if v["successes"] < v["calls"]:
+                sys.exit("ERROR: verify %d/%d successes for %s -- platform NOT serving; "
+                         "aborting instead of benching a dead platform"
+                         % (v["successes"], v["calls"], ad.label))
+            print("verify OK: %d/%d successes (function_cpu_ms_per_inv=%s)"
+                  % (v["successes"], v["calls"], v.get("ms_per_inv")))
         print("--- bench (c=%d total=%d repeat=%d idle_w=%s)" % (
             rg["concurrency"], rg["total"], rg["repeat"], rg["idle_w"]))
         bcmd = ad.harness_argv(metric, rg["total"], rg["concurrency"], rg["duration"],

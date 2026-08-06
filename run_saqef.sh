@@ -84,7 +84,7 @@ reset_fn() {
     case "$img" in
       hello:*) docker rm -f "$c" >/dev/null 2>&1 || true ;;
     esac
-  done < <(docker ps -aq --format '{{.ID}} {{.Image}}')
+  done < <(docker ps -a --format '{{.ID}} {{.Image}}')
   rm -rf /tmp/iofs /tmp/data
   echo "clean: $(docker ps -aq | wc -l) containers left"
 }
