@@ -1,0 +1,309 @@
+#!/usr/bin/env python3
+"""saqef - unified SAQEF CLI (adapter-per-platform refactor).
+
+Single entrypoint over the measurement harness. Platform-specific knowledge
+(URL, classifiers, isolation policy, deploy/teardown) lives in platforms/;
+metric profiles (measurement + regression references) live in metrics/;
+the measurement path itself is saqef_harness.py, invoked as a subprocess with
+the exact argv the proven shell runners construct -- so this layer CANNOT
+silently change the numbers.
+
+Subcommands:
+  check                          environment sanity (docker, RAPL, cgroup map, hey)
+  deploy  --platform X           deploy the platform (Fn: setup; OpenFaaS: stack)
+  teardown --platform X          remove the platform (Fn: reset; OF: stack rm + service rm hello)
+  scale   --platform X --replicas N   static function replica scale (OpenFaaS; GIL parity)
+  verify  --platform X [--out D] confirm the deployed handler burns ~verify_budget_ms CPU/inv
+  run     --platform X [flags]   full bench; gates printed automatically at the end
+  gates   --out D                print the accept/reject table for an existing run dir
+  regression [--dry-run]         rerun c=4 8-core both platforms; FAIL if median
+                                 cp_dynamic_share_pct deviates > tolerance from the
+                                 known-good references (the refactor trust gate)
+
+Flags for 'run' override the metric recipe defaults:
+  --total N  --concurrency C  --duration S  --warmup N  --repeat N
+  --idle-w W  --cpu-count-override N  --host-cpu-list 0,1  --out D  --metric M
+  --dry-run (print the exact commands, execute nothing)
+
+The "_quick" guard is preserved: repeat < 5 writes to <out>_quick, never the
+final outdir (a 1-run pass can never be mistaken for the 5-run publication set).
+"""
+
+import argparse
+import json
+import os
+import statistics
+import subprocess
+import sys
+
+from platforms.base import run
+from platforms import get_adapter
+
+REPO = os.path.dirname(os.path.abspath(__file__))
+HARNESS = os.path.join(REPO, "saqef_harness.py")
+FULL_REPEAT = 5
+METRICS_DIR = os.path.join(REPO, "metrics")
+
+
+# ---------------------------------------------------------------------------
+def load_metric(name):
+    path = os.path.join(METRICS_DIR, "%s.json" % name)
+    if not os.path.exists(path):
+        sys.exit("ERROR: unknown metric '%s' (expected %s)" % (name, path))
+    with open(path) as f:
+        return json.load(f)
+
+
+def resolve_outdir(out, repeat):
+    """The _quick guard: repeat < 5 writes to <out>_quick (never published)."""
+    return out + "_quick" if repeat < FULL_REPEAT else out
+
+
+def echo_quick(repeat):
+    if repeat < FULL_REPEAT:
+        print("\n#######################################################################")
+        print("# QUICK/ITERATION RUN: repeat=%d < %d (5)" % (repeat, FULL_REPEAT))
+        print("# Results written to *_quick - NOT for publication.                    #")
+        print("# Use repeat=%d for final numbers.                                     #" % FULL_REPEAT)
+        print("#######################################################################\n")
+
+
+def run_sub(cmd, dry_run=False):
+    printable = " ".join(cmd)
+    if dry_run:
+        print("DRY-RUN:", printable)
+        return None
+    print(">>>", printable)
+    return subprocess.run(cmd)
+
+
+def gates_for(out):
+    """Print the per-run accept/reject gate table (unified across platforms)."""
+    import glob
+    runs = sorted(glob.glob(os.path.join(out, "run_*")))
+    if not runs:
+        print("no runs found under %s" % out)
+        return None
+    print("per-run gate table (pass: delta%% ~ 0, CPmapped = expected, host_plausible=true, "
+          "95 <= coverage%% <= 100):")
+    for p in runs:
+        s = json.load(open(os.path.join(p, "summary.json")))
+        wall = s.get("wall_s") or 0.0
+        cov = round(100 * s["sampling_covered_s"] / wall, 1) if wall else 0.0
+        m = s.get("delta_check_map") or {}
+        okmap = sum(1 for v in m.values() if v == "ok")
+        nfn = sum(1 for n in s.get("container_inventory", []) if n.startswith("hello"))
+        satflag = "  <-- QoS CONTENTION-CONTAMINATED (>=85%): do not cite latency" \
+            if s.get("host_saturated") else ""
+        covflag = "  <-- COVERAGE INVARIANT BROKEN (>100%): do not cite" if cov > 100 else ""
+        hostflag = "  <-- HOST IMPLAUSIBLE: do not cite host metrics" if s.get("host_plausible") is False else ""
+        print("  %-7s delta%%: %-7s delta_s: %-6s cp_cpu_s: %-6s fn_cpu_s: %-6s "
+              "CPmapped: %s/%s fn_replicas: %s unclass: %s host_cpu_s: %-7s host_sat%%: %-6s "
+              "host_plausible: %-5s coverage%%: %s%s%s%s"
+              % (os.path.basename(p), s.get("cp_sampler_vs_delta_pct"), s.get("cp_delta_sec"),
+                 s.get("cpu_sec", {}).get("control_plane"), s.get("cpu_sec", {}).get("function"),
+                 okmap, len(m), nfn, s.get("unclassified_cpu_s"), s.get("host_cpu_sec"),
+                 s.get("host_saturation_pct"), s.get("host_plausible"), cov,
+                 satflag, covflag, hostflag))
+    med = json.load(open(os.path.join(out, "summary.json")))
+    print("median: cp_dynamic_share_pct=%s  slo_compliance=%s  throughput_rps=%s"
+          % (med.get("cp_dynamic_share_pct"), med.get("slo_compliance"), med.get("throughput_rps")))
+    return med
+
+
+# ---------------------------------------------------------------------------
+def cmd_check(_a):
+    return run_sub(["python3", HARNESS, "--check"])
+
+
+def cmd_deploy(args):
+    ad = get_adapter(args.platform)
+    print("=== [deploy] %s (%s) ===" % (ad.label, ad.name))
+    ok, why = ad.check_isolation()
+    if not ok:
+        print("ERROR:", why)
+        sys.exit(1)
+    ad.deploy()
+
+
+def cmd_teardown(args):
+    ad = get_adapter(args.platform)
+    print("=== [teardown] %s (%s) ===" % (ad.label, ad.name))
+    ad.teardown()
+
+
+def cmd_scale(args):
+    ad = get_adapter(args.platform)
+    if not ad.default_replicas and not args.replicas:
+        sys.exit("ERROR: %s has no static replica concept" % ad.label)
+    ad.scale(args.replicas or ad.default_replicas)
+
+
+def cmd_verify(args):
+    ad = get_adapter(args.platform)
+    metric = load_metric(args.metric)
+    cmd = ad.harness_argv(metric, 0, 0, 0, 0, 0,
+                          args.out, verify=True)
+    run_sub(cmd, dry_run=args.dry_run)
+
+
+def cmd_run(args):
+    ad = get_adapter(args.platform)
+    metric = load_metric(args.metric)
+    d = metric["defaults"]
+    total = args.total or d["total"]
+    concurrency = args.concurrency or d["concurrency"]
+    duration = args.duration or d["duration"]
+    warmup = args.warmup if args.warmup is not None else d["warmup"]
+    repeat = args.repeat or d["repeat"]
+    out = resolve_outdir(args.out or os.path.join(REPO, "results", "%s_cpubound" % args.platform), repeat)
+    echo_quick(repeat)
+
+    ok, why = ad.check_isolation()
+    if not ok:
+        sys.exit("ERROR: " + why)
+
+    if args.idle_w is None:
+        print("WARNING: no --idle-w set; the harness's 30 W default is WRONG on this box "
+              "(calibrate to the machine's measured idle package watts, e.g. 4.3)")
+    cmd = ad.harness_argv(metric, total, concurrency, duration, warmup, repeat,
+                          out, idle_w=args.idle_w,
+                          cpu_count_override=args.cpu_count_override,
+                          host_cpu_list=args.host_cpu_list)
+    run_sub(cmd, dry_run=args.dry_run)
+    if not args.dry_run:
+        gates_for(out)
+
+
+def cmd_gates(args):
+    gates_for(args.out)
+
+
+# ---------------------------------------------------------------------------
+def _regression(metric, dry_run):
+    rg = metric["regression"]
+    refs = rg["reference_share_pct"]
+    tol = rg["tolerance_pp"]
+    base_out = os.path.join(REPO, "results", "regression")
+    seen = {}
+    for platform in ("openfaas", "fn"):  # OF first: its leftover 'hello' service must be gone before Fn
+        ad = get_adapter(platform)
+        out = os.path.join(base_out, platform)
+        print("\n########## regression [%s] ##########" % ad.label)
+        ok, why = ad.check_isolation()
+        if not ok:
+            sys.exit("ERROR: host not clean before %s: %s" % (ad.label, why))
+        print("--- deploy")
+        if not dry_run:
+            ad.deploy()
+        if platform == "openfaas":
+            print("--- scale -> %d replicas (GIL parity)" % rg["replicas_openfaas"])
+            if not dry_run:
+                ad.scale(rg["replicas_openfaas"])
+        print("--- verify")
+        vcmd = ad.harness_argv(metric, 0, 0, 0, 0, 0, out, verify=True)
+        run_sub(vcmd, dry_run=dry_run)
+        print("--- bench (c=%d total=%d repeat=%d idle_w=%s)" % (
+            rg["concurrency"], rg["total"], rg["repeat"], rg["idle_w"]))
+        bcmd = ad.harness_argv(metric, rg["total"], rg["concurrency"], rg["duration"],
+                               rg["warmup"], rg["repeat"], out, idle_w=rg["idle_w"])
+        run_sub(bcmd, dry_run=dry_run)
+        if dry_run:
+            print("--- teardown")
+            continue
+        med = gates_for(out)
+        seen[platform] = med
+        print("--- teardown (%s)" % ad.label)
+        ad.teardown()
+
+    if dry_run:
+        print("\n[dry-run: no measurement performed]")
+        return None
+
+    print("\n########## regression verdict ##########")
+    all_pass = True
+    for platform, ref in refs.items():
+        med = seen.get(platform)
+        if med is None or med.get("cp_dynamic_share_pct") is None:
+            print("  %-10s MISSING median cp_dynamic_share_pct -> FAIL" % platform)
+            all_pass = False
+            continue
+        got = med["cp_dynamic_share_pct"]
+        dev = abs(got - ref)
+        ok = dev <= tol
+        all_pass = all_pass and ok
+        print("  %-10s got=%6.2f ref=%6.2f dev=%4.2f pp tol=%4.2f pp -> %s"
+              % (platform, got, ref, dev, tol, "PASS" if ok else "FAIL"))
+    print("")
+    if all_pass:
+        print("REGRESSION PASS: refactored path reproduces the known-good medians "
+              "(%s) within %s pp." % (", ".join("%s=%.2f" % (k, v) for k, v in refs.items()), tol))
+        return 0
+    print("REGRESSION FAIL: do NOT trust the refactor. Old runners remain authoritative.")
+    return 1
+
+
+def cmd_regression(args):
+    metric = load_metric("cpubound")
+    return _regression(metric, args.dry_run)
+
+
+# ---------------------------------------------------------------------------
+def main(argv=None):
+    ap = argparse.ArgumentParser(prog="saqef", description="SAQEF unified CLI")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+
+    p = sub.add_parser("check", help="environment sanity")
+    p.set_defaults(func=cmd_check)
+
+    p = sub.add_parser("deploy", help="deploy a platform")
+    p.add_argument("--platform", required=True, choices=["fn", "openfaas"])
+    p.set_defaults(func=cmd_deploy)
+
+    p = sub.add_parser("teardown", help="remove a platform")
+    p.add_argument("--platform", required=True, choices=["fn", "openfaas"])
+    p.set_defaults(func=cmd_teardown)
+
+    p = sub.add_parser("scale", help="static function replica scale (OpenFaaS)")
+    p.add_argument("--platform", required=True, choices=["fn", "openfaas"])
+    p.add_argument("--replicas", type=int, default=None)
+    p.set_defaults(func=cmd_scale)
+
+    p = sub.add_parser("verify", help="confirm the handler burns ~verify_budget_ms CPU/inv")
+    p.add_argument("--platform", required=True, choices=["fn", "openfaas"])
+    p.add_argument("--metric", default="cpubound")
+    p.add_argument("--out", default=None)
+    p.add_argument("--dry-run", action="store_true")
+    p.set_defaults(func=cmd_verify)
+
+    p = sub.add_parser("run", help="full bench; prints gates at the end")
+    p.add_argument("--platform", required=True, choices=["fn", "openfaas"])
+    p.add_argument("--metric", default="cpubound")
+    p.add_argument("--out", default=None)
+    p.add_argument("--total", type=int, default=None)
+    p.add_argument("--concurrency", type=int, default=None)
+    p.add_argument("--duration", type=int, default=None)
+    p.add_argument("--warmup", type=int, default=None)
+    p.add_argument("--repeat", type=int, default=None)
+    p.add_argument("--idle-w", type=float, default=None)
+    p.add_argument("--cpu-count-override", type=int, default=None)
+    p.add_argument("--host-cpu-list", default=None)
+    p.add_argument("--dry-run", action="store_true")
+    p.set_defaults(func=cmd_run)
+
+    p = sub.add_parser("gates", help="print the gate table for an existing run dir")
+    p.add_argument("--out", required=True)
+    p.set_defaults(func=cmd_gates)
+
+    p = sub.add_parser("regression", help="the refactor trust gate (c=4 8-core both platforms)")
+    p.add_argument("--dry-run", action="store_true")
+    p.set_defaults(func=cmd_regression)
+
+    args = ap.parse_args(argv)
+    rc = args.func(args)
+    if isinstance(rc, int):
+        sys.exit(rc)
+
+
+if __name__ == "__main__":
+    main()
