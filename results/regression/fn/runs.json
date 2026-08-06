@@ -3,184 +3,107 @@
     "platform": "fn",
     "url": "http://localhost:8080/t/app1/hello",
     "mode": "load",
-    "wall_s": 18.08,
-    "wall_harness_s": 18.08,
-    "sampling_covered_s": 18.08,
+    "wall_s": 18.41,
+    "wall_harness_s": 18.41,
+    "sampling_covered_s": 18.41,
     "requests": 10000,
     "successes": 10000,
     "availability": 1.0,
-    "throughput_rps": 552.95,
+    "throughput_rps": 543.3,
     "latency_ms": {
-      "p50": 6.8,
+      "p50": 6.9,
       "p90": 8.3,
-      "p99": 10.7,
-      "max": 34.6
+      "p99": 11.5,
+      "max": 37.9
     },
     "slo_ms": 500.0,
     "slo_compliance": 1.0,
     "compliance_source": "hey_interp",
     "energy_J": {
-      "total": 300.2,
-      "dynamic": 222.5,
-      "control_plane": 25.3,
-      "function": 197.2
+      "total": 304.2,
+      "dynamic": 225.1,
+      "control_plane": 27.5,
+      "function": 197.6
     },
-    "cp_share_pct": 8.43,
-    "cp_dynamic_share_pct": 11.37,
+    "cp_share_pct": 9.03,
+    "cp_dynamic_share_pct": 12.2,
     "cpu_sec": {
-      "control_plane": 7.23,
-      "function": 56.33
+      "control_plane": 7.85,
+      "function": 56.46
     },
-    "cpu_sec_ceiling": 144.68,
+    "cpu_sec_ceiling": 147.25,
     "physical_plausible": true,
     "unclassified_cpu_s": 0.0,
     "container_inventory": [
-      "01KZB574E1NG8G00GZJ0000005",
-      "01KZB574V0NG8G00GZJ000000B",
-      "01KZB574V0NG8G00GZJ000000D",
-      "01KZB574V0NG8G00GZJ000000F",
-      "01KZB574V0NG8G00GZJ000000H",
-      "01KZB574V0NG8G00GZJ000000K",
-      "01KZB574V5NG8G00GZJ000000P",
-      "01KZB574V6NG8G00GZJ000000R",
-      "01KZB574VBNG8G00GZJ000000T",
-      "01KZB574VGNG8G00GZJ000000W",
-      "01KZB5750JNG8G00GZJ000001P",
-      "01KZB8X8YDNG8G00GZJ0000005",
-      "01KZB8XA7BNG8G00GZJ000000C",
-      "01KZB8XA7CNG8G00GZJ000000E",
-      "01KZB8XA7DNG8G00GZJ000000G",
-      "01KZB8XA7ENG8G00GZJ000000J",
-      "01KZB8XA7GNG8G00GZJ000000M",
-      "01KZB8XA7HNG8G00GZJ000000P",
-      "01KZB8XA7MNG8G00GZJ000000R",
-      "01KZB8XA7WNG8G00GZJ000000T",
-      "01KZB8XA83NG8G00GZJ000000W",
+      "01KZC6ZKHFNG8G00GZJ0000005",
+      "01KZC6ZM5TNG8G00GZJ000000C",
+      "01KZC6ZM5WNG8G00GZJ000000E",
+      "01KZC6ZM62NG8G00GZJ000000G",
+      "01KZC6ZM66NG8G00GZJ000000J",
+      "01KZC6ZM66NG8G00GZJ000000M",
+      "01KZC6ZM67NG8G00GZJ000000P",
+      "01KZC6ZM68NG8G00GZJ000000R",
+      "01KZC6ZM6BNG8G00GZJ000000T",
+      "01KZC6ZM6BNG8G00GZJ000000W",
       "fnserver"
     ],
     "container_labels": {
-      "01KZB574E1NG8G00GZJ0000005": {
-        "image": "hello:0.0.14",
+      "01KZC6ZKHFNG8G00GZJ0000005": {
+        "image": "hello:0.0.17",
         "labels": [
           "io.buildah.version=1.43.1"
         ]
       },
-      "01KZB574V0NG8G00GZJ000000B": {
-        "image": "hello:0.0.14",
+      "01KZC6ZM5TNG8G00GZJ000000C": {
+        "image": "hello:0.0.17",
         "labels": [
           "io.buildah.version=1.43.1"
         ]
       },
-      "01KZB574V0NG8G00GZJ000000D": {
-        "image": "hello:0.0.14",
+      "01KZC6ZM5WNG8G00GZJ000000E": {
+        "image": "hello:0.0.17",
         "labels": [
           "io.buildah.version=1.43.1"
         ]
       },
-      "01KZB574V0NG8G00GZJ000000F": {
-        "image": "hello:0.0.14",
+      "01KZC6ZM62NG8G00GZJ000000G": {
+        "image": "hello:0.0.17",
         "labels": [
           "io.buildah.version=1.43.1"
         ]
       },
-      "01KZB574V0NG8G00GZJ000000H": {
-        "image": "hello:0.0.14",
+      "01KZC6ZM66NG8G00GZJ000000J": {
+        "image": "hello:0.0.17",
         "labels": [
           "io.buildah.version=1.43.1"
         ]
       },
-      "01KZB574V0NG8G00GZJ000000K": {
-        "image": "hello:0.0.14",
+      "01KZC6ZM66NG8G00GZJ000000M": {
+        "image": "hello:0.0.17",
         "labels": [
           "io.buildah.version=1.43.1"
         ]
       },
-      "01KZB574V5NG8G00GZJ000000P": {
-        "image": "hello:0.0.14",
+      "01KZC6ZM67NG8G00GZJ000000P": {
+        "image": "hello:0.0.17",
         "labels": [
           "io.buildah.version=1.43.1"
         ]
       },
-      "01KZB574V6NG8G00GZJ000000R": {
-        "image": "hello:0.0.14",
+      "01KZC6ZM68NG8G00GZJ000000R": {
+        "image": "hello:0.0.17",
         "labels": [
           "io.buildah.version=1.43.1"
         ]
       },
-      "01KZB574VBNG8G00GZJ000000T": {
-        "image": "hello:0.0.14",
+      "01KZC6ZM6BNG8G00GZJ000000T": {
+        "image": "hello:0.0.17",
         "labels": [
           "io.buildah.version=1.43.1"
         ]
       },
-      "01KZB574VGNG8G00GZJ000000W": {
-        "image": "hello:0.0.14",
-        "labels": [
-          "io.buildah.version=1.43.1"
-        ]
-      },
-      "01KZB5750JNG8G00GZJ000001P": {
-        "image": "hello:0.0.14",
-        "labels": [
-          "io.buildah.version=1.43.1"
-        ]
-      },
-      "01KZB8X8YDNG8G00GZJ0000005": {
-        "image": "hello:0.0.16",
-        "labels": [
-          "io.buildah.version=1.43.1"
-        ]
-      },
-      "01KZB8XA7BNG8G00GZJ000000C": {
-        "image": "hello:0.0.16",
-        "labels": [
-          "io.buildah.version=1.43.1"
-        ]
-      },
-      "01KZB8XA7CNG8G00GZJ000000E": {
-        "image": "hello:0.0.16",
-        "labels": [
-          "io.buildah.version=1.43.1"
-        ]
-      },
-      "01KZB8XA7DNG8G00GZJ000000G": {
-        "image": "hello:0.0.16",
-        "labels": [
-          "io.buildah.version=1.43.1"
-        ]
-      },
-      "01KZB8XA7ENG8G00GZJ000000J": {
-        "image": "hello:0.0.16",
-        "labels": [
-          "io.buildah.version=1.43.1"
-        ]
-      },
-      "01KZB8XA7GNG8G00GZJ000000M": {
-        "image": "hello:0.0.16",
-        "labels": [
-          "io.buildah.version=1.43.1"
-        ]
-      },
-      "01KZB8XA7HNG8G00GZJ000000P": {
-        "image": "hello:0.0.16",
-        "labels": [
-          "io.buildah.version=1.43.1"
-        ]
-      },
-      "01KZB8XA7MNG8G00GZJ000000R": {
-        "image": "hello:0.0.16",
-        "labels": [
-          "io.buildah.version=1.43.1"
-        ]
-      },
-      "01KZB8XA7WNG8G00GZJ000000T": {
-        "image": "hello:0.0.16",
-        "labels": [
-          "io.buildah.version=1.43.1"
-        ]
-      },
-      "01KZB8XA83NG8G00GZJ000000W": {
-        "image": "hello:0.0.16",
+      "01KZC6ZM6BNG8G00GZJ000000W": {
+        "image": "hello:0.0.17",
         "labels": [
           "io.buildah.version=1.43.1"
         ]
@@ -192,14 +115,14 @@
         ]
       }
     },
-    "cp_peak_mem_mb": 111.4,
+    "cp_peak_mem_mb": 139.6,
     "carbon_gCO2": {
-      "op_total": 14.385,
-      "op_control_plane": 1.212,
+      "op_total": 0.015,
+      "op_control_plane": 0.001,
       "idle_band": {
-        "15": 23.658,
-        "30": 36.656,
-        "45": 49.655
+        "15": 0.024,
+        "30": 0.037,
+        "45": 0.05
       }
     },
     "model": {
@@ -210,563 +133,35 @@
     },
     "sensitivity": {
       "cp_dynamic_share_pct_by_busy_w": {
-        "2.0": 11.37,
-        "3.5": 11.37,
-        "5.0": 11.37
-      },
-      "dynamic_energy_J_by_busy_w": {
-        "2.0": 127.1,
-        "3.5": 222.5,
-        "5.0": 317.8
-      },
-      "op_carbon_gCO2_by_busy_w": {
-        "2.0": 9.817,
-        "3.5": 14.385,
-        "5.0": 18.954
-      }
-    },
-    "kpi_gco2_per_slo_compliant_inv": 0.0014,
-    "kpi_gco2_per_inv_dynamic": 0.001066,
-    "embodied_dram_g_per_gb_h": 0.0317,
-    "host_cpu_sec": 116.22,
-    "host_window_s": 18.086,
-    "host_saturation_pct": 80.3,
-    "host_plausible": true,
-    "host_saturated": false,
-    "host_overhead_cpu_sec": 52.66,
-    "orchestration_cpu_sec": 59.89,
-    "orchestration_share_pct": 51.53,
-    "steal_sec": null,
-    "steal_pct": null,
-    "cp_delta_sec": 7.228,
-    "cp_sampler_vs_delta_pct": -0.01,
-    "delta_check_map": {
-      "fnserver": "ok"
-    },
-    "env": {
-      "cpu_count": 8,
-      "governor": "powersave",
-      "freq_mhz_before": 1400.1,
-      "freq_mhz_after": 1082.3,
-      "sampler": "cgroup",
-      "loadgen": "hey",
-      "loadgen_requested": "hey",
-      "loadgen_fallback": false
-    },
-    "rapl_validation_err_pct": 20.34,
-    "rapl_available": true,
-    "loadgen": {
-      "source": "hey",
-      "rps": 563.3929778699238,
-      "avg_ms": 7.08,
-      "errors": 0,
-      "wall_s": 17.75
-    }
-  },
-  {
-    "platform": "fn",
-    "url": "http://localhost:8080/t/app1/hello",
-    "mode": "load",
-    "wall_s": 18.16,
-    "wall_harness_s": 18.16,
-    "sampling_covered_s": 18.16,
-    "requests": 10000,
-    "successes": 10000,
-    "availability": 1.0,
-    "throughput_rps": 550.61,
-    "latency_ms": {
-      "p50": 6.8,
-      "p90": 8.2,
-      "p99": 10.9,
-      "max": 36.7
-    },
-    "slo_ms": 500.0,
-    "slo_compliance": 1.0,
-    "compliance_source": "hey_interp",
-    "energy_J": {
-      "total": 302.8,
-      "dynamic": 224.7,
-      "control_plane": 26.8,
-      "function": 198.0
-    },
-    "cp_share_pct": 8.83,
-    "cp_dynamic_share_pct": 11.91,
-    "cpu_sec": {
-      "control_plane": 7.64,
-      "function": 56.57
-    },
-    "cpu_sec_ceiling": 145.29,
-    "physical_plausible": true,
-    "unclassified_cpu_s": 0.0,
-    "container_inventory": [
-      "01KZB574E1NG8G00GZJ0000005",
-      "01KZB574V0NG8G00GZJ000000B",
-      "01KZB574V0NG8G00GZJ000000D",
-      "01KZB574V0NG8G00GZJ000000F",
-      "01KZB574V0NG8G00GZJ000000H",
-      "01KZB574V0NG8G00GZJ000000K",
-      "01KZB574V5NG8G00GZJ000000P",
-      "01KZB574V6NG8G00GZJ000000R",
-      "01KZB574VBNG8G00GZJ000000T",
-      "01KZB574VGNG8G00GZJ000000W",
-      "01KZB5750JNG8G00GZJ000001P",
-      "01KZB8X8YDNG8G00GZJ0000005",
-      "01KZB8XA7BNG8G00GZJ000000C",
-      "01KZB8XA7CNG8G00GZJ000000E",
-      "01KZB8XA7DNG8G00GZJ000000G",
-      "01KZB8XA7ENG8G00GZJ000000J",
-      "01KZB8XA7GNG8G00GZJ000000M",
-      "01KZB8XA7HNG8G00GZJ000000P",
-      "01KZB8XA7MNG8G00GZJ000000R",
-      "01KZB8XA7WNG8G00GZJ000000T",
-      "01KZB8XA83NG8G00GZJ000000W",
-      "fnserver"
-    ],
-    "container_labels": {
-      "01KZB574E1NG8G00GZJ0000005": {
-        "image": "hello:0.0.14",
-        "labels": [
-          "io.buildah.version=1.43.1"
-        ]
-      },
-      "01KZB574V0NG8G00GZJ000000B": {
-        "image": "hello:0.0.14",
-        "labels": [
-          "io.buildah.version=1.43.1"
-        ]
-      },
-      "01KZB574V0NG8G00GZJ000000D": {
-        "image": "hello:0.0.14",
-        "labels": [
-          "io.buildah.version=1.43.1"
-        ]
-      },
-      "01KZB574V0NG8G00GZJ000000F": {
-        "image": "hello:0.0.14",
-        "labels": [
-          "io.buildah.version=1.43.1"
-        ]
-      },
-      "01KZB574V0NG8G00GZJ000000H": {
-        "image": "hello:0.0.14",
-        "labels": [
-          "io.buildah.version=1.43.1"
-        ]
-      },
-      "01KZB574V0NG8G00GZJ000000K": {
-        "image": "hello:0.0.14",
-        "labels": [
-          "io.buildah.version=1.43.1"
-        ]
-      },
-      "01KZB574V5NG8G00GZJ000000P": {
-        "image": "hello:0.0.14",
-        "labels": [
-          "io.buildah.version=1.43.1"
-        ]
-      },
-      "01KZB574V6NG8G00GZJ000000R": {
-        "image": "hello:0.0.14",
-        "labels": [
-          "io.buildah.version=1.43.1"
-        ]
-      },
-      "01KZB574VBNG8G00GZJ000000T": {
-        "image": "hello:0.0.14",
-        "labels": [
-          "io.buildah.version=1.43.1"
-        ]
-      },
-      "01KZB574VGNG8G00GZJ000000W": {
-        "image": "hello:0.0.14",
-        "labels": [
-          "io.buildah.version=1.43.1"
-        ]
-      },
-      "01KZB5750JNG8G00GZJ000001P": {
-        "image": "hello:0.0.14",
-        "labels": [
-          "io.buildah.version=1.43.1"
-        ]
-      },
-      "01KZB8X8YDNG8G00GZJ0000005": {
-        "image": "hello:0.0.16",
-        "labels": [
-          "io.buildah.version=1.43.1"
-        ]
-      },
-      "01KZB8XA7BNG8G00GZJ000000C": {
-        "image": "hello:0.0.16",
-        "labels": [
-          "io.buildah.version=1.43.1"
-        ]
-      },
-      "01KZB8XA7CNG8G00GZJ000000E": {
-        "image": "hello:0.0.16",
-        "labels": [
-          "io.buildah.version=1.43.1"
-        ]
-      },
-      "01KZB8XA7DNG8G00GZJ000000G": {
-        "image": "hello:0.0.16",
-        "labels": [
-          "io.buildah.version=1.43.1"
-        ]
-      },
-      "01KZB8XA7ENG8G00GZJ000000J": {
-        "image": "hello:0.0.16",
-        "labels": [
-          "io.buildah.version=1.43.1"
-        ]
-      },
-      "01KZB8XA7GNG8G00GZJ000000M": {
-        "image": "hello:0.0.16",
-        "labels": [
-          "io.buildah.version=1.43.1"
-        ]
-      },
-      "01KZB8XA7HNG8G00GZJ000000P": {
-        "image": "hello:0.0.16",
-        "labels": [
-          "io.buildah.version=1.43.1"
-        ]
-      },
-      "01KZB8XA7MNG8G00GZJ000000R": {
-        "image": "hello:0.0.16",
-        "labels": [
-          "io.buildah.version=1.43.1"
-        ]
-      },
-      "01KZB8XA7WNG8G00GZJ000000T": {
-        "image": "hello:0.0.16",
-        "labels": [
-          "io.buildah.version=1.43.1"
-        ]
-      },
-      "01KZB8XA83NG8G00GZJ000000W": {
-        "image": "hello:0.0.16",
-        "labels": [
-          "io.buildah.version=1.43.1"
-        ]
-      },
-      "fnserver": {
-        "image": "fnproject/fnserver",
-        "labels": [
-          "io.buildah.version=1.41.8"
-        ]
-      }
-    },
-    "cp_peak_mem_mb": 35.2,
-    "carbon_gCO2": {
-      "op_total": 14.511,
-      "op_control_plane": 1.282,
-      "idle_band": {
-        "15": 23.822,
-        "30": 36.876,
-        "45": 49.93
-      }
-    },
-    "model": {
-      "idle_w": 4.3,
-      "busy_core_w": 3.5,
-      "pue": 1.15,
-      "ci": 150.0
-    },
-    "sensitivity": {
-      "cp_dynamic_share_pct_by_busy_w": {
-        "2.0": 11.91,
-        "3.5": 11.91,
-        "5.0": 11.91
-      },
-      "dynamic_energy_J_by_busy_w": {
-        "2.0": 128.4,
-        "3.5": 224.7,
-        "5.0": 321.0
-      },
-      "op_carbon_gCO2_by_busy_w": {
-        "2.0": 9.896,
-        "3.5": 14.511,
-        "5.0": 19.126
-      }
-    },
-    "kpi_gco2_per_slo_compliant_inv": 0.0015,
-    "kpi_gco2_per_inv_dynamic": 0.001077,
-    "embodied_dram_g_per_gb_h": 0.0317,
-    "host_cpu_sec": 115.16,
-    "host_window_s": 18.163,
-    "host_saturation_pct": 79.3,
-    "host_plausible": true,
-    "host_saturated": false,
-    "host_overhead_cpu_sec": 50.95,
-    "orchestration_cpu_sec": 58.59,
-    "orchestration_share_pct": 50.88,
-    "steal_sec": null,
-    "steal_pct": null,
-    "cp_delta_sec": 7.644,
-    "cp_sampler_vs_delta_pct": 0.01,
-    "delta_check_map": {
-      "fnserver": "ok"
-    },
-    "env": {
-      "cpu_count": 8,
-      "governor": "powersave",
-      "freq_mhz_before": 399.8,
-      "freq_mhz_after": 2800.6,
-      "sampler": "cgroup",
-      "loadgen": "hey",
-      "loadgen_requested": "hey",
-      "loadgen_fallback": false
-    },
-    "rapl_validation_err_pct": 3.04,
-    "rapl_available": true,
-    "loadgen": {
-      "source": "hey",
-      "rps": 562.0661551864655,
-      "avg_ms": 7.1,
-      "errors": 0,
-      "wall_s": 17.79
-    }
-  },
-  {
-    "platform": "fn",
-    "url": "http://localhost:8080/t/app1/hello",
-    "mode": "load",
-    "wall_s": 17.65,
-    "wall_harness_s": 17.65,
-    "sampling_covered_s": 17.65,
-    "requests": 10000,
-    "successes": 10000,
-    "availability": 1.0,
-    "throughput_rps": 566.41,
-    "latency_ms": {
-      "p50": 6.7,
-      "p90": 7.6,
-      "p99": 9.8,
-      "max": 39.2
-    },
-    "slo_ms": 500.0,
-    "slo_compliance": 1.0,
-    "compliance_source": "hey_interp",
-    "energy_J": {
-      "total": 300.9,
-      "dynamic": 225.0,
-      "control_plane": 26.1,
-      "function": 198.9
-    },
-    "cp_share_pct": 8.66,
-    "cp_dynamic_share_pct": 11.59,
-    "cpu_sec": {
-      "control_plane": 7.45,
-      "function": 56.84
-    },
-    "cpu_sec_ceiling": 141.24,
-    "physical_plausible": true,
-    "unclassified_cpu_s": 0.0,
-    "container_inventory": [
-      "01KZB574E1NG8G00GZJ0000005",
-      "01KZB574V0NG8G00GZJ000000B",
-      "01KZB574V0NG8G00GZJ000000D",
-      "01KZB574V0NG8G00GZJ000000F",
-      "01KZB574V0NG8G00GZJ000000H",
-      "01KZB574V0NG8G00GZJ000000K",
-      "01KZB574V5NG8G00GZJ000000P",
-      "01KZB574V6NG8G00GZJ000000R",
-      "01KZB574VBNG8G00GZJ000000T",
-      "01KZB574VGNG8G00GZJ000000W",
-      "01KZB5750JNG8G00GZJ000001P",
-      "01KZB8X8YDNG8G00GZJ0000005",
-      "01KZB8XA7BNG8G00GZJ000000C",
-      "01KZB8XA7CNG8G00GZJ000000E",
-      "01KZB8XA7DNG8G00GZJ000000G",
-      "01KZB8XA7ENG8G00GZJ000000J",
-      "01KZB8XA7GNG8G00GZJ000000M",
-      "01KZB8XA7HNG8G00GZJ000000P",
-      "01KZB8XA7MNG8G00GZJ000000R",
-      "01KZB8XA7WNG8G00GZJ000000T",
-      "01KZB8XA83NG8G00GZJ000000W",
-      "fnserver"
-    ],
-    "container_labels": {
-      "01KZB574E1NG8G00GZJ0000005": {
-        "image": "hello:0.0.14",
-        "labels": [
-          "io.buildah.version=1.43.1"
-        ]
-      },
-      "01KZB574V0NG8G00GZJ000000B": {
-        "image": "hello:0.0.14",
-        "labels": [
-          "io.buildah.version=1.43.1"
-        ]
-      },
-      "01KZB574V0NG8G00GZJ000000D": {
-        "image": "hello:0.0.14",
-        "labels": [
-          "io.buildah.version=1.43.1"
-        ]
-      },
-      "01KZB574V0NG8G00GZJ000000F": {
-        "image": "hello:0.0.14",
-        "labels": [
-          "io.buildah.version=1.43.1"
-        ]
-      },
-      "01KZB574V0NG8G00GZJ000000H": {
-        "image": "hello:0.0.14",
-        "labels": [
-          "io.buildah.version=1.43.1"
-        ]
-      },
-      "01KZB574V0NG8G00GZJ000000K": {
-        "image": "hello:0.0.14",
-        "labels": [
-          "io.buildah.version=1.43.1"
-        ]
-      },
-      "01KZB574V5NG8G00GZJ000000P": {
-        "image": "hello:0.0.14",
-        "labels": [
-          "io.buildah.version=1.43.1"
-        ]
-      },
-      "01KZB574V6NG8G00GZJ000000R": {
-        "image": "hello:0.0.14",
-        "labels": [
-          "io.buildah.version=1.43.1"
-        ]
-      },
-      "01KZB574VBNG8G00GZJ000000T": {
-        "image": "hello:0.0.14",
-        "labels": [
-          "io.buildah.version=1.43.1"
-        ]
-      },
-      "01KZB574VGNG8G00GZJ000000W": {
-        "image": "hello:0.0.14",
-        "labels": [
-          "io.buildah.version=1.43.1"
-        ]
-      },
-      "01KZB5750JNG8G00GZJ000001P": {
-        "image": "hello:0.0.14",
-        "labels": [
-          "io.buildah.version=1.43.1"
-        ]
-      },
-      "01KZB8X8YDNG8G00GZJ0000005": {
-        "image": "hello:0.0.16",
-        "labels": [
-          "io.buildah.version=1.43.1"
-        ]
-      },
-      "01KZB8XA7BNG8G00GZJ000000C": {
-        "image": "hello:0.0.16",
-        "labels": [
-          "io.buildah.version=1.43.1"
-        ]
-      },
-      "01KZB8XA7CNG8G00GZJ000000E": {
-        "image": "hello:0.0.16",
-        "labels": [
-          "io.buildah.version=1.43.1"
-        ]
-      },
-      "01KZB8XA7DNG8G00GZJ000000G": {
-        "image": "hello:0.0.16",
-        "labels": [
-          "io.buildah.version=1.43.1"
-        ]
-      },
-      "01KZB8XA7ENG8G00GZJ000000J": {
-        "image": "hello:0.0.16",
-        "labels": [
-          "io.buildah.version=1.43.1"
-        ]
-      },
-      "01KZB8XA7GNG8G00GZJ000000M": {
-        "image": "hello:0.0.16",
-        "labels": [
-          "io.buildah.version=1.43.1"
-        ]
-      },
-      "01KZB8XA7HNG8G00GZJ000000P": {
-        "image": "hello:0.0.16",
-        "labels": [
-          "io.buildah.version=1.43.1"
-        ]
-      },
-      "01KZB8XA7MNG8G00GZJ000000R": {
-        "image": "hello:0.0.16",
-        "labels": [
-          "io.buildah.version=1.43.1"
-        ]
-      },
-      "01KZB8XA7WNG8G00GZJ000000T": {
-        "image": "hello:0.0.16",
-        "labels": [
-          "io.buildah.version=1.43.1"
-        ]
-      },
-      "01KZB8XA83NG8G00GZJ000000W": {
-        "image": "hello:0.0.16",
-        "labels": [
-          "io.buildah.version=1.43.1"
-        ]
-      },
-      "fnserver": {
-        "image": "fnproject/fnserver",
-        "labels": [
-          "io.buildah.version=1.41.8"
-        ]
-      }
-    },
-    "cp_peak_mem_mb": 35.3,
-    "carbon_gCO2": {
-      "op_total": 14.42,
-      "op_control_plane": 1.249,
-      "idle_band": {
-        "15": 23.471,
-        "30": 36.161,
-        "45": 48.85
-      }
-    },
-    "model": {
-      "idle_w": 4.3,
-      "busy_core_w": 3.5,
-      "pue": 1.15,
-      "ci": 150.0
-    },
-    "sensitivity": {
-      "cp_dynamic_share_pct_by_busy_w": {
-        "2.0": 11.59,
-        "3.5": 11.59,
-        "5.0": 11.59
+        "2.0": 12.2,
+        "3.5": 12.2,
+        "5.0": 12.2
       },
       "dynamic_energy_J_by_busy_w": {
         "2.0": 128.6,
-        "3.5": 225.0,
-        "5.0": 321.4
+        "3.5": 225.1,
+        "5.0": 321.5
       },
       "op_carbon_gCO2_by_busy_w": {
-        "2.0": 9.799,
-        "3.5": 14.42,
-        "5.0": 19.04
+        "2.0": 0.01,
+        "3.5": 0.015,
+        "5.0": 0.019
       }
     },
-    "kpi_gco2_per_slo_compliant_inv": 0.0014,
-    "kpi_gco2_per_inv_dynamic": 0.001078,
+    "kpi_gco2_per_slo_compliant_inv": 1.46e-06,
+    "kpi_gco2_per_inv_dynamic": 1.08e-06,
     "embodied_dram_g_per_gb_h": 0.0317,
-    "host_cpu_sec": 108.07,
-    "host_window_s": 17.655,
-    "host_saturation_pct": 76.5,
+    "host_cpu_sec": 121.69,
+    "host_window_s": 18.406,
+    "host_saturation_pct": 82.6,
     "host_plausible": true,
     "host_saturated": false,
-    "host_overhead_cpu_sec": 43.78,
-    "orchestration_cpu_sec": 51.23,
-    "orchestration_share_pct": 47.4,
+    "host_overhead_cpu_sec": 57.39,
+    "orchestration_cpu_sec": 65.23,
+    "orchestration_share_pct": 53.61,
     "steal_sec": null,
     "steal_pct": null,
-    "cp_delta_sec": 7.45,
+    "cp_delta_sec": 7.847,
     "cp_sampler_vs_delta_pct": -0.0,
     "delta_check_map": {
       "fnserver": "ok"
@@ -774,191 +169,128 @@
     "env": {
       "cpu_count": 8,
       "governor": "powersave",
-      "freq_mhz_before": 1347.0,
-      "freq_mhz_after": 1500.0,
+      "freq_mhz_before": 2082.5,
+      "freq_mhz_after": 1380.0,
       "sampler": "cgroup",
       "loadgen": "hey",
       "loadgen_requested": "hey",
       "loadgen_fallback": false
     },
-    "rapl_validation_err_pct": 3.14,
+    "rapl_validation_err_pct": 2.92,
     "rapl_available": true,
     "loadgen": {
       "source": "hey",
-      "rps": 579.1293369548222,
-      "avg_ms": 6.88,
+      "rps": 551.1129726482632,
+      "avg_ms": 7.23,
       "errors": 0,
-      "wall_s": 17.27
+      "wall_s": 18.15
     }
   },
   {
     "platform": "fn",
     "url": "http://localhost:8080/t/app1/hello",
     "mode": "load",
-    "wall_s": 18.01,
-    "wall_harness_s": 18.01,
-    "sampling_covered_s": 18.01,
+    "wall_s": 18.48,
+    "wall_harness_s": 18.48,
+    "sampling_covered_s": 18.48,
     "requests": 10000,
     "successes": 10000,
     "availability": 1.0,
-    "throughput_rps": 555.16,
+    "throughput_rps": 541.01,
     "latency_ms": {
-      "p50": 6.8,
-      "p90": 8.0,
-      "p99": 10.4,
-      "max": 45.0
+      "p50": 6.9,
+      "p90": 8.4,
+      "p99": 11.2,
+      "max": 40.0
     },
     "slo_ms": 500.0,
     "slo_compliance": 1.0,
     "compliance_source": "hey_interp",
     "energy_J": {
-      "total": 302.1,
-      "dynamic": 224.6,
-      "control_plane": 26.5,
-      "function": 198.1
+      "total": 305.1,
+      "dynamic": 225.6,
+      "control_plane": 27.7,
+      "function": 197.9
     },
-    "cp_share_pct": 8.78,
-    "cp_dynamic_share_pct": 11.8,
+    "cp_share_pct": 9.09,
+    "cp_dynamic_share_pct": 12.3,
     "cpu_sec": {
-      "control_plane": 7.57,
-      "function": 56.6
+      "control_plane": 7.93,
+      "function": 56.53
     },
-    "cpu_sec_ceiling": 144.1,
+    "cpu_sec_ceiling": 147.87,
     "physical_plausible": true,
     "unclassified_cpu_s": 0.0,
     "container_inventory": [
-      "01KZB574E1NG8G00GZJ0000005",
-      "01KZB574V0NG8G00GZJ000000B",
-      "01KZB574V0NG8G00GZJ000000D",
-      "01KZB574V0NG8G00GZJ000000F",
-      "01KZB574V0NG8G00GZJ000000H",
-      "01KZB574V0NG8G00GZJ000000K",
-      "01KZB574V5NG8G00GZJ000000P",
-      "01KZB574V6NG8G00GZJ000000R",
-      "01KZB574VBNG8G00GZJ000000T",
-      "01KZB574VGNG8G00GZJ000000W",
-      "01KZB5750JNG8G00GZJ000001P",
-      "01KZB8X8YDNG8G00GZJ0000005",
-      "01KZB8XA7BNG8G00GZJ000000C",
-      "01KZB8XA7DNG8G00GZJ000000G",
-      "01KZB8XA7ENG8G00GZJ000000J",
-      "01KZB8XA7GNG8G00GZJ000000M",
-      "01KZB8XA7HNG8G00GZJ000000P",
-      "01KZB8XA7WNG8G00GZJ000000T",
-      "01KZB8XA83NG8G00GZJ000000W",
+      "01KZC6ZKHFNG8G00GZJ0000005",
+      "01KZC6ZM5TNG8G00GZJ000000C",
+      "01KZC6ZM5WNG8G00GZJ000000E",
+      "01KZC6ZM62NG8G00GZJ000000G",
+      "01KZC6ZM66NG8G00GZJ000000J",
+      "01KZC6ZM66NG8G00GZJ000000M",
+      "01KZC6ZM67NG8G00GZJ000000P",
+      "01KZC6ZM68NG8G00GZJ000000R",
+      "01KZC6ZM6BNG8G00GZJ000000T",
+      "01KZC6ZM6BNG8G00GZJ000000W",
       "fnserver"
     ],
     "container_labels": {
-      "01KZB574E1NG8G00GZJ0000005": {
-        "image": "hello:0.0.14",
+      "01KZC6ZKHFNG8G00GZJ0000005": {
+        "image": "hello:0.0.17",
         "labels": [
           "io.buildah.version=1.43.1"
         ]
       },
-      "01KZB574V0NG8G00GZJ000000B": {
-        "image": "hello:0.0.14",
+      "01KZC6ZM5TNG8G00GZJ000000C": {
+        "image": "hello:0.0.17",
         "labels": [
           "io.buildah.version=1.43.1"
         ]
       },
-      "01KZB574V0NG8G00GZJ000000D": {
-        "image": "hello:0.0.14",
+      "01KZC6ZM5WNG8G00GZJ000000E": {
+        "image": "hello:0.0.17",
         "labels": [
           "io.buildah.version=1.43.1"
         ]
       },
-      "01KZB574V0NG8G00GZJ000000F": {
-        "image": "hello:0.0.14",
+      "01KZC6ZM62NG8G00GZJ000000G": {
+        "image": "hello:0.0.17",
         "labels": [
           "io.buildah.version=1.43.1"
         ]
       },
-      "01KZB574V0NG8G00GZJ000000H": {
-        "image": "hello:0.0.14",
+      "01KZC6ZM66NG8G00GZJ000000J": {
+        "image": "hello:0.0.17",
         "labels": [
           "io.buildah.version=1.43.1"
         ]
       },
-      "01KZB574V0NG8G00GZJ000000K": {
-        "image": "hello:0.0.14",
+      "01KZC6ZM66NG8G00GZJ000000M": {
+        "image": "hello:0.0.17",
         "labels": [
           "io.buildah.version=1.43.1"
         ]
       },
-      "01KZB574V5NG8G00GZJ000000P": {
-        "image": "hello:0.0.14",
+      "01KZC6ZM67NG8G00GZJ000000P": {
+        "image": "hello:0.0.17",
         "labels": [
           "io.buildah.version=1.43.1"
         ]
       },
-      "01KZB574V6NG8G00GZJ000000R": {
-        "image": "hello:0.0.14",
+      "01KZC6ZM68NG8G00GZJ000000R": {
+        "image": "hello:0.0.17",
         "labels": [
           "io.buildah.version=1.43.1"
         ]
       },
-      "01KZB574VBNG8G00GZJ000000T": {
-        "image": "hello:0.0.14",
+      "01KZC6ZM6BNG8G00GZJ000000T": {
+        "image": "hello:0.0.17",
         "labels": [
           "io.buildah.version=1.43.1"
         ]
       },
-      "01KZB574VGNG8G00GZJ000000W": {
-        "image": "hello:0.0.14",
-        "labels": [
-          "io.buildah.version=1.43.1"
-        ]
-      },
-      "01KZB5750JNG8G00GZJ000001P": {
-        "image": "hello:0.0.14",
-        "labels": [
-          "io.buildah.version=1.43.1"
-        ]
-      },
-      "01KZB8X8YDNG8G00GZJ0000005": {
-        "image": "hello:0.0.16",
-        "labels": [
-          "io.buildah.version=1.43.1"
-        ]
-      },
-      "01KZB8XA7BNG8G00GZJ000000C": {
-        "image": "hello:0.0.16",
-        "labels": [
-          "io.buildah.version=1.43.1"
-        ]
-      },
-      "01KZB8XA7DNG8G00GZJ000000G": {
-        "image": "hello:0.0.16",
-        "labels": [
-          "io.buildah.version=1.43.1"
-        ]
-      },
-      "01KZB8XA7ENG8G00GZJ000000J": {
-        "image": "hello:0.0.16",
-        "labels": [
-          "io.buildah.version=1.43.1"
-        ]
-      },
-      "01KZB8XA7GNG8G00GZJ000000M": {
-        "image": "hello:0.0.16",
-        "labels": [
-          "io.buildah.version=1.43.1"
-        ]
-      },
-      "01KZB8XA7HNG8G00GZJ000000P": {
-        "image": "hello:0.0.16",
-        "labels": [
-          "io.buildah.version=1.43.1"
-        ]
-      },
-      "01KZB8XA7WNG8G00GZJ000000T": {
-        "image": "hello:0.0.16",
-        "labels": [
-          "io.buildah.version=1.43.1"
-        ]
-      },
-      "01KZB8XA83NG8G00GZJ000000W": {
-        "image": "hello:0.0.16",
+      "01KZC6ZM6BNG8G00GZJ000000W": {
+        "image": "hello:0.0.17",
         "labels": [
           "io.buildah.version=1.43.1"
         ]
@@ -970,14 +302,14 @@
         ]
       }
     },
-    "cp_peak_mem_mb": 35.0,
+    "cp_peak_mem_mb": 61.7,
     "carbon_gCO2": {
-      "op_total": 14.474,
-      "op_control_plane": 1.27,
+      "op_total": 0.015,
+      "op_control_plane": 0.001,
       "idle_band": {
-        "15": 23.71,
-        "30": 36.656,
-        "45": 49.603
+        "15": 0.024,
+        "30": 0.037,
+        "45": 0.051
       }
     },
     "model": {
@@ -988,35 +320,35 @@
     },
     "sensitivity": {
       "cp_dynamic_share_pct_by_busy_w": {
-        "2.0": 11.8,
-        "3.5": 11.8,
-        "5.0": 11.8
+        "2.0": 12.3,
+        "3.5": 12.3,
+        "5.0": 12.3
       },
       "dynamic_energy_J_by_busy_w": {
-        "2.0": 128.4,
-        "3.5": 224.6,
-        "5.0": 320.9
+        "2.0": 128.9,
+        "3.5": 225.6,
+        "5.0": 322.3
       },
       "op_carbon_gCO2_by_busy_w": {
-        "2.0": 9.862,
-        "3.5": 14.474,
-        "5.0": 19.087
+        "2.0": 0.01,
+        "3.5": 0.015,
+        "5.0": 0.019
       }
     },
-    "kpi_gco2_per_slo_compliant_inv": 0.0014,
-    "kpi_gco2_per_inv_dynamic": 0.001076,
+    "kpi_gco2_per_slo_compliant_inv": 1.46e-06,
+    "kpi_gco2_per_inv_dynamic": 1.08e-06,
     "embodied_dram_g_per_gb_h": 0.0317,
-    "host_cpu_sec": 113.0,
-    "host_window_s": 18.013,
-    "host_saturation_pct": 78.4,
+    "host_cpu_sec": 122.1,
+    "host_window_s": 18.484,
+    "host_saturation_pct": 82.6,
     "host_plausible": true,
     "host_saturated": false,
-    "host_overhead_cpu_sec": 48.82,
-    "orchestration_cpu_sec": 56.4,
-    "orchestration_share_pct": 49.91,
+    "host_overhead_cpu_sec": 57.64,
+    "orchestration_cpu_sec": 65.57,
+    "orchestration_share_pct": 53.7,
     "steal_sec": null,
     "steal_pct": null,
-    "cp_delta_sec": 7.574,
+    "cp_delta_sec": 7.927,
     "cp_sampler_vs_delta_pct": 0.0,
     "delta_check_map": {
       "fnserver": "ok"
@@ -1024,191 +356,128 @@
     "env": {
       "cpu_count": 8,
       "governor": "powersave",
-      "freq_mhz_before": 400.2,
-      "freq_mhz_after": 2512.1,
+      "freq_mhz_before": 2644.7,
+      "freq_mhz_after": 2716.2,
       "sampler": "cgroup",
       "loadgen": "hey",
       "loadgen_requested": "hey",
       "loadgen_fallback": false
     },
-    "rapl_validation_err_pct": 4.21,
+    "rapl_validation_err_pct": 1.93,
     "rapl_available": true,
     "loadgen": {
       "source": "hey",
-      "rps": 565.946970768839,
-      "avg_ms": 7.03,
+      "rps": 550.8063805411122,
+      "avg_ms": 7.25,
       "errors": 0,
-      "wall_s": 17.67
+      "wall_s": 18.16
     }
   },
   {
     "platform": "fn",
     "url": "http://localhost:8080/t/app1/hello",
     "mode": "load",
-    "wall_s": 18.24,
-    "wall_harness_s": 18.24,
-    "sampling_covered_s": 18.24,
+    "wall_s": 18.51,
+    "wall_harness_s": 18.51,
+    "sampling_covered_s": 18.51,
     "requests": 10000,
     "successes": 10000,
     "availability": 1.0,
-    "throughput_rps": 548.25,
+    "throughput_rps": 540.17,
     "latency_ms": {
-      "p50": 6.8,
-      "p90": 8.3,
-      "p99": 10.9,
-      "max": 39.4
+      "p50": 7.0,
+      "p90": 8.4,
+      "p99": 11.2,
+      "max": 42.3
     },
     "slo_ms": 500.0,
     "slo_compliance": 1.0,
     "compliance_source": "hey_interp",
     "energy_J": {
-      "total": 303.4,
-      "dynamic": 224.9,
-      "control_plane": 27.1,
-      "function": 197.8
+      "total": 304.6,
+      "dynamic": 225.0,
+      "control_plane": 27.5,
+      "function": 197.5
     },
-    "cp_share_pct": 8.95,
-    "cp_dynamic_share_pct": 12.07,
+    "cp_share_pct": 9.02,
+    "cp_dynamic_share_pct": 12.21,
     "cpu_sec": {
-      "control_plane": 7.76,
-      "function": 56.51
+      "control_plane": 7.85,
+      "function": 56.42
     },
-    "cpu_sec_ceiling": 145.92,
+    "cpu_sec_ceiling": 148.1,
     "physical_plausible": true,
     "unclassified_cpu_s": 0.0,
     "container_inventory": [
-      "01KZB574E1NG8G00GZJ0000005",
-      "01KZB574V0NG8G00GZJ000000B",
-      "01KZB574V0NG8G00GZJ000000D",
-      "01KZB574V0NG8G00GZJ000000F",
-      "01KZB574V0NG8G00GZJ000000H",
-      "01KZB574V0NG8G00GZJ000000K",
-      "01KZB574V5NG8G00GZJ000000P",
-      "01KZB574V6NG8G00GZJ000000R",
-      "01KZB574VBNG8G00GZJ000000T",
-      "01KZB574VGNG8G00GZJ000000W",
-      "01KZB5750JNG8G00GZJ000001P",
-      "01KZB8X8YDNG8G00GZJ0000005",
-      "01KZB8XA7BNG8G00GZJ000000C",
-      "01KZB8XA7DNG8G00GZJ000000G",
-      "01KZB8XA7ENG8G00GZJ000000J",
-      "01KZB8XA7GNG8G00GZJ000000M",
-      "01KZB8XA7HNG8G00GZJ000000P",
-      "01KZB8XA7WNG8G00GZJ000000T",
-      "01KZB8XA83NG8G00GZJ000000W",
+      "01KZC6ZKHFNG8G00GZJ0000005",
+      "01KZC6ZM5TNG8G00GZJ000000C",
+      "01KZC6ZM5WNG8G00GZJ000000E",
+      "01KZC6ZM62NG8G00GZJ000000G",
+      "01KZC6ZM66NG8G00GZJ000000J",
+      "01KZC6ZM66NG8G00GZJ000000M",
+      "01KZC6ZM67NG8G00GZJ000000P",
+      "01KZC6ZM68NG8G00GZJ000000R",
+      "01KZC6ZM6BNG8G00GZJ000000T",
+      "01KZC6ZM6BNG8G00GZJ000000W",
       "fnserver"
     ],
     "container_labels": {
-      "01KZB574E1NG8G00GZJ0000005": {
-        "image": "hello:0.0.14",
+      "01KZC6ZKHFNG8G00GZJ0000005": {
+        "image": "hello:0.0.17",
         "labels": [
           "io.buildah.version=1.43.1"
         ]
       },
-      "01KZB574V0NG8G00GZJ000000B": {
-        "image": "hello:0.0.14",
+      "01KZC6ZM5TNG8G00GZJ000000C": {
+        "image": "hello:0.0.17",
         "labels": [
           "io.buildah.version=1.43.1"
         ]
       },
-      "01KZB574V0NG8G00GZJ000000D": {
-        "image": "hello:0.0.14",
+      "01KZC6ZM5WNG8G00GZJ000000E": {
+        "image": "hello:0.0.17",
         "labels": [
           "io.buildah.version=1.43.1"
         ]
       },
-      "01KZB574V0NG8G00GZJ000000F": {
-        "image": "hello:0.0.14",
+      "01KZC6ZM62NG8G00GZJ000000G": {
+        "image": "hello:0.0.17",
         "labels": [
           "io.buildah.version=1.43.1"
         ]
       },
-      "01KZB574V0NG8G00GZJ000000H": {
-        "image": "hello:0.0.14",
+      "01KZC6ZM66NG8G00GZJ000000J": {
+        "image": "hello:0.0.17",
         "labels": [
           "io.buildah.version=1.43.1"
         ]
       },
-      "01KZB574V0NG8G00GZJ000000K": {
-        "image": "hello:0.0.14",
+      "01KZC6ZM66NG8G00GZJ000000M": {
+        "image": "hello:0.0.17",
         "labels": [
           "io.buildah.version=1.43.1"
         ]
       },
-      "01KZB574V5NG8G00GZJ000000P": {
-        "image": "hello:0.0.14",
+      "01KZC6ZM67NG8G00GZJ000000P": {
+        "image": "hello:0.0.17",
         "labels": [
           "io.buildah.version=1.43.1"
         ]
       },
-      "01KZB574V6NG8G00GZJ000000R": {
-        "image": "hello:0.0.14",
+      "01KZC6ZM68NG8G00GZJ000000R": {
+        "image": "hello:0.0.17",
         "labels": [
           "io.buildah.version=1.43.1"
         ]
       },
-      "01KZB574VBNG8G00GZJ000000T": {
-        "image": "hello:0.0.14",
+      "01KZC6ZM6BNG8G00GZJ000000T": {
+        "image": "hello:0.0.17",
         "labels": [
           "io.buildah.version=1.43.1"
         ]
       },
-      "01KZB574VGNG8G00GZJ000000W": {
-        "image": "hello:0.0.14",
-        "labels": [
-          "io.buildah.version=1.43.1"
-        ]
-      },
-      "01KZB5750JNG8G00GZJ000001P": {
-        "image": "hello:0.0.14",
-        "labels": [
-          "io.buildah.version=1.43.1"
-        ]
-      },
-      "01KZB8X8YDNG8G00GZJ0000005": {
-        "image": "hello:0.0.16",
-        "labels": [
-          "io.buildah.version=1.43.1"
-        ]
-      },
-      "01KZB8XA7BNG8G00GZJ000000C": {
-        "image": "hello:0.0.16",
-        "labels": [
-          "io.buildah.version=1.43.1"
-        ]
-      },
-      "01KZB8XA7DNG8G00GZJ000000G": {
-        "image": "hello:0.0.16",
-        "labels": [
-          "io.buildah.version=1.43.1"
-        ]
-      },
-      "01KZB8XA7ENG8G00GZJ000000J": {
-        "image": "hello:0.0.16",
-        "labels": [
-          "io.buildah.version=1.43.1"
-        ]
-      },
-      "01KZB8XA7GNG8G00GZJ000000M": {
-        "image": "hello:0.0.16",
-        "labels": [
-          "io.buildah.version=1.43.1"
-        ]
-      },
-      "01KZB8XA7HNG8G00GZJ000000P": {
-        "image": "hello:0.0.16",
-        "labels": [
-          "io.buildah.version=1.43.1"
-        ]
-      },
-      "01KZB8XA7WNG8G00GZJ000000T": {
-        "image": "hello:0.0.16",
-        "labels": [
-          "io.buildah.version=1.43.1"
-        ]
-      },
-      "01KZB8XA83NG8G00GZJ000000W": {
-        "image": "hello:0.0.16",
+      "01KZC6ZM6BNG8G00GZJ000000W": {
+        "image": "hello:0.0.17",
         "labels": [
           "io.buildah.version=1.43.1"
         ]
@@ -1220,14 +489,14 @@
         ]
       }
     },
-    "cp_peak_mem_mb": 34.2,
+    "cp_peak_mem_mb": 61.9,
     "carbon_gCO2": {
-      "op_total": 14.537,
-      "op_control_plane": 1.301,
+      "op_total": 0.015,
+      "op_control_plane": 0.001,
       "idle_band": {
-        "15": 23.888,
-        "30": 36.998,
-        "45": 50.108
+        "15": 0.024,
+        "30": 0.037,
+        "45": 0.051
       }
     },
     "model": {
@@ -1238,35 +507,222 @@
     },
     "sensitivity": {
       "cp_dynamic_share_pct_by_busy_w": {
-        "2.0": 12.07,
-        "3.5": 12.07,
-        "5.0": 12.07
+        "2.0": 12.21,
+        "3.5": 12.21,
+        "5.0": 12.21
       },
       "dynamic_energy_J_by_busy_w": {
         "2.0": 128.5,
-        "3.5": 224.9,
-        "5.0": 321.3
+        "3.5": 225.0,
+        "5.0": 321.4
       },
       "op_carbon_gCO2_by_busy_w": {
-        "2.0": 9.917,
-        "3.5": 14.537,
-        "5.0": 19.156
+        "2.0": 0.01,
+        "3.5": 0.015,
+        "5.0": 0.019
       }
     },
-    "kpi_gco2_per_slo_compliant_inv": 0.0015,
-    "kpi_gco2_per_inv_dynamic": 0.001078,
+    "kpi_gco2_per_slo_compliant_inv": 1.46e-06,
+    "kpi_gco2_per_inv_dynamic": 1.08e-06,
     "embodied_dram_g_per_gb_h": 0.0317,
-    "host_cpu_sec": 117.35,
-    "host_window_s": 18.24,
-    "host_saturation_pct": 80.4,
+    "host_cpu_sec": 123.24,
+    "host_window_s": 18.513,
+    "host_saturation_pct": 83.2,
     "host_plausible": true,
     "host_saturated": false,
-    "host_overhead_cpu_sec": 53.08,
-    "orchestration_cpu_sec": 60.84,
-    "orchestration_share_pct": 51.84,
+    "host_overhead_cpu_sec": 58.97,
+    "orchestration_cpu_sec": 66.82,
+    "orchestration_share_pct": 54.22,
     "steal_sec": null,
     "steal_pct": null,
-    "cp_delta_sec": 7.756,
+    "cp_delta_sec": 7.848,
+    "cp_sampler_vs_delta_pct": 0.0,
+    "delta_check_map": {
+      "fnserver": "ok"
+    },
+    "env": {
+      "cpu_count": 8,
+      "governor": "powersave",
+      "freq_mhz_before": 1920.6,
+      "freq_mhz_after": 2702.8,
+      "sampler": "cgroup",
+      "loadgen": "hey",
+      "loadgen_requested": "hey",
+      "loadgen_fallback": false
+    },
+    "rapl_validation_err_pct": 3.35,
+    "rapl_available": true,
+    "loadgen": {
+      "source": "hey",
+      "rps": 548.4621122372866,
+      "avg_ms": 7.29,
+      "errors": 0,
+      "wall_s": 18.23
+    }
+  },
+  {
+    "platform": "fn",
+    "url": "http://localhost:8080/t/app1/hello",
+    "mode": "load",
+    "wall_s": 18.62,
+    "wall_harness_s": 18.62,
+    "sampling_covered_s": 18.62,
+    "requests": 10000,
+    "successes": 10000,
+    "availability": 1.0,
+    "throughput_rps": 536.96,
+    "latency_ms": {
+      "p50": 7.0,
+      "p90": 8.5,
+      "p99": 11.3,
+      "max": 41.1
+    },
+    "slo_ms": 500.0,
+    "slo_compliance": 1.0,
+    "compliance_source": "hey_interp",
+    "energy_J": {
+      "total": 304.6,
+      "dynamic": 224.6,
+      "control_plane": 27.6,
+      "function": 197.0
+    },
+    "cp_share_pct": 9.05,
+    "cp_dynamic_share_pct": 12.27,
+    "cpu_sec": {
+      "control_plane": 7.87,
+      "function": 56.28
+    },
+    "cpu_sec_ceiling": 148.99,
+    "physical_plausible": true,
+    "unclassified_cpu_s": 0.0,
+    "container_inventory": [
+      "01KZC6ZKHFNG8G00GZJ0000005",
+      "01KZC6ZM5TNG8G00GZJ000000C",
+      "01KZC6ZM5WNG8G00GZJ000000E",
+      "01KZC6ZM62NG8G00GZJ000000G",
+      "01KZC6ZM66NG8G00GZJ000000J",
+      "01KZC6ZM66NG8G00GZJ000000M",
+      "01KZC6ZM67NG8G00GZJ000000P",
+      "01KZC6ZM68NG8G00GZJ000000R",
+      "01KZC6ZM6BNG8G00GZJ000000T",
+      "01KZC6ZM6BNG8G00GZJ000000W",
+      "fnserver"
+    ],
+    "container_labels": {
+      "01KZC6ZKHFNG8G00GZJ0000005": {
+        "image": "hello:0.0.17",
+        "labels": [
+          "io.buildah.version=1.43.1"
+        ]
+      },
+      "01KZC6ZM5TNG8G00GZJ000000C": {
+        "image": "hello:0.0.17",
+        "labels": [
+          "io.buildah.version=1.43.1"
+        ]
+      },
+      "01KZC6ZM5WNG8G00GZJ000000E": {
+        "image": "hello:0.0.17",
+        "labels": [
+          "io.buildah.version=1.43.1"
+        ]
+      },
+      "01KZC6ZM62NG8G00GZJ000000G": {
+        "image": "hello:0.0.17",
+        "labels": [
+          "io.buildah.version=1.43.1"
+        ]
+      },
+      "01KZC6ZM66NG8G00GZJ000000J": {
+        "image": "hello:0.0.17",
+        "labels": [
+          "io.buildah.version=1.43.1"
+        ]
+      },
+      "01KZC6ZM66NG8G00GZJ000000M": {
+        "image": "hello:0.0.17",
+        "labels": [
+          "io.buildah.version=1.43.1"
+        ]
+      },
+      "01KZC6ZM67NG8G00GZJ000000P": {
+        "image": "hello:0.0.17",
+        "labels": [
+          "io.buildah.version=1.43.1"
+        ]
+      },
+      "01KZC6ZM68NG8G00GZJ000000R": {
+        "image": "hello:0.0.17",
+        "labels": [
+          "io.buildah.version=1.43.1"
+        ]
+      },
+      "01KZC6ZM6BNG8G00GZJ000000T": {
+        "image": "hello:0.0.17",
+        "labels": [
+          "io.buildah.version=1.43.1"
+        ]
+      },
+      "01KZC6ZM6BNG8G00GZJ000000W": {
+        "image": "hello:0.0.17",
+        "labels": [
+          "io.buildah.version=1.43.1"
+        ]
+      },
+      "fnserver": {
+        "image": "fnproject/fnserver",
+        "labels": [
+          "io.buildah.version=1.41.8"
+        ]
+      }
+    },
+    "cp_peak_mem_mb": 61.9,
+    "carbon_gCO2": {
+      "op_total": 0.015,
+      "op_control_plane": 0.001,
+      "idle_band": {
+        "15": 0.024,
+        "30": 0.038,
+        "45": 0.051
+      }
+    },
+    "model": {
+      "idle_w": 4.3,
+      "busy_core_w": 3.5,
+      "pue": 1.15,
+      "ci": 150.0
+    },
+    "sensitivity": {
+      "cp_dynamic_share_pct_by_busy_w": {
+        "2.0": 12.27,
+        "3.5": 12.27,
+        "5.0": 12.27
+      },
+      "dynamic_energy_J_by_busy_w": {
+        "2.0": 128.3,
+        "3.5": 224.6,
+        "5.0": 320.8
+      },
+      "op_carbon_gCO2_by_busy_w": {
+        "2.0": 0.01,
+        "3.5": 0.015,
+        "5.0": 0.019
+      }
+    },
+    "kpi_gco2_per_slo_compliant_inv": 1.46e-06,
+    "kpi_gco2_per_inv_dynamic": 1.08e-06,
+    "embodied_dram_g_per_gb_h": 0.0317,
+    "host_cpu_sec": 124.88,
+    "host_window_s": 18.624,
+    "host_saturation_pct": 83.8,
+    "host_plausible": true,
+    "host_saturated": false,
+    "host_overhead_cpu_sec": 60.72,
+    "orchestration_cpu_sec": 68.6,
+    "orchestration_share_pct": 54.93,
+    "steal_sec": null,
+    "steal_pct": null,
+    "cp_delta_sec": 7.874,
     "cp_sampler_vs_delta_pct": -0.0,
     "delta_check_map": {
       "fnserver": "ok"
@@ -1274,21 +730,194 @@
     "env": {
       "cpu_count": 8,
       "governor": "powersave",
-      "freq_mhz_before": 1500.0,
-      "freq_mhz_after": 1400.0,
+      "freq_mhz_before": 1519.9,
+      "freq_mhz_after": 492.3,
       "sampler": "cgroup",
       "loadgen": "hey",
       "loadgen_requested": "hey",
       "loadgen_fallback": false
     },
-    "rapl_validation_err_pct": 3.14,
+    "rapl_validation_err_pct": 0.84,
     "rapl_available": true,
     "loadgen": {
       "source": "hey",
-      "rps": 558.1416116897179,
-      "avg_ms": 7.16,
+      "rps": 545.3811668975447,
+      "avg_ms": 7.32,
       "errors": 0,
-      "wall_s": 17.92
+      "wall_s": 18.34
+    }
+  },
+  {
+    "platform": "fn",
+    "url": "http://localhost:8080/t/app1/hello",
+    "mode": "load",
+    "wall_s": 18.81,
+    "wall_harness_s": 18.81,
+    "sampling_covered_s": 18.81,
+    "requests": 10000,
+    "successes": 10000,
+    "availability": 1.0,
+    "throughput_rps": 531.64,
+    "latency_ms": {
+      "p50": 7.0,
+      "p90": 8.7,
+      "p99": 11.7,
+      "max": 24.9
+    },
+    "slo_ms": 500.0,
+    "slo_compliance": 1.0,
+    "compliance_source": "hey_interp",
+    "energy_J": {
+      "total": 305.5,
+      "dynamic": 224.6,
+      "control_plane": 27.8,
+      "function": 196.9
+    },
+    "cp_share_pct": 9.09,
+    "cp_dynamic_share_pct": 12.36,
+    "cpu_sec": {
+      "control_plane": 7.93,
+      "function": 56.25
+    },
+    "cpu_sec_ceiling": 150.48,
+    "physical_plausible": true,
+    "unclassified_cpu_s": 0.0,
+    "container_inventory": [
+      "01KZC6ZKHFNG8G00GZJ0000005",
+      "01KZC6ZM5WNG8G00GZJ000000E",
+      "01KZC6ZM62NG8G00GZJ000000G",
+      "01KZC6ZM66NG8G00GZJ000000M",
+      "01KZC6ZM67NG8G00GZJ000000P",
+      "01KZC6ZM68NG8G00GZJ000000R",
+      "01KZC6ZM6BNG8G00GZJ000000T",
+      "01KZC6ZM6BNG8G00GZJ000000W",
+      "fnserver"
+    ],
+    "container_labels": {
+      "01KZC6ZKHFNG8G00GZJ0000005": {
+        "image": "hello:0.0.17",
+        "labels": [
+          "io.buildah.version=1.43.1"
+        ]
+      },
+      "01KZC6ZM5WNG8G00GZJ000000E": {
+        "image": "hello:0.0.17",
+        "labels": [
+          "io.buildah.version=1.43.1"
+        ]
+      },
+      "01KZC6ZM62NG8G00GZJ000000G": {
+        "image": "hello:0.0.17",
+        "labels": [
+          "io.buildah.version=1.43.1"
+        ]
+      },
+      "01KZC6ZM66NG8G00GZJ000000M": {
+        "image": "hello:0.0.17",
+        "labels": [
+          "io.buildah.version=1.43.1"
+        ]
+      },
+      "01KZC6ZM67NG8G00GZJ000000P": {
+        "image": "hello:0.0.17",
+        "labels": [
+          "io.buildah.version=1.43.1"
+        ]
+      },
+      "01KZC6ZM68NG8G00GZJ000000R": {
+        "image": "hello:0.0.17",
+        "labels": [
+          "io.buildah.version=1.43.1"
+        ]
+      },
+      "01KZC6ZM6BNG8G00GZJ000000T": {
+        "image": "hello:0.0.17",
+        "labels": [
+          "io.buildah.version=1.43.1"
+        ]
+      },
+      "01KZC6ZM6BNG8G00GZJ000000W": {
+        "image": "hello:0.0.17",
+        "labels": [
+          "io.buildah.version=1.43.1"
+        ]
+      },
+      "fnserver": {
+        "image": "fnproject/fnserver",
+        "labels": [
+          "io.buildah.version=1.41.8"
+        ]
+      }
+    },
+    "cp_peak_mem_mb": 61.7,
+    "carbon_gCO2": {
+      "op_total": 0.015,
+      "op_control_plane": 0.001,
+      "idle_band": {
+        "15": 0.024,
+        "30": 0.038,
+        "45": 0.051
+      }
+    },
+    "model": {
+      "idle_w": 4.3,
+      "busy_core_w": 3.5,
+      "pue": 1.15,
+      "ci": 150.0
+    },
+    "sensitivity": {
+      "cp_dynamic_share_pct_by_busy_w": {
+        "2.0": 12.36,
+        "3.5": 12.36,
+        "5.0": 12.36
+      },
+      "dynamic_energy_J_by_busy_w": {
+        "2.0": 128.4,
+        "3.5": 224.6,
+        "5.0": 320.9
+      },
+      "op_carbon_gCO2_by_busy_w": {
+        "2.0": 0.01,
+        "3.5": 0.015,
+        "5.0": 0.019
+      }
+    },
+    "kpi_gco2_per_slo_compliant_inv": 1.46e-06,
+    "kpi_gco2_per_inv_dynamic": 1.08e-06,
+    "embodied_dram_g_per_gb_h": 0.0317,
+    "host_cpu_sec": 127.47,
+    "host_window_s": 18.811,
+    "host_saturation_pct": 84.7,
+    "host_plausible": true,
+    "host_saturated": false,
+    "host_overhead_cpu_sec": 63.29,
+    "orchestration_cpu_sec": 71.22,
+    "orchestration_share_pct": 55.88,
+    "steal_sec": null,
+    "steal_pct": null,
+    "cp_delta_sec": 7.931,
+    "cp_sampler_vs_delta_pct": -0.0,
+    "delta_check_map": {
+      "fnserver": "ok"
+    },
+    "env": {
+      "cpu_count": 8,
+      "governor": "powersave",
+      "freq_mhz_before": 2680.8,
+      "freq_mhz_after": 2500.0,
+      "sampler": "cgroup",
+      "loadgen": "hey",
+      "loadgen_requested": "hey",
+      "loadgen_fallback": false
+    },
+    "rapl_validation_err_pct": 0.28,
+    "rapl_available": true,
+    "loadgen": {
+      "source": "hey",
+      "rps": 539.8198081480402,
+      "avg_ms": 7.4,
+      "errors": 0,
+      "wall_s": 18.52
     }
   }
 ]
