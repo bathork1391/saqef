@@ -1,0 +1,19 @@
+{
+  "platform": "openwhisk",
+  "url": "http://127.0.0.1:3233/api/v1/web/guest/default/hello",
+  "calls": 100,
+  "successes": 100,
+  "availability": 1.0,
+  "latency_ms": {
+    "p50": 334.04,
+    "p99": 1109.87
+  },
+  "function_cpu_sec_total": 0.529,
+  "function_cpu_ms_per_inv": 5.29,
+  "control_plane_cpu_sec_total": 23.567,
+  "budget_ms": 5.0,
+  "budget_check": "MATCHES budget within 50-150%",
+  "env": {
+    "sampler": "cgroup"
+  }
+}

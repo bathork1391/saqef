@@ -2,170 +2,93 @@
   "platform": "fn",
   "url": "http://localhost:8080/t/app1/hello",
   "mode": "load",
-  "wall_s": 18.24,
-  "wall_harness_s": 18.24,
-  "sampling_covered_s": 18.24,
+  "wall_s": 18.81,
+  "wall_harness_s": 18.81,
+  "sampling_covered_s": 18.81,
   "requests": 10000,
   "successes": 10000,
   "availability": 1.0,
-  "throughput_rps": 548.25,
+  "throughput_rps": 531.64,
   "latency_ms": {
-    "p50": 6.8,
-    "p90": 8.3,
-    "p99": 10.9,
-    "max": 39.4
+    "p50": 7.0,
+    "p90": 8.7,
+    "p99": 11.7,
+    "max": 24.9
   },
   "slo_ms": 500.0,
   "slo_compliance": 1.0,
   "compliance_source": "hey_interp",
   "energy_J": {
-    "total": 303.4,
-    "dynamic": 224.9,
-    "control_plane": 27.1,
-    "function": 197.8
+    "total": 305.5,
+    "dynamic": 224.6,
+    "control_plane": 27.8,
+    "function": 196.9
   },
-  "cp_share_pct": 8.95,
-  "cp_dynamic_share_pct": 12.07,
+  "cp_share_pct": 9.09,
+  "cp_dynamic_share_pct": 12.36,
   "cpu_sec": {
-    "control_plane": 7.76,
-    "function": 56.51
+    "control_plane": 7.93,
+    "function": 56.25
   },
-  "cpu_sec_ceiling": 145.92,
+  "cpu_sec_ceiling": 150.48,
   "physical_plausible": true,
   "unclassified_cpu_s": 0.0,
   "container_inventory": [
-    "01KZB574E1NG8G00GZJ0000005",
-    "01KZB574V0NG8G00GZJ000000B",
-    "01KZB574V0NG8G00GZJ000000D",
-    "01KZB574V0NG8G00GZJ000000F",
-    "01KZB574V0NG8G00GZJ000000H",
-    "01KZB574V0NG8G00GZJ000000K",
-    "01KZB574V5NG8G00GZJ000000P",
-    "01KZB574V6NG8G00GZJ000000R",
-    "01KZB574VBNG8G00GZJ000000T",
-    "01KZB574VGNG8G00GZJ000000W",
-    "01KZB5750JNG8G00GZJ000001P",
-    "01KZB8X8YDNG8G00GZJ0000005",
-    "01KZB8XA7BNG8G00GZJ000000C",
-    "01KZB8XA7DNG8G00GZJ000000G",
-    "01KZB8XA7ENG8G00GZJ000000J",
-    "01KZB8XA7GNG8G00GZJ000000M",
-    "01KZB8XA7HNG8G00GZJ000000P",
-    "01KZB8XA7WNG8G00GZJ000000T",
-    "01KZB8XA83NG8G00GZJ000000W",
+    "01KZC6ZKHFNG8G00GZJ0000005",
+    "01KZC6ZM5WNG8G00GZJ000000E",
+    "01KZC6ZM62NG8G00GZJ000000G",
+    "01KZC6ZM66NG8G00GZJ000000M",
+    "01KZC6ZM67NG8G00GZJ000000P",
+    "01KZC6ZM68NG8G00GZJ000000R",
+    "01KZC6ZM6BNG8G00GZJ000000T",
+    "01KZC6ZM6BNG8G00GZJ000000W",
     "fnserver"
   ],
   "container_labels": {
-    "01KZB574E1NG8G00GZJ0000005": {
-      "image": "hello:0.0.14",
+    "01KZC6ZKHFNG8G00GZJ0000005": {
+      "image": "hello:0.0.17",
       "labels": [
         "io.buildah.version=1.43.1"
       ]
     },
-    "01KZB574V0NG8G00GZJ000000B": {
-      "image": "hello:0.0.14",
+    "01KZC6ZM5WNG8G00GZJ000000E": {
+      "image": "hello:0.0.17",
       "labels": [
         "io.buildah.version=1.43.1"
       ]
     },
-    "01KZB574V0NG8G00GZJ000000D": {
-      "image": "hello:0.0.14",
+    "01KZC6ZM62NG8G00GZJ000000G": {
+      "image": "hello:0.0.17",
       "labels": [
         "io.buildah.version=1.43.1"
       ]
     },
-    "01KZB574V0NG8G00GZJ000000F": {
-      "image": "hello:0.0.14",
+    "01KZC6ZM66NG8G00GZJ000000M": {
+      "image": "hello:0.0.17",
       "labels": [
         "io.buildah.version=1.43.1"
       ]
     },
-    "01KZB574V0NG8G00GZJ000000H": {
-      "image": "hello:0.0.14",
+    "01KZC6ZM67NG8G00GZJ000000P": {
+      "image": "hello:0.0.17",
       "labels": [
         "io.buildah.version=1.43.1"
       ]
     },
-    "01KZB574V0NG8G00GZJ000000K": {
-      "image": "hello:0.0.14",
+    "01KZC6ZM68NG8G00GZJ000000R": {
+      "image": "hello:0.0.17",
       "labels": [
         "io.buildah.version=1.43.1"
       ]
     },
-    "01KZB574V5NG8G00GZJ000000P": {
-      "image": "hello:0.0.14",
+    "01KZC6ZM6BNG8G00GZJ000000T": {
+      "image": "hello:0.0.17",
       "labels": [
         "io.buildah.version=1.43.1"
       ]
     },
-    "01KZB574V6NG8G00GZJ000000R": {
-      "image": "hello:0.0.14",
-      "labels": [
-        "io.buildah.version=1.43.1"
-      ]
-    },
-    "01KZB574VBNG8G00GZJ000000T": {
-      "image": "hello:0.0.14",
-      "labels": [
-        "io.buildah.version=1.43.1"
-      ]
-    },
-    "01KZB574VGNG8G00GZJ000000W": {
-      "image": "hello:0.0.14",
-      "labels": [
-        "io.buildah.version=1.43.1"
-      ]
-    },
-    "01KZB5750JNG8G00GZJ000001P": {
-      "image": "hello:0.0.14",
-      "labels": [
-        "io.buildah.version=1.43.1"
-      ]
-    },
-    "01KZB8X8YDNG8G00GZJ0000005": {
-      "image": "hello:0.0.16",
-      "labels": [
-        "io.buildah.version=1.43.1"
-      ]
-    },
-    "01KZB8XA7BNG8G00GZJ000000C": {
-      "image": "hello:0.0.16",
-      "labels": [
-        "io.buildah.version=1.43.1"
-      ]
-    },
-    "01KZB8XA7DNG8G00GZJ000000G": {
-      "image": "hello:0.0.16",
-      "labels": [
-        "io.buildah.version=1.43.1"
-      ]
-    },
-    "01KZB8XA7ENG8G00GZJ000000J": {
-      "image": "hello:0.0.16",
-      "labels": [
-        "io.buildah.version=1.43.1"
-      ]
-    },
-    "01KZB8XA7GNG8G00GZJ000000M": {
-      "image": "hello:0.0.16",
-      "labels": [
-        "io.buildah.version=1.43.1"
-      ]
-    },
-    "01KZB8XA7HNG8G00GZJ000000P": {
-      "image": "hello:0.0.16",
-      "labels": [
-        "io.buildah.version=1.43.1"
-      ]
-    },
-    "01KZB8XA7WNG8G00GZJ000000T": {
-      "image": "hello:0.0.16",
-      "labels": [
-        "io.buildah.version=1.43.1"
-      ]
-    },
-    "01KZB8XA83NG8G00GZJ000000W": {
-      "image": "hello:0.0.16",
+    "01KZC6ZM6BNG8G00GZJ000000W": {
+      "image": "hello:0.0.17",
       "labels": [
         "io.buildah.version=1.43.1"
       ]
@@ -177,14 +100,14 @@
       ]
     }
   },
-  "cp_peak_mem_mb": 34.2,
+  "cp_peak_mem_mb": 61.7,
   "carbon_gCO2": {
-    "op_total": 14.537,
-    "op_control_plane": 1.301,
+    "op_total": 0.015,
+    "op_control_plane": 0.001,
     "idle_band": {
-      "15": 23.888,
-      "30": 36.998,
-      "45": 50.108
+      "15": 0.024,
+      "30": 0.038,
+      "45": 0.051
     }
   },
   "model": {
@@ -195,35 +118,35 @@
   },
   "sensitivity": {
     "cp_dynamic_share_pct_by_busy_w": {
-      "2.0": 12.07,
-      "3.5": 12.07,
-      "5.0": 12.07
+      "2.0": 12.36,
+      "3.5": 12.36,
+      "5.0": 12.36
     },
     "dynamic_energy_J_by_busy_w": {
-      "2.0": 128.5,
-      "3.5": 224.9,
-      "5.0": 321.3
+      "2.0": 128.4,
+      "3.5": 224.6,
+      "5.0": 320.9
     },
     "op_carbon_gCO2_by_busy_w": {
-      "2.0": 9.917,
-      "3.5": 14.537,
-      "5.0": 19.156
+      "2.0": 0.01,
+      "3.5": 0.015,
+      "5.0": 0.019
     }
   },
-  "kpi_gco2_per_slo_compliant_inv": 0.0015,
-  "kpi_gco2_per_inv_dynamic": 0.001078,
+  "kpi_gco2_per_slo_compliant_inv": 1.46e-06,
+  "kpi_gco2_per_inv_dynamic": 1.08e-06,
   "embodied_dram_g_per_gb_h": 0.0317,
-  "host_cpu_sec": 117.35,
-  "host_window_s": 18.24,
-  "host_saturation_pct": 80.4,
+  "host_cpu_sec": 127.47,
+  "host_window_s": 18.811,
+  "host_saturation_pct": 84.7,
   "host_plausible": true,
   "host_saturated": false,
-  "host_overhead_cpu_sec": 53.08,
-  "orchestration_cpu_sec": 60.84,
-  "orchestration_share_pct": 51.84,
+  "host_overhead_cpu_sec": 63.29,
+  "orchestration_cpu_sec": 71.22,
+  "orchestration_share_pct": 55.88,
   "steal_sec": null,
   "steal_pct": null,
-  "cp_delta_sec": 7.756,
+  "cp_delta_sec": 7.931,
   "cp_sampler_vs_delta_pct": -0.0,
   "delta_check_map": {
     "fnserver": "ok"
@@ -231,20 +154,20 @@
   "env": {
     "cpu_count": 8,
     "governor": "powersave",
-    "freq_mhz_before": 1500.0,
-    "freq_mhz_after": 1400.0,
+    "freq_mhz_before": 2680.8,
+    "freq_mhz_after": 2500.0,
     "sampler": "cgroup",
     "loadgen": "hey",
     "loadgen_requested": "hey",
     "loadgen_fallback": false
   },
-  "rapl_validation_err_pct": 3.14,
+  "rapl_validation_err_pct": 0.28,
   "rapl_available": true,
   "loadgen": {
     "source": "hey",
-    "rps": 558.1416116897179,
-    "avg_ms": 7.16,
+    "rps": 539.8198081480402,
+    "avg_ms": 7.4,
     "errors": 0,
-    "wall_s": 17.92
+    "wall_s": 18.52
   }
 }

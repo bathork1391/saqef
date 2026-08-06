@@ -1,0 +1,881 @@
+[
+  {
+    "platform": "fn",
+    "url": "http://localhost:8080/t/app1/hello",
+    "mode": "load",
+    "wall_s": 21.19,
+    "wall_harness_s": 21.19,
+    "sampling_covered_s": 21.19,
+    "requests": 10000,
+    "successes": 10000,
+    "availability": 1.0,
+    "throughput_rps": 471.83,
+    "latency_ms": {
+      "p50": 7.3,
+      "p90": 11.3,
+      "p99": 17.8,
+      "max": 39.5
+    },
+    "slo_ms": 500.0,
+    "slo_compliance": 1.0,
+    "compliance_source": "hey_interp",
+    "energy_J": {
+      "total": 313.7,
+      "dynamic": 222.5,
+      "control_plane": 28.6,
+      "function": 194.0
+    },
+    "cp_share_pct": 9.12,
+    "cp_dynamic_share_pct": 12.85,
+    "cpu_sec": {
+      "control_plane": 8.17,
+      "function": 55.42
+    },
+    "cpu_sec_ceiling": 169.55,
+    "physical_plausible": true,
+    "unclassified_cpu_s": 0.0,
+    "container_inventory": [
+      "01KZCC43YCNG8G00GZJ0000005",
+      "01KZCC46AQNG8G00GZJ000000B",
+      "01KZCC46ARNG8G00GZJ000000D",
+      "01KZCC46ARNG8G00GZJ000000E",
+      "01KZCC46ARNG8G00GZJ000000G",
+      "01KZCC46ASNG8G00GZJ000000K",
+      "01KZCC46ASNG8G00GZJ000000M",
+      "01KZCC46AZNG8G00GZJ000000P",
+      "01KZCC46B1NG8G00GZJ000000R",
+      "01KZCC46BJNG8G00GZJ000000T",
+      "fnserver"
+    ],
+    "container_labels": {
+      "01KZCC43YCNG8G00GZJ0000005": {
+        "image": "hello:0.0.18",
+        "labels": [
+          "io.buildah.version=1.43.1"
+        ]
+      },
+      "01KZCC46AQNG8G00GZJ000000B": {
+        "image": "hello:0.0.18",
+        "labels": [
+          "io.buildah.version=1.43.1"
+        ]
+      },
+      "01KZCC46ARNG8G00GZJ000000D": {
+        "image": "hello:0.0.18",
+        "labels": [
+          "io.buildah.version=1.43.1"
+        ]
+      },
+      "01KZCC46ARNG8G00GZJ000000E": {
+        "image": "hello:0.0.18",
+        "labels": [
+          "io.buildah.version=1.43.1"
+        ]
+      },
+      "01KZCC46ARNG8G00GZJ000000G": {
+        "image": "hello:0.0.18",
+        "labels": [
+          "io.buildah.version=1.43.1"
+        ]
+      },
+      "01KZCC46ASNG8G00GZJ000000K": {
+        "image": "hello:0.0.18",
+        "labels": [
+          "io.buildah.version=1.43.1"
+        ]
+      },
+      "01KZCC46ASNG8G00GZJ000000M": {
+        "image": "hello:0.0.18",
+        "labels": [
+          "io.buildah.version=1.43.1"
+        ]
+      },
+      "01KZCC46AZNG8G00GZJ000000P": {
+        "image": "hello:0.0.18",
+        "labels": [
+          "io.buildah.version=1.43.1"
+        ]
+      },
+      "01KZCC46B1NG8G00GZJ000000R": {
+        "image": "hello:0.0.18",
+        "labels": [
+          "io.buildah.version=1.43.1"
+        ]
+      },
+      "01KZCC46BJNG8G00GZJ000000T": {
+        "image": "hello:0.0.18",
+        "labels": [
+          "io.buildah.version=1.43.1"
+        ]
+      },
+      "fnserver": {
+        "image": "fnproject/fnserver",
+        "labels": [
+          "io.buildah.version=1.41.8"
+        ]
+      }
+    },
+    "cp_peak_mem_mb": 130.5,
+    "carbon_gCO2": {
+      "op_total": 0.015,
+      "op_control_plane": 0.001,
+      "idle_band": {
+        "15": 0.026,
+        "30": 0.041,
+        "45": 0.056
+      }
+    },
+    "model": {
+      "idle_w": 4.3,
+      "busy_core_w": 3.5,
+      "pue": 1.15,
+      "ci": 150.0
+    },
+    "sensitivity": {
+      "cp_dynamic_share_pct_by_busy_w": {
+        "2.0": 12.85,
+        "3.5": 12.85,
+        "5.0": 12.85
+      },
+      "dynamic_energy_J_by_busy_w": {
+        "2.0": 127.2,
+        "3.5": 222.5,
+        "5.0": 317.9
+      },
+      "op_carbon_gCO2_by_busy_w": {
+        "2.0": 0.01,
+        "3.5": 0.015,
+        "5.0": 0.02
+      }
+    },
+    "kpi_gco2_per_slo_compliant_inv": 1.5e-06,
+    "kpi_gco2_per_inv_dynamic": 1.07e-06,
+    "embodied_dram_g_per_gb_h": 0.0317,
+    "host_cpu_sec": 155.08,
+    "host_window_s": 21.195,
+    "host_saturation_pct": 91.5,
+    "host_plausible": true,
+    "host_saturated": true,
+    "host_overhead_cpu_sec": 91.5,
+    "orchestration_cpu_sec": 99.66,
+    "orchestration_share_pct": 64.27,
+    "steal_sec": null,
+    "steal_pct": null,
+    "cp_delta_sec": 8.17,
+    "cp_sampler_vs_delta_pct": -0.0,
+    "delta_check_map": {
+      "fnserver": "ok"
+    },
+    "env": {
+      "cpu_count": 8,
+      "governor": "powersave",
+      "freq_mhz_before": 2500.0,
+      "freq_mhz_after": 2400.3,
+      "sampler": "cgroup",
+      "loadgen": "hey",
+      "loadgen_requested": "hey",
+      "loadgen_fallback": false
+    },
+    "rapl_validation_err_pct": 4.66,
+    "rapl_available": true,
+    "loadgen": {
+      "source": "hey",
+      "rps": 480.0698981771746,
+      "avg_ms": 8.31,
+      "errors": 0,
+      "wall_s": 20.83
+    }
+  },
+  {
+    "platform": "fn",
+    "url": "http://localhost:8080/t/app1/hello",
+    "mode": "load",
+    "wall_s": 21.34,
+    "wall_harness_s": 21.34,
+    "sampling_covered_s": 21.34,
+    "requests": 10000,
+    "successes": 10000,
+    "availability": 1.0,
+    "throughput_rps": 468.64,
+    "latency_ms": {
+      "p50": 7.4,
+      "p90": 11.5,
+      "p99": 17.9,
+      "max": 63.2
+    },
+    "slo_ms": 500.0,
+    "slo_compliance": 1.0,
+    "compliance_source": "hey_interp",
+    "energy_J": {
+      "total": 313.9,
+      "dynamic": 222.2,
+      "control_plane": 28.7,
+      "function": 193.5
+    },
+    "cp_share_pct": 9.14,
+    "cp_dynamic_share_pct": 12.92,
+    "cpu_sec": {
+      "control_plane": 8.2,
+      "function": 55.28
+    },
+    "cpu_sec_ceiling": 170.71,
+    "physical_plausible": true,
+    "unclassified_cpu_s": 0.0,
+    "container_inventory": [
+      "01KZCC43YCNG8G00GZJ0000005",
+      "01KZCC46AQNG8G00GZJ000000B",
+      "01KZCC46ARNG8G00GZJ000000D",
+      "01KZCC46ARNG8G00GZJ000000E",
+      "01KZCC46ARNG8G00GZJ000000G",
+      "01KZCC46ASNG8G00GZJ000000K",
+      "01KZCC46ASNG8G00GZJ000000M",
+      "01KZCC46B1NG8G00GZJ000000R",
+      "fnserver"
+    ],
+    "container_labels": {
+      "01KZCC43YCNG8G00GZJ0000005": {
+        "image": "hello:0.0.18",
+        "labels": [
+          "io.buildah.version=1.43.1"
+        ]
+      },
+      "01KZCC46AQNG8G00GZJ000000B": {
+        "image": "hello:0.0.18",
+        "labels": [
+          "io.buildah.version=1.43.1"
+        ]
+      },
+      "01KZCC46ARNG8G00GZJ000000D": {
+        "image": "hello:0.0.18",
+        "labels": [
+          "io.buildah.version=1.43.1"
+        ]
+      },
+      "01KZCC46ARNG8G00GZJ000000E": {
+        "image": "hello:0.0.18",
+        "labels": [
+          "io.buildah.version=1.43.1"
+        ]
+      },
+      "01KZCC46ARNG8G00GZJ000000G": {
+        "image": "hello:0.0.18",
+        "labels": [
+          "io.buildah.version=1.43.1"
+        ]
+      },
+      "01KZCC46ASNG8G00GZJ000000K": {
+        "image": "hello:0.0.18",
+        "labels": [
+          "io.buildah.version=1.43.1"
+        ]
+      },
+      "01KZCC46ASNG8G00GZJ000000M": {
+        "image": "hello:0.0.18",
+        "labels": [
+          "io.buildah.version=1.43.1"
+        ]
+      },
+      "01KZCC46B1NG8G00GZJ000000R": {
+        "image": "hello:0.0.18",
+        "labels": [
+          "io.buildah.version=1.43.1"
+        ]
+      },
+      "fnserver": {
+        "image": "fnproject/fnserver",
+        "labels": [
+          "io.buildah.version=1.41.8"
+        ]
+      }
+    },
+    "cp_peak_mem_mb": 35.6,
+    "carbon_gCO2": {
+      "op_total": 0.015,
+      "op_control_plane": 0.001,
+      "idle_band": {
+        "15": 0.026,
+        "30": 0.041,
+        "45": 0.057
+      }
+    },
+    "model": {
+      "idle_w": 4.3,
+      "busy_core_w": 3.5,
+      "pue": 1.15,
+      "ci": 150.0
+    },
+    "sensitivity": {
+      "cp_dynamic_share_pct_by_busy_w": {
+        "2.0": 12.92,
+        "3.5": 12.92,
+        "5.0": 12.92
+      },
+      "dynamic_energy_J_by_busy_w": {
+        "2.0": 126.9,
+        "3.5": 222.2,
+        "5.0": 317.4
+      },
+      "op_carbon_gCO2_by_busy_w": {
+        "2.0": 0.01,
+        "3.5": 0.015,
+        "5.0": 0.02
+      }
+    },
+    "kpi_gco2_per_slo_compliant_inv": 1.5e-06,
+    "kpi_gco2_per_inv_dynamic": 1.06e-06,
+    "embodied_dram_g_per_gb_h": 0.0317,
+    "host_cpu_sec": 156.12,
+    "host_window_s": 21.339,
+    "host_saturation_pct": 91.5,
+    "host_plausible": true,
+    "host_saturated": true,
+    "host_overhead_cpu_sec": 92.65,
+    "orchestration_cpu_sec": 100.84,
+    "orchestration_share_pct": 64.59,
+    "steal_sec": null,
+    "steal_pct": null,
+    "cp_delta_sec": 8.199,
+    "cp_sampler_vs_delta_pct": -0.0,
+    "delta_check_map": {
+      "fnserver": "ok"
+    },
+    "env": {
+      "cpu_count": 8,
+      "governor": "powersave",
+      "freq_mhz_before": 2370.1,
+      "freq_mhz_after": 2400.0,
+      "sampler": "cgroup",
+      "loadgen": "hey",
+      "loadgen_requested": "hey",
+      "loadgen_fallback": false
+    },
+    "rapl_validation_err_pct": 5.2,
+    "rapl_available": true,
+    "loadgen": {
+      "source": "hey",
+      "rps": 478.00461752460524,
+      "avg_ms": 8.35,
+      "errors": 0,
+      "wall_s": 20.92
+    }
+  },
+  {
+    "platform": "fn",
+    "url": "http://localhost:8080/t/app1/hello",
+    "mode": "load",
+    "wall_s": 21.34,
+    "wall_harness_s": 21.34,
+    "sampling_covered_s": 21.34,
+    "requests": 10000,
+    "successes": 10000,
+    "availability": 1.0,
+    "throughput_rps": 468.53,
+    "latency_ms": {
+      "p50": 7.3,
+      "p90": 11.5,
+      "p99": 17.7,
+      "max": 40.1
+    },
+    "slo_ms": 500.0,
+    "slo_compliance": 1.0,
+    "compliance_source": "hey_interp",
+    "energy_J": {
+      "total": 313.8,
+      "dynamic": 222.0,
+      "control_plane": 28.7,
+      "function": 193.3
+    },
+    "cp_share_pct": 9.14,
+    "cp_dynamic_share_pct": 12.92,
+    "cpu_sec": {
+      "control_plane": 8.19,
+      "function": 55.23
+    },
+    "cpu_sec_ceiling": 170.75,
+    "physical_plausible": true,
+    "unclassified_cpu_s": 0.0,
+    "container_inventory": [
+      "01KZCC43YCNG8G00GZJ0000005",
+      "01KZCC46AQNG8G00GZJ000000B",
+      "01KZCC46ARNG8G00GZJ000000D",
+      "01KZCC46ARNG8G00GZJ000000E",
+      "01KZCC46ARNG8G00GZJ000000G",
+      "01KZCC46ASNG8G00GZJ000000K",
+      "01KZCC46ASNG8G00GZJ000000M",
+      "01KZCC46B1NG8G00GZJ000000R",
+      "fnserver"
+    ],
+    "container_labels": {
+      "01KZCC43YCNG8G00GZJ0000005": {
+        "image": "hello:0.0.18",
+        "labels": [
+          "io.buildah.version=1.43.1"
+        ]
+      },
+      "01KZCC46AQNG8G00GZJ000000B": {
+        "image": "hello:0.0.18",
+        "labels": [
+          "io.buildah.version=1.43.1"
+        ]
+      },
+      "01KZCC46ARNG8G00GZJ000000D": {
+        "image": "hello:0.0.18",
+        "labels": [
+          "io.buildah.version=1.43.1"
+        ]
+      },
+      "01KZCC46ARNG8G00GZJ000000E": {
+        "image": "hello:0.0.18",
+        "labels": [
+          "io.buildah.version=1.43.1"
+        ]
+      },
+      "01KZCC46ARNG8G00GZJ000000G": {
+        "image": "hello:0.0.18",
+        "labels": [
+          "io.buildah.version=1.43.1"
+        ]
+      },
+      "01KZCC46ASNG8G00GZJ000000K": {
+        "image": "hello:0.0.18",
+        "labels": [
+          "io.buildah.version=1.43.1"
+        ]
+      },
+      "01KZCC46ASNG8G00GZJ000000M": {
+        "image": "hello:0.0.18",
+        "labels": [
+          "io.buildah.version=1.43.1"
+        ]
+      },
+      "01KZCC46B1NG8G00GZJ000000R": {
+        "image": "hello:0.0.18",
+        "labels": [
+          "io.buildah.version=1.43.1"
+        ]
+      },
+      "fnserver": {
+        "image": "fnproject/fnserver",
+        "labels": [
+          "io.buildah.version=1.41.8"
+        ]
+      }
+    },
+    "cp_peak_mem_mb": 35.3,
+    "carbon_gCO2": {
+      "op_total": 0.015,
+      "op_control_plane": 0.001,
+      "idle_band": {
+        "15": 0.026,
+        "30": 0.041,
+        "45": 0.057
+      }
+    },
+    "model": {
+      "idle_w": 4.3,
+      "busy_core_w": 3.5,
+      "pue": 1.15,
+      "ci": 150.0
+    },
+    "sensitivity": {
+      "cp_dynamic_share_pct_by_busy_w": {
+        "2.0": 12.92,
+        "3.5": 12.92,
+        "5.0": 12.92
+      },
+      "dynamic_energy_J_by_busy_w": {
+        "2.0": 126.8,
+        "3.5": 222.0,
+        "5.0": 317.1
+      },
+      "op_carbon_gCO2_by_busy_w": {
+        "2.0": 0.01,
+        "3.5": 0.015,
+        "5.0": 0.02
+      }
+    },
+    "kpi_gco2_per_slo_compliant_inv": 1.5e-06,
+    "kpi_gco2_per_inv_dynamic": 1.06e-06,
+    "embodied_dram_g_per_gb_h": 0.0317,
+    "host_cpu_sec": 155.85,
+    "host_window_s": 21.347,
+    "host_saturation_pct": 91.3,
+    "host_plausible": true,
+    "host_saturated": true,
+    "host_overhead_cpu_sec": 92.43,
+    "orchestration_cpu_sec": 100.62,
+    "orchestration_share_pct": 64.56,
+    "steal_sec": null,
+    "steal_pct": null,
+    "cp_delta_sec": 8.192,
+    "cp_sampler_vs_delta_pct": 0.0,
+    "delta_check_map": {
+      "fnserver": "ok"
+    },
+    "env": {
+      "cpu_count": 8,
+      "governor": "powersave",
+      "freq_mhz_before": 2500.0,
+      "freq_mhz_after": 2500.0,
+      "sampler": "cgroup",
+      "loadgen": "hey",
+      "loadgen_requested": "hey",
+      "loadgen_fallback": false
+    },
+    "rapl_validation_err_pct": 5.27,
+    "rapl_available": true,
+    "loadgen": {
+      "source": "hey",
+      "rps": 476.2381000004762,
+      "avg_ms": 8.34,
+      "errors": 0,
+      "wall_s": 21.0
+    }
+  },
+  {
+    "platform": "fn",
+    "url": "http://localhost:8080/t/app1/hello",
+    "mode": "load",
+    "wall_s": 21.21,
+    "wall_harness_s": 21.21,
+    "sampling_covered_s": 21.21,
+    "requests": 10000,
+    "successes": 10000,
+    "availability": 1.0,
+    "throughput_rps": 471.53,
+    "latency_ms": {
+      "p50": 7.3,
+      "p90": 11.4,
+      "p99": 17.6,
+      "max": 47.3
+    },
+    "slo_ms": 500.0,
+    "slo_compliance": 1.0,
+    "compliance_source": "hey_interp",
+    "energy_J": {
+      "total": 313.1,
+      "dynamic": 221.9,
+      "control_plane": 28.7,
+      "function": 193.2
+    },
+    "cp_share_pct": 9.17,
+    "cp_dynamic_share_pct": 12.94,
+    "cpu_sec": {
+      "control_plane": 8.2,
+      "function": 55.19
+    },
+    "cpu_sec_ceiling": 169.66,
+    "physical_plausible": true,
+    "unclassified_cpu_s": 0.0,
+    "container_inventory": [
+      "01KZCC43YCNG8G00GZJ0000005",
+      "01KZCC46AQNG8G00GZJ000000B",
+      "01KZCC46ARNG8G00GZJ000000D",
+      "01KZCC46ARNG8G00GZJ000000E",
+      "01KZCC46ARNG8G00GZJ000000G",
+      "01KZCC46ASNG8G00GZJ000000K",
+      "01KZCC46ASNG8G00GZJ000000M",
+      "01KZCC46B1NG8G00GZJ000000R",
+      "fnserver"
+    ],
+    "container_labels": {
+      "01KZCC43YCNG8G00GZJ0000005": {
+        "image": "hello:0.0.18",
+        "labels": [
+          "io.buildah.version=1.43.1"
+        ]
+      },
+      "01KZCC46AQNG8G00GZJ000000B": {
+        "image": "hello:0.0.18",
+        "labels": [
+          "io.buildah.version=1.43.1"
+        ]
+      },
+      "01KZCC46ARNG8G00GZJ000000D": {
+        "image": "hello:0.0.18",
+        "labels": [
+          "io.buildah.version=1.43.1"
+        ]
+      },
+      "01KZCC46ARNG8G00GZJ000000E": {
+        "image": "hello:0.0.18",
+        "labels": [
+          "io.buildah.version=1.43.1"
+        ]
+      },
+      "01KZCC46ARNG8G00GZJ000000G": {
+        "image": "hello:0.0.18",
+        "labels": [
+          "io.buildah.version=1.43.1"
+        ]
+      },
+      "01KZCC46ASNG8G00GZJ000000K": {
+        "image": "hello:0.0.18",
+        "labels": [
+          "io.buildah.version=1.43.1"
+        ]
+      },
+      "01KZCC46ASNG8G00GZJ000000M": {
+        "image": "hello:0.0.18",
+        "labels": [
+          "io.buildah.version=1.43.1"
+        ]
+      },
+      "01KZCC46B1NG8G00GZJ000000R": {
+        "image": "hello:0.0.18",
+        "labels": [
+          "io.buildah.version=1.43.1"
+        ]
+      },
+      "fnserver": {
+        "image": "fnproject/fnserver",
+        "labels": [
+          "io.buildah.version=1.41.8"
+        ]
+      }
+    },
+    "cp_peak_mem_mb": 35.5,
+    "carbon_gCO2": {
+      "op_total": 0.015,
+      "op_control_plane": 0.001,
+      "idle_band": {
+        "15": 0.026,
+        "30": 0.041,
+        "45": 0.056
+      }
+    },
+    "model": {
+      "idle_w": 4.3,
+      "busy_core_w": 3.5,
+      "pue": 1.15,
+      "ci": 150.0
+    },
+    "sensitivity": {
+      "cp_dynamic_share_pct_by_busy_w": {
+        "2.0": 12.94,
+        "3.5": 12.94,
+        "5.0": 12.94
+      },
+      "dynamic_energy_J_by_busy_w": {
+        "2.0": 126.8,
+        "3.5": 221.9,
+        "5.0": 317.0
+      },
+      "op_carbon_gCO2_by_busy_w": {
+        "2.0": 0.01,
+        "3.5": 0.015,
+        "5.0": 0.02
+      }
+    },
+    "kpi_gco2_per_slo_compliant_inv": 1.5e-06,
+    "kpi_gco2_per_inv_dynamic": 1.06e-06,
+    "embodied_dram_g_per_gb_h": 0.0317,
+    "host_cpu_sec": 155.37,
+    "host_window_s": 21.208,
+    "host_saturation_pct": 91.6,
+    "host_plausible": true,
+    "host_saturated": true,
+    "host_overhead_cpu_sec": 91.98,
+    "orchestration_cpu_sec": 100.18,
+    "orchestration_share_pct": 64.48,
+    "steal_sec": null,
+    "steal_pct": null,
+    "cp_delta_sec": 8.199,
+    "cp_sampler_vs_delta_pct": 0.02,
+    "delta_check_map": {
+      "fnserver": "ok"
+    },
+    "env": {
+      "cpu_count": 8,
+      "governor": "powersave",
+      "freq_mhz_before": 2500.0,
+      "freq_mhz_after": 2500.0,
+      "sampler": "cgroup",
+      "loadgen": "hey",
+      "loadgen_requested": "hey",
+      "loadgen_fallback": false
+    },
+    "rapl_validation_err_pct": 4.71,
+    "rapl_available": true,
+    "loadgen": {
+      "source": "hey",
+      "rps": 478.62233347532464,
+      "avg_ms": 8.34,
+      "errors": 0,
+      "wall_s": 20.89
+    }
+  },
+  {
+    "platform": "fn",
+    "url": "http://localhost:8080/t/app1/hello",
+    "mode": "load",
+    "wall_s": 21.25,
+    "wall_harness_s": 21.25,
+    "sampling_covered_s": 21.25,
+    "requests": 10000,
+    "successes": 10000,
+    "availability": 1.0,
+    "throughput_rps": 470.49,
+    "latency_ms": {
+      "p50": 7.3,
+      "p90": 11.4,
+      "p99": 17.6,
+      "max": 31.2
+    },
+    "slo_ms": 500.0,
+    "slo_compliance": 1.0,
+    "compliance_source": "hey_interp",
+    "energy_J": {
+      "total": 314.5,
+      "dynamic": 223.1,
+      "control_plane": 28.9,
+      "function": 194.2
+    },
+    "cp_share_pct": 9.2,
+    "cp_dynamic_share_pct": 12.96,
+    "cpu_sec": {
+      "control_plane": 8.26,
+      "function": 55.48
+    },
+    "cpu_sec_ceiling": 170.04,
+    "physical_plausible": true,
+    "unclassified_cpu_s": 0.0,
+    "container_inventory": [
+      "01KZCC43YCNG8G00GZJ0000005",
+      "01KZCC46AQNG8G00GZJ000000B",
+      "01KZCC46ARNG8G00GZJ000000D",
+      "01KZCC46ARNG8G00GZJ000000E",
+      "01KZCC46ARNG8G00GZJ000000G",
+      "01KZCC46ASNG8G00GZJ000000K",
+      "01KZCC46ASNG8G00GZJ000000M",
+      "01KZCC46B1NG8G00GZJ000000R",
+      "fnserver"
+    ],
+    "container_labels": {
+      "01KZCC43YCNG8G00GZJ0000005": {
+        "image": "hello:0.0.18",
+        "labels": [
+          "io.buildah.version=1.43.1"
+        ]
+      },
+      "01KZCC46AQNG8G00GZJ000000B": {
+        "image": "hello:0.0.18",
+        "labels": [
+          "io.buildah.version=1.43.1"
+        ]
+      },
+      "01KZCC46ARNG8G00GZJ000000D": {
+        "image": "hello:0.0.18",
+        "labels": [
+          "io.buildah.version=1.43.1"
+        ]
+      },
+      "01KZCC46ARNG8G00GZJ000000E": {
+        "image": "hello:0.0.18",
+        "labels": [
+          "io.buildah.version=1.43.1"
+        ]
+      },
+      "01KZCC46ARNG8G00GZJ000000G": {
+        "image": "hello:0.0.18",
+        "labels": [
+          "io.buildah.version=1.43.1"
+        ]
+      },
+      "01KZCC46ASNG8G00GZJ000000K": {
+        "image": "hello:0.0.18",
+        "labels": [
+          "io.buildah.version=1.43.1"
+        ]
+      },
+      "01KZCC46ASNG8G00GZJ000000M": {
+        "image": "hello:0.0.18",
+        "labels": [
+          "io.buildah.version=1.43.1"
+        ]
+      },
+      "01KZCC46B1NG8G00GZJ000000R": {
+        "image": "hello:0.0.18",
+        "labels": [
+          "io.buildah.version=1.43.1"
+        ]
+      },
+      "fnserver": {
+        "image": "fnproject/fnserver",
+        "labels": [
+          "io.buildah.version=1.41.8"
+        ]
+      }
+    },
+    "cp_peak_mem_mb": 35.3,
+    "carbon_gCO2": {
+      "op_total": 0.015,
+      "op_control_plane": 0.001,
+      "idle_band": {
+        "15": 0.026,
+        "30": 0.041,
+        "45": 0.057
+      }
+    },
+    "model": {
+      "idle_w": 4.3,
+      "busy_core_w": 3.5,
+      "pue": 1.15,
+      "ci": 150.0
+    },
+    "sensitivity": {
+      "cp_dynamic_share_pct_by_busy_w": {
+        "2.0": 12.96,
+        "3.5": 12.96,
+        "5.0": 12.96
+      },
+      "dynamic_energy_J_by_busy_w": {
+        "2.0": 127.5,
+        "3.5": 223.1,
+        "5.0": 318.7
+      },
+      "op_carbon_gCO2_by_busy_w": {
+        "2.0": 0.01,
+        "3.5": 0.015,
+        "5.0": 0.02
+      }
+    },
+    "kpi_gco2_per_slo_compliant_inv": 1.51e-06,
+    "kpi_gco2_per_inv_dynamic": 1.07e-06,
+    "embodied_dram_g_per_gb_h": 0.0317,
+    "host_cpu_sec": 155.11,
+    "host_window_s": 21.255,
+    "host_saturation_pct": 91.2,
+    "host_plausible": true,
+    "host_saturated": true,
+    "host_overhead_cpu_sec": 91.36,
+    "orchestration_cpu_sec": 99.63,
+    "orchestration_share_pct": 64.23,
+    "steal_sec": null,
+    "steal_pct": null,
+    "cp_delta_sec": 8.263,
+    "cp_sampler_vs_delta_pct": 0.0,
+    "delta_check_map": {
+      "fnserver": "ok"
+    },
+    "env": {
+      "cpu_count": 8,
+      "governor": "powersave",
+      "freq_mhz_before": 2500.0,
+      "freq_mhz_after": 510.9,
+      "sampler": "cgroup",
+      "loadgen": "hey",
+      "loadgen_requested": "hey",
+      "loadgen_fallback": false
+    },
+    "rapl_validation_err_pct": 5.3,
+    "rapl_available": true,
+    "loadgen": {
+      "source": "hey",
+      "rps": 478.72314961534596,
+      "avg_ms": 8.32,
+      "errors": 0,
+      "wall_s": 20.89
+    }
+  }
+]

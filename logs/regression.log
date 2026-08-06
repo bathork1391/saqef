@@ -1,0 +1,1030 @@
+
+########## regression [OpenFaaS] ##########
+WARNING: expected control-plane container(s) not seen: gateway, faas-swarm, prometheus, nats, queue-worker, alertmanager
+--- deploy
+=== [stack] (re)deploy OpenFaaS swarm stack from OPENFAAS_DEPLOY/ ===
+Since --detach=false was not specified, tasks will be created in the background.
+In a future release, --detach=false will become the default.
+Creating network openfaas_functions
+Creating config openfaas_prometheus_rules
+Creating config openfaas_alertmanager_config
+Creating config openfaas_prometheus_config
+Creating service openfaas_gateway
+Creating service openfaas_faas-swarm
+Creating service openfaas_nats
+Creating service openfaas_queue-worker
+Creating service openfaas_prometheus
+Creating service openfaas_alertmanager
+waiting for gateway (0.8.3, no auth) at http://127.0.0.1:8080/function/hello ...
+ID             NAME                    MODE         REPLICAS   IMAGE                          PORTS
+vtr52r4u9mct   openfaas_alertmanager   replicated   1/1        prom/alertmanager:v0.18.0      
+5r7jcv5uiga0   openfaas_faas-swarm     replicated   1/1        functions/faas-swarm:0.3.3     
+bjfm2wxdtwjb   openfaas_gateway        replicated   1/1        functions/gateway:0.8.3        *:8080->8080/tcp
+rd9pwauuaon4   openfaas_nats           replicated   1/1        nats-streaming:0.25.6          
+74419md66vl3   openfaas_prometheus     replicated   1/1        prom/prometheus:v2.11.0        *:9090->9090/tcp
+i043ahtnr0ue   openfaas_queue-worker   replicated   1/1        functions/queue-worker:0.4.6   
+openfaas deploy OK: control plane up (6 containers)
+image hello:latest could not be accessed on a registry to record
+its digest. Each node will access hello:latest independently,
+possibly leading to different nodes running different
+versions of the image.
+
+q4knwdxqbbleqmi2bsk3hkvo1
+overall progress: 0 out of 1 tasks
+1/1:  
+overall progress: 0 out of 1 tasks
+overall progress: 0 out of 1 tasks
+overall progress: 0 out of 1 tasks
+overall progress: 0 out of 1 tasks
+overall progress: 0 out of 1 tasks
+overall progress: 0 out of 1 tasks
+overall progress: 0 out of 1 tasks
+overall progress: 0 out of 1 tasks
+overall progress: 0 out of 1 tasks
+overall progress: 0 out of 1 tasks
+overall progress: 0 out of 1 tasks
+overall progress: 0 out of 1 tasks
+overall progress: 0 out of 1 tasks
+overall progress: 0 out of 1 tasks
+overall progress: 0 out of 1 tasks
+overall progress: 0 out of 1 tasks
+overall progress: 0 out of 1 tasks
+overall progress: 0 out of 1 tasks
+overall progress: 0 out of 1 tasks
+overall progress: 0 out of 1 tasks
+overall progress: 0 out of 1 tasks
+overall progress: 0 out of 1 tasks
+overall progress: 1 out of 1 tasks
+verify: Waiting 5 seconds to verify that tasks are stable...
+verify: Waiting 5 seconds to verify that tasks are stable...
+verify: Waiting 5 seconds to verify that tasks are stable...
+verify: Waiting 5 seconds to verify that tasks are stable...
+verify: Waiting 5 seconds to verify that tasks are stable...
+verify: Waiting 4 seconds to verify that tasks are stable...
+verify: Waiting 4 seconds to verify that tasks are stable...
+verify: Waiting 4 seconds to verify that tasks are stable...
+verify: Waiting 4 seconds to verify that tasks are stable...
+verify: Waiting 4 seconds to verify that tasks are stable...
+verify: Waiting 3 seconds to verify that tasks are stable...
+verify: Waiting 3 seconds to verify that tasks are stable...
+verify: Waiting 3 seconds to verify that tasks are stable...
+verify: Waiting 3 seconds to verify that tasks are stable...
+verify: Waiting 3 seconds to verify that tasks are stable...
+verify: Waiting 2 seconds to verify that tasks are stable...
+verify: Waiting 2 seconds to verify that tasks are stable...
+verify: Waiting 2 seconds to verify that tasks are stable...
+verify: Waiting 2 seconds to verify that tasks are stable...
+verify: Waiting 2 seconds to verify that tasks are stable...
+verify: Waiting 1 seconds to verify that tasks are stable...
+verify: Waiting 1 seconds to verify that tasks are stable...
+verify: Waiting 1 seconds to verify that tasks are stable...
+verify: Waiting 1 seconds to verify that tasks are stable...
+verify: Waiting 1 seconds to verify that tasks are stable...
+verify: Service q4knwdxqbbleqmi2bsk3hkvo1 converged
+openfaas deploy_function OK: hello service serving http://127.0.0.1:8080/function/hello
+--- scale -> 16 replicas (GIL parity)
+=== [scale] hello function replicas -> 16 (concurrency parity: GIL-bound single process is ~1-way) ===
+hello scaled to 16
+overall progress: 0 out of 16 tasks
+1/16:  
+2/16:  
+3/16:  
+4/16:  
+5/16:  
+6/16:  
+7/16:  
+8/16:  
+9/16:  
+10/16:  
+11/16:  
+12/16:  
+13/16:  
+14/16:  
+15/16:  
+16/16:  
+overall progress: 1 out of 16 tasks
+overall progress: 1 out of 16 tasks
+overall progress: 1 out of 16 tasks
+overall progress: 1 out of 16 tasks
+overall progress: 1 out of 16 tasks
+overall progress: 1 out of 16 tasks
+overall progress: 1 out of 16 tasks
+overall progress: 1 out of 16 tasks
+overall progress: 1 out of 16 tasks
+overall progress: 1 out of 16 tasks
+overall progress: 1 out of 16 tasks
+overall progress: 1 out of 16 tasks
+overall progress: 1 out of 16 tasks
+overall progress: 2 out of 16 tasks
+overall progress: 2 out of 16 tasks
+overall progress: 2 out of 16 tasks
+overall progress: 2 out of 16 tasks
+overall progress: 2 out of 16 tasks
+overall progress: 2 out of 16 tasks
+overall progress: 2 out of 16 tasks
+overall progress: 2 out of 16 tasks
+overall progress: 2 out of 16 tasks
+overall progress: 10 out of 16 tasks
+overall progress: 12 out of 16 tasks
+overall progress: 13 out of 16 tasks
+overall progress: 15 out of 16 tasks
+overall progress: 16 out of 16 tasks
+verify: Waiting 5 seconds to verify that tasks are stable...
+verify: Waiting 5 seconds to verify that tasks are stable...
+verify: Waiting 5 seconds to verify that tasks are stable...
+verify: Waiting 5 seconds to verify that tasks are stable...
+verify: Waiting 5 seconds to verify that tasks are stable...
+verify: Waiting 4 seconds to verify that tasks are stable...
+verify: Waiting 4 seconds to verify that tasks are stable...
+verify: Waiting 4 seconds to verify that tasks are stable...
+verify: Waiting 4 seconds to verify that tasks are stable...
+verify: Waiting 4 seconds to verify that tasks are stable...
+verify: Waiting 3 seconds to verify that tasks are stable...
+verify: Waiting 3 seconds to verify that tasks are stable...
+verify: Waiting 3 seconds to verify that tasks are stable...
+verify: Waiting 3 seconds to verify that tasks are stable...
+verify: Waiting 3 seconds to verify that tasks are stable...
+verify: Waiting 2 seconds to verify that tasks are stable...
+verify: Waiting 2 seconds to verify that tasks are stable...
+verify: Waiting 2 seconds to verify that tasks are stable...
+verify: Waiting 2 seconds to verify that tasks are stable...
+verify: Waiting 2 seconds to verify that tasks are stable...
+verify: Waiting 1 seconds to verify that tasks are stable...
+verify: Waiting 1 seconds to verify that tasks are stable...
+verify: Waiting 1 seconds to verify that tasks are stable...
+verify: Waiting 1 seconds to verify that tasks are stable...
+verify: Waiting 1 seconds to verify that tasks are stable...
+verify: Service hello converged
+hello.15.4gvszb6dldp8vwtttrfmb8b24
+hello.14.xvzpjhf6v71xxu6818micm6tg
+hello.10.q193v7pnkw4t34jwztgipjdiz
+hello.16.kuar0okjq0xuat0okvswz4zjz
+hello.12.n636uj0rvbac1jst5mun6dlgr
+hello.6.o49yod1f5hxqasoxs0kq28wdb
+hello.11.qgbjli0lxjpnpsu9t2cv9o451
+hello.8.myfom905lglzuof9cnkjtp3y9
+hello.5.pk6yj6cnffm8gmcyqsx5acfq5
+hello.13.olchrr58an91lv9qquffjqvxe
+hello.2.ozfdekgvv53pupai9r356yxbe
+hello.4.0nrtelaqdyihnr7a0vs7yyj7i
+hello.3.0ofkkn8hzordfo2p8zy6melxr
+hello.9.1srhj0ft88pbcb7ph0vpoobbq
+hello.7.zhmzzmsxwst3fgf68n3isrw9d
+hello.1.tbt8r9u2v86puykg9l5eo1ld1
+--- verify
+>>> python3 saqef_harness.py --verify --sampler cgroup --url http://127.0.0.1:8080/function/hello --platform openfaas --cp-containers gateway,faas-swarm,prometheus,nats,queue-worker,alertmanager --fn-images hello --forbidden-containers fnserver --verify-n 100 --verify-budget-ms 5.0 --outdir /home/imran/faas-work/saqef/results/regression/openfaas
+{
+  "platform": "openfaas",
+  "url": "http://127.0.0.1:8080/function/hello",
+  "calls": 100,
+  "successes": 100,
+  "availability": 1.0,
+  "latency_ms": {
+    "p50": 13.44,
+    "p99": 80.95
+  },
+  "function_cpu_sec_total": 0.679,
+  "function_cpu_ms_per_inv": 6.79,
+  "control_plane_cpu_sec_total": 0.125,
+  "budget_ms": 5.0,
+  "budget_check": "MATCHES budget within 50-150%",
+  "env": {
+    "sampler": "cgroup"
+  }
+}
+
+Saved to /home/imran/faas-work/saqef/results/regression/openfaas/verify.json
+verify OK: 100/100 successes (function_cpu_ms_per_inv=6.79)
+--- bench (c=4 total=10000 repeat=5 idle_w=4.3)
+>>> python3 saqef_harness.py --url http://127.0.0.1:8080/function/hello --platform openfaas --cp-containers gateway,faas-swarm,prometheus,nats,queue-worker,alertmanager --fn-images hello --forbidden-containers fnserver --idle-w 4.3 --total 10000 --concurrency 4 --duration 60 --warmup 20 --repeat 5 --sampler cgroup --delta-check --loadgen hey --outdir /home/imran/faas-work/saqef/results/regression/openfaas
+--- run 1/5 ---
+[delta-check] CP cgroup mapping: 6/6 mapped (openfaas_alertmanager.1.3v5waoq5vopwniox08hljztxo, openfaas_faas-swarm.1.q15j3hxr6ne8c72kpbc3p553o, openfaas_gateway.1.p6zf5hzdog5m1dpogphu036zc, openfaas_nats.1.jnqycr85xi4xtv7mq1j7lff6r, openfaas_prometheus.1.xcuqtmquf1o4w76a0h568et1i, openfaas_queue-worker.1.sovb13yehyhq3y6tm7pcjbvhy)
+--- run 2/5 ---
+[delta-check] CP cgroup mapping: 6/6 mapped (openfaas_alertmanager.1.3v5waoq5vopwniox08hljztxo, openfaas_faas-swarm.1.q15j3hxr6ne8c72kpbc3p553o, openfaas_gateway.1.p6zf5hzdog5m1dpogphu036zc, openfaas_nats.1.jnqycr85xi4xtv7mq1j7lff6r, openfaas_prometheus.1.xcuqtmquf1o4w76a0h568et1i, openfaas_queue-worker.1.sovb13yehyhq3y6tm7pcjbvhy)
+--- run 3/5 ---
+[delta-check] CP cgroup mapping: 6/6 mapped (openfaas_alertmanager.1.3v5waoq5vopwniox08hljztxo, openfaas_faas-swarm.1.q15j3hxr6ne8c72kpbc3p553o, openfaas_gateway.1.p6zf5hzdog5m1dpogphu036zc, openfaas_nats.1.jnqycr85xi4xtv7mq1j7lff6r, openfaas_prometheus.1.xcuqtmquf1o4w76a0h568et1i, openfaas_queue-worker.1.sovb13yehyhq3y6tm7pcjbvhy)
+--- run 4/5 ---
+[delta-check] CP cgroup mapping: 6/6 mapped (openfaas_alertmanager.1.3v5waoq5vopwniox08hljztxo, openfaas_faas-swarm.1.q15j3hxr6ne8c72kpbc3p553o, openfaas_gateway.1.p6zf5hzdog5m1dpogphu036zc, openfaas_nats.1.jnqycr85xi4xtv7mq1j7lff6r, openfaas_prometheus.1.xcuqtmquf1o4w76a0h568et1i, openfaas_queue-worker.1.sovb13yehyhq3y6tm7pcjbvhy)
+--- run 5/5 ---
+[delta-check] CP cgroup mapping: 6/6 mapped (openfaas_alertmanager.1.3v5waoq5vopwniox08hljztxo, openfaas_faas-swarm.1.q15j3hxr6ne8c72kpbc3p553o, openfaas_gateway.1.p6zf5hzdog5m1dpogphu036zc, openfaas_nats.1.jnqycr85xi4xtv7mq1j7lff6r, openfaas_prometheus.1.xcuqtmquf1o4w76a0h568et1i, openfaas_queue-worker.1.sovb13yehyhq3y6tm7pcjbvhy)
+=== MEDIAN over 5 runs ===
+{
+  "platform": "openfaas",
+  "url": "http://127.0.0.1:8080/function/hello",
+  "mode": "load",
+  "wall_s": 19.32,
+  "wall_harness_s": 19.32,
+  "sampling_covered_s": 19.32,
+  "requests": 10000,
+  "successes": 10000,
+  "availability": 1.0,
+  "throughput_rps": 517.73,
+  "latency_ms": {
+    "p50": 7.2,
+    "p90": 8.6,
+    "p99": 12.9,
+    "max": 21.2
+  },
+  "slo_ms": 500.0,
+  "slo_compliance": 1.0,
+  "compliance_source": "hey_interp",
+  "energy_J": {
+    "total": 335.6,
+    "dynamic": 251.2,
+    "control_plane": 19.0,
+    "function": 232.3
+  },
+  "cp_share_pct": 5.67,
+  "cp_dynamic_share_pct": 7.53,
+  "cpu_sec": {
+    "control_plane": 5.44,
+    "function": 66.38
+  },
+  "cpu_sec_ceiling": 154.52,
+  "physical_plausible": true,
+  "unclassified_cpu_s": 0.0,
+  "container_inventory": [
+    "hello.1.tbt8r9u2v86puykg9l5eo1ld1",
+    "hello.10.q193v7pnkw4t34jwztgipjdiz",
+    "hello.11.qgbjli0lxjpnpsu9t2cv9o451",
+    "hello.12.n636uj0rvbac1jst5mun6dlgr",
+    "hello.13.olchrr58an91lv9qquffjqvxe",
+    "hello.14.xvzpjhf6v71xxu6818micm6tg",
+    "hello.15.4gvszb6dldp8vwtttrfmb8b24",
+    "hello.16.kuar0okjq0xuat0okvswz4zjz",
+    "hello.2.ozfdekgvv53pupai9r356yxbe",
+    "hello.3.0ofkkn8hzordfo2p8zy6melxr",
+    "hello.4.0nrtelaqdyihnr7a0vs7yyj7i",
+    "hello.5.pk6yj6cnffm8gmcyqsx5acfq5",
+    "hello.6.o49yod1f5hxqasoxs0kq28wdb",
+    "hello.7.zhmzzmsxwst3fgf68n3isrw9d",
+    "hello.8.myfom905lglzuof9cnkjtp3y9",
+    "hello.9.1srhj0ft88pbcb7ph0vpoobbq",
+    "openfaas_alertmanager.1.3v5waoq5vopwniox08hljztxo",
+    "openfaas_faas-swarm.1.q15j3hxr6ne8c72kpbc3p553o",
+    "openfaas_gateway.1.p6zf5hzdog5m1dpogphu036zc",
+    "openfaas_nats.1.jnqycr85xi4xtv7mq1j7lff6r",
+    "openfaas_prometheus.1.xcuqtmquf1o4w76a0h568et1i",
+    "openfaas_queue-worker.1.sovb13yehyhq3y6tm7pcjbvhy"
+  ],
+  "container_labels": {
+    "hello.1.tbt8r9u2v86puykg9l5eo1ld1": {
+      "image": "hello:latest",
+      "labels": [
+        "com.docker.swarm.node.id=um81p3fox793t97gw5y94zn75",
+        "com.docker.swarm.service.id=q4knwdxqbbleqmi2bsk3hkvo1",
+        "com.docker.swarm.service.name=hello",
+        "com.docker.swarm.task.id=tbt8r9u2v86puykg9l5eo1ld1",
+        "com.docker.swarm.task.name=hello.1.tbt8r9u2v86puykg9l5eo1ld1",
+        "com.docker.swarm.task="
+      ]
+    },
+    "hello.10.q193v7pnkw4t34jwztgipjdiz": {
+      "image": "hello:latest",
+      "labels": [
+        "com.docker.swarm.node.id=um81p3fox793t97gw5y94zn75",
+        "com.docker.swarm.service.id=q4knwdxqbbleqmi2bsk3hkvo1",
+        "com.docker.swarm.service.name=hello",
+        "com.docker.swarm.task.id=q193v7pnkw4t34jwztgipjdiz",
+        "com.docker.swarm.task.name=hello.10.q193v7pnkw4t34jwztgipjdiz",
+        "com.docker.swarm.task="
+      ]
+    },
+    "hello.11.qgbjli0lxjpnpsu9t2cv9o451": {
+      "image": "hello:latest",
+      "labels": [
+        "com.docker.swarm.node.id=um81p3fox793t97gw5y94zn75",
+        "com.docker.swarm.service.id=q4knwdxqbbleqmi2bsk3hkvo1",
+        "com.docker.swarm.service.name=hello",
+        "com.docker.swarm.task.id=qgbjli0lxjpnpsu9t2cv9o451",
+        "com.docker.swarm.task.name=hello.11.qgbjli0lxjpnpsu9t2cv9o451",
+        "com.docker.swarm.task="
+      ]
+    },
+    "hello.12.n636uj0rvbac1jst5mun6dlgr": {
+      "image": "hello:latest",
+      "labels": [
+        "com.docker.swarm.node.id=um81p3fox793t97gw5y94zn75",
+        "com.docker.swarm.service.id=q4knwdxqbbleqmi2bsk3hkvo1",
+        "com.docker.swarm.service.name=hello",
+        "com.docker.swarm.task.id=n636uj0rvbac1jst5mun6dlgr",
+        "com.docker.swarm.task.name=hello.12.n636uj0rvbac1jst5mun6dlgr",
+        "com.docker.swarm.task="
+      ]
+    },
+    "hello.13.olchrr58an91lv9qquffjqvxe": {
+      "image": "hello:latest",
+      "labels": [
+        "com.docker.swarm.node.id=um81p3fox793t97gw5y94zn75",
+        "com.docker.swarm.service.id=q4knwdxqbbleqmi2bsk3hkvo1",
+        "com.docker.swarm.service.name=hello",
+        "com.docker.swarm.task.id=olchrr58an91lv9qquffjqvxe",
+        "com.docker.swarm.task.name=hello.13.olchrr58an91lv9qquffjqvxe",
+        "com.docker.swarm.task="
+      ]
+    },
+    "hello.14.xvzpjhf6v71xxu6818micm6tg": {
+      "image": "hello:latest",
+      "labels": [
+        "com.docker.swarm.node.id=um81p3fox793t97gw5y94zn75",
+        "com.docker.swarm.service.id=q4knwdxqbbleqmi2bsk3hkvo1",
+        "com.docker.swarm.service.name=hello",
+        "com.docker.swarm.task.id=xvzpjhf6v71xxu6818micm6tg",
+        "com.docker.swarm.task.name=hello.14.xvzpjhf6v71xxu6818micm6tg",
+        "com.docker.swarm.task="
+      ]
+    },
+    "hello.15.4gvszb6dldp8vwtttrfmb8b24": {
+      "image": "hello:latest",
+      "labels": [
+        "com.docker.swarm.node.id=um81p3fox793t97gw5y94zn75",
+        "com.docker.swarm.service.id=q4knwdxqbbleqmi2bsk3hkvo1",
+        "com.docker.swarm.service.name=hello",
+        "com.docker.swarm.task.id=4gvszb6dldp8vwtttrfmb8b24",
+        "com.docker.swarm.task.name=hello.15.4gvszb6dldp8vwtttrfmb8b24",
+        "com.docker.swarm.task="
+      ]
+    },
+    "hello.16.kuar0okjq0xuat0okvswz4zjz": {
+      "image": "hello:latest",
+      "labels": [
+        "com.docker.swarm.node.id=um81p3fox793t97gw5y94zn75",
+        "com.docker.swarm.service.id=q4knwdxqbbleqmi2bsk3hkvo1",
+        "com.docker.swarm.service.name=hello",
+        "com.docker.swarm.task.id=kuar0okjq0xuat0okvswz4zjz",
+        "com.docker.swarm.task.name=hello.16.kuar0okjq0xuat0okvswz4zjz",
+        "com.docker.swarm.task="
+      ]
+    },
+    "hello.2.ozfdekgvv53pupai9r356yxbe": {
+      "image": "hello:latest",
+      "labels": [
+        "com.docker.swarm.node.id=um81p3fox793t97gw5y94zn75",
+        "com.docker.swarm.service.id=q4knwdxqbbleqmi2bsk3hkvo1",
+        "com.docker.swarm.service.name=hello",
+        "com.docker.swarm.task.id=ozfdekgvv53pupai9r356yxbe",
+        "com.docker.swarm.task.name=hello.2.ozfdekgvv53pupai9r356yxbe",
+        "com.docker.swarm.task="
+      ]
+    },
+    "hello.3.0ofkkn8hzordfo2p8zy6melxr": {
+      "image": "hello:latest",
+      "labels": [
+        "com.docker.swarm.node.id=um81p3fox793t97gw5y94zn75",
+        "com.docker.swarm.service.id=q4knwdxqbbleqmi2bsk3hkvo1",
+        "com.docker.swarm.service.name=hello",
+        "com.docker.swarm.task.id=0ofkkn8hzordfo2p8zy6melxr",
+        "com.docker.swarm.task.name=hello.3.0ofkkn8hzordfo2p8zy6melxr",
+        "com.docker.swarm.task="
+      ]
+    },
+    "hello.4.0nrtelaqdyihnr7a0vs7yyj7i": {
+      "image": "hello:latest",
+      "labels": [
+        "com.docker.swarm.node.id=um81p3fox793t97gw5y94zn75",
+        "com.docker.swarm.service.id=q4knwdxqbbleqmi2bsk3hkvo1",
+        "com.docker.swarm.service.name=hello",
+        "com.docker.swarm.task.id=0nrtelaqdyihnr7a0vs7yyj7i",
+        "com.docker.swarm.task.name=hello.4.0nrtelaqdyihnr7a0vs7yyj7i",
+        "com.docker.swarm.task="
+      ]
+    },
+    "hello.5.pk6yj6cnffm8gmcyqsx5acfq5": {
+      "image": "hello:latest",
+      "labels": [
+        "com.docker.swarm.node.id=um81p3fox793t97gw5y94zn75",
+        "com.docker.swarm.service.id=q4knwdxqbbleqmi2bsk3hkvo1",
+        "com.docker.swarm.service.name=hello",
+        "com.docker.swarm.task.id=pk6yj6cnffm8gmcyqsx5acfq5",
+        "com.docker.swarm.task.name=hello.5.pk6yj6cnffm8gmcyqsx5acfq5",
+        "com.docker.swarm.task="
+      ]
+    },
+    "hello.6.o49yod1f5hxqasoxs0kq28wdb": {
+      "image": "hello:latest",
+      "labels": [
+        "com.docker.swarm.node.id=um81p3fox793t97gw5y94zn75",
+        "com.docker.swarm.service.id=q4knwdxqbbleqmi2bsk3hkvo1",
+        "com.docker.swarm.service.name=hello",
+        "com.docker.swarm.task.id=o49yod1f5hxqasoxs0kq28wdb",
+        "com.docker.swarm.task.name=hello.6.o49yod1f5hxqasoxs0kq28wdb",
+        "com.docker.swarm.task="
+      ]
+    },
+    "hello.7.zhmzzmsxwst3fgf68n3isrw9d": {
+      "image": "hello:latest",
+      "labels": [
+        "com.docker.swarm.node.id=um81p3fox793t97gw5y94zn75",
+        "com.docker.swarm.service.id=q4knwdxqbbleqmi2bsk3hkvo1",
+        "com.docker.swarm.service.name=hello",
+        "com.docker.swarm.task.id=zhmzzmsxwst3fgf68n3isrw9d",
+        "com.docker.swarm.task.name=hello.7.zhmzzmsxwst3fgf68n3isrw9d",
+        "com.docker.swarm.task="
+      ]
+    },
+    "hello.8.myfom905lglzuof9cnkjtp3y9": {
+      "image": "hello:latest",
+      "labels": [
+        "com.docker.swarm.node.id=um81p3fox793t97gw5y94zn75",
+        "com.docker.swarm.service.id=q4knwdxqbbleqmi2bsk3hkvo1",
+        "com.docker.swarm.service.name=hello",
+        "com.docker.swarm.task.id=myfom905lglzuof9cnkjtp3y9",
+        "com.docker.swarm.task.name=hello.8.myfom905lglzuof9cnkjtp3y9",
+        "com.docker.swarm.task="
+      ]
+    },
+    "hello.9.1srhj0ft88pbcb7ph0vpoobbq": {
+      "image": "hello:latest",
+      "labels": [
+        "com.docker.swarm.node.id=um81p3fox793t97gw5y94zn75",
+        "com.docker.swarm.service.id=q4knwdxqbbleqmi2bsk3hkvo1",
+        "com.docker.swarm.service.name=hello",
+        "com.docker.swarm.task.id=1srhj0ft88pbcb7ph0vpoobbq",
+        "com.docker.swarm.task.name=hello.9.1srhj0ft88pbcb7ph0vpoobbq",
+        "com.docker.swarm.task="
+      ]
+    },
+    "openfaas_alertmanager.1.3v5waoq5vopwniox08hljztxo": {
+      "image": "prom/alertmanager:v0.18.0",
+      "labels": [
+        "com.docker.stack.namespace=openfaas",
+        "com.docker.swarm.node.id=um81p3fox793t97gw5y94zn75",
+        "com.docker.swarm.service.id=vtr52r4u9mctl40k70ywsv17f",
+        "com.docker.swarm.service.name=openfaas_alertmanager",
+        "com.docker.swarm.task.id=3v5waoq5vopwniox08hljztxo",
+        "com.docker.swarm.task.name=openfaas_alertmanager.1.3v5waoq5vopwniox08hljztxo",
+        "com.docker.swarm.task=",
+        "maintainer=The Prometheus Authors <prometheus-developers@googlegroups.com>"
+      ]
+    },
+    "openfaas_faas-swarm.1.q15j3hxr6ne8c72kpbc3p553o": {
+      "image": "functions/faas-swarm:0.3.3",
+      "labels": [
+        "com.docker.stack.namespace=openfaas",
+        "com.docker.swarm.node.id=um81p3fox793t97gw5y94zn75",
+        "com.docker.swarm.service.id=5r7jcv5uiga0vku8gyyhjjbs4",
+        "com.docker.swarm.service.name=openfaas_faas-swarm",
+        "com.docker.swarm.task.id=q15j3hxr6ne8c72kpbc3p553o",
+        "com.docker.swarm.task.name=openfaas_faas-swarm.1.q15j3hxr6ne8c72kpbc3p553o",
+        "com.docker.swarm.task="
+      ]
+    },
+    "openfaas_gateway.1.p6zf5hzdog5m1dpogphu036zc": {
+      "image": "functions/gateway:0.8.3",
+      "labels": [
+        "com.docker.stack.namespace=openfaas",
+        "com.docker.swarm.node.id=um81p3fox793t97gw5y94zn75",
+        "com.docker.swarm.service.id=bjfm2wxdtwjbnks0re03vc2vl",
+        "com.docker.swarm.service.name=openfaas_gateway",
+        "com.docker.swarm.task.id=p6zf5hzdog5m1dpogphu036zc",
+        "com.docker.swarm.task.name=openfaas_gateway.1.p6zf5hzdog5m1dpogphu036zc",
+        "com.docker.swarm.task=",
+        "org.label-schema.docker.schema-version=1.0",
+        "org.label-schema.license=MIT",
+        "org.label-schema.name=openfaas/faas",
+        "org.label-schema.vcs-type=Git",
+        "org.label-schema.vcs-url=https://github.com/openfaas/faas",
+        "org.label-schema.vendor=openfaas"
+      ]
+    },
+    "openfaas_nats.1.jnqycr85xi4xtv7mq1j7lff6r": {
+      "image": "nats-streaming:0.25.6",
+      "labels": [
+        "com.docker.stack.namespace=openfaas",
+        "com.docker.swarm.node.id=um81p3fox793t97gw5y94zn75",
+        "com.docker.swarm.service.id=rd9pwauuaon4t4eu6u4gk3gw4",
+        "com.docker.swarm.service.name=openfaas_nats",
+        "com.docker.swarm.task.id=jnqycr85xi4xtv7mq1j7lff6r",
+        "com.docker.swarm.task.name=openfaas_nats.1.jnqycr85xi4xtv7mq1j7lff6r",
+        "com.docker.swarm.task="
+      ]
+    },
+    "openfaas_prometheus.1.xcuqtmquf1o4w76a0h568et1i": {
+      "image": "prom/prometheus:v2.11.0",
+      "labels": [
+        "com.docker.stack.namespace=openfaas",
+        "com.docker.swarm.node.id=um81p3fox793t97gw5y94zn75",
+        "com.docker.swarm.service.id=74419md66vl30lki2xp0sh8im",
+        "com.docker.swarm.service.name=openfaas_prometheus",
+        "com.docker.swarm.task.id=xcuqtmquf1o4w76a0h568et1i",
+        "com.docker.swarm.task.name=openfaas_prometheus.1.xcuqtmquf1o4w76a0h568et1i",
+        "com.docker.swarm.task=",
+        "maintainer=The Prometheus Authors <prometheus-developers@googlegroups.com>"
+      ]
+    },
+    "openfaas_queue-worker.1.sovb13yehyhq3y6tm7pcjbvhy": {
+      "image": "functions/queue-worker:0.4.6",
+      "labels": [
+        "com.docker.stack.namespace=openfaas",
+        "com.docker.swarm.node.id=um81p3fox793t97gw5y94zn75",
+        "com.docker.swarm.service.id=i043ahtnr0uesxzjn8sbzxkdd",
+        "com.docker.swarm.service.name=openfaas_queue-worker",
+        "com.docker.swarm.task.id=sovb13yehyhq3y6tm7pcjbvhy",
+        "com.docker.swarm.task.name=openfaas_queue-worker.1.sovb13yehyhq3y6tm7pcjbvhy",
+        "com.docker.swarm.task="
+      ]
+    }
+  },
+  "cp_peak_mem_mb": 23.8,
+  "carbon_gCO2": {
+    "op_total": 0.016,
+    "op_control_plane": 0.001,
+    "idle_band": {
+      "15": 0.026,
+      "30": 0.04,
+      "45": 0.054
+    }
+  },
+  "model": {
+    "idle_w": 4.3,
+    "busy_core_w": 3.5,
+    "pue": 1.15,
+    "ci": 150.0
+  },
+  "sensitivity": {
+    "cp_dynamic_share_pct_by_busy_w": {
+      "2.0": 7.53,
+      "3.5": 7.53,
+      "5.0": 7.53
+    },
+    "dynamic_energy_J_by_busy_w": {
+      "2.0": 143.5,
+      "3.5": 251.2,
+      "5.0": 358.8
+    },
+    "op_carbon_gCO2_by_busy_w": {
+      "2.0": 0.011,
+      "3.5": 0.016,
+      "5.0": 0.021
+    }
+  },
+  "kpi_gco2_per_slo_compliant_inv": 1.61e-06,
+  "kpi_gco2_per_inv_dynamic": 1.2e-06,
+  "embodied_dram_g_per_gb_h": 0.0317,
+  "host_cpu_sec": 119.68,
+  "host_window_s": 19.316,
+  "host_saturation_pct": 77.4,
+  "host_plausible": true,
+  "host_saturated": false,
+  "host_overhead_cpu_sec": 47.91,
+  "orchestration_cpu_sec": 53.3,
+  "orchestration_share_pct": 44.54,
+  "steal_sec": null,
+  "steal_pct": null,
+  "cp_delta_sec": 5.439,
+  "cp_sampler_vs_delta_pct": 0.03,
+  "delta_check_map": {
+    "openfaas_alertmanager.1.3v5waoq5vopwniox08hljztxo": "ok",
+    "openfaas_prometheus.1.xcuqtmquf1o4w76a0h568et1i": "ok",
+    "openfaas_queue-worker.1.sovb13yehyhq3y6tm7pcjbvhy": "ok",
+    "openfaas_gateway.1.p6zf5hzdog5m1dpogphu036zc": "ok",
+    "openfaas_nats.1.jnqycr85xi4xtv7mq1j7lff6r": "ok",
+    "openfaas_faas-swarm.1.q15j3hxr6ne8c72kpbc3p553o": "ok"
+  },
+  "env": {
+    "cpu_count": 8,
+    "governor": "powersave",
+    "freq_mhz_before": 1400.0,
+    "freq_mhz_after": 1277.9,
+    "sampler": "cgroup",
+    "loadgen": "hey",
+    "loadgen_requested": "hey",
+    "loadgen_fallback": false
+  },
+  "rapl_validation_err_pct": 5.72,
+  "rapl_available": true,
+  "loadgen": {
+    "source": "hey",
+    "rps": 528.7564177810209,
+    "avg_ms": 7.53,
+    "errors": 0,
+    "wall_s": 18.91
+  },
+  "repetitions": 5,
+  "spread_min_max": {
+    "throughput_rps": [
+      491.62,
+      522.76
+    ],
+    "slo_compliance": [
+      1.0,
+      1.0
+    ],
+    "latency_ms.p50": [
+      7.1,
+      7.5
+    ],
+    "latency_ms.p99": [
+      12.0,
+      16.0
+    ],
+    "cp_dynamic_share_pct": [
+      7.51,
+      7.72
+    ],
+    "cp_share_pct": [
+      5.64,
+      5.73
+    ],
+    "energy_J.dynamic": [
+      251.1,
+      252.7
+    ],
+    "kpi_gco2_per_slo_compliant_inv": [
+      0.0,
+      0.0
+    ]
+  },
+  "bootstrap_ci": {
+    "throughput_rps": [
+      491.62,
+      522.76
+    ],
+    "slo_compliance": [
+      1.0,
+      1.0
+    ],
+    "latency_ms.p50": [
+      7.1,
+      7.5
+    ],
+    "latency_ms.p99": [
+      12.0,
+      16.0
+    ],
+    "cp_dynamic_share_pct": [
+      7.51,
+      7.72
+    ]
+  },
+  "cv_pct": {
+    "throughput_rps": 2.96,
+    "slo_compliance": 0.0,
+    "latency_ms.p50": 2.26,
+    "latency_ms.p99": 12.88,
+    "cp_dynamic_share_pct": 1.34
+  },
+  "iqr": {
+    "throughput_rps": 25.45,
+    "slo_compliance": 0.0,
+    "latency_ms.p50": 0.2,
+    "latency_ms.p99": 2.7,
+    "cp_dynamic_share_pct": 0.17
+  }
+}
+
+Saved runs to /home/imran/faas-work/saqef/results/regression/openfaas /
+per-run gate table (pass: delta%% ~ 0, CPmapped = expected, host_plausible=true, 95 <= coverage%% <= 100):
+  run_1   delta%: 0.12    delta_s: 5.383  cp_cpu_s: 5.39   fn_cpu_s: 66.36  CPmapped: 6/6 fn_replicas: 16 unclass: 0.0 host_cpu_s: 117.67  host_sat%: 76.9   host_plausible: True  coverage%: 100.0
+  run_2   delta%: 0.04    delta_s: 5.388  cp_cpu_s: 5.39   fn_cpu_s: 66.38  CPmapped: 6/6 fn_replicas: 16 unclass: 0.0 host_cpu_s: 119.68  host_sat%: 77.4   host_plausible: True  coverage%: 100.0
+  run_3   delta%: 0.01    delta_s: 5.439  cp_cpu_s: 5.44   fn_cpu_s: 66.77  CPmapped: 6/6 fn_replicas: 16 unclass: 0.0 host_cpu_s: 115.56  host_sat%: 74.9   host_plausible: True  coverage%: 100.0
+  run_4   delta%: 0.0     delta_s: 5.539  cp_cpu_s: 5.54   fn_cpu_s: 66.23  CPmapped: 6/6 fn_replicas: 16 unclass: 0.0 host_cpu_s: 135.56  host_sat%: 83.3   host_plausible: True  coverage%: 100.0
+  run_5   delta%: 0.03    delta_s: 5.539  cp_cpu_s: 5.54   fn_cpu_s: 66.56  CPmapped: 6/6 fn_replicas: 16 unclass: 0.0 host_cpu_s: 133.35  host_sat%: 82.2   host_plausible: True  coverage%: 100.0
+median: cp_dynamic_share_pct=7.53  slo_compliance=1.0  throughput_rps=517.73
+--- teardown (OpenFaaS)
+Removing service openfaas_alertmanager
+Removing service openfaas_faas-swarm
+Removing service openfaas_gateway
+Removing service openfaas_nats
+Removing service openfaas_prometheus
+Removing service openfaas_queue-worker
+Removing config openfaas_prometheus_rules
+Removing config openfaas_prometheus_config
+Removing config openfaas_alertmanager_config
+Removing network openfaas_functions
+Failed to remove network 9umk6iq7jutzvoaq37txfc40c: Error response from daemon: rpc error: code = FailedPrecondition desc = network 9umk6iq7jutzvoaq37txfc40c is in use by service q4knwdxqbbleqmi2bsk3hkvo1failed to remove some resources from stack: openfaas
+hello
+
+########## regression [Fn] ##########
+WARNING: expected control-plane container(s) not seen: fnserver
+--- deploy
+=== [reset] fresh-session protocol: remove fnserver + orphaned function containers ===
+clean: 7 containers left
+=== [reset] fresh-session protocol: remove fnserver + orphaned function containers ===
+clean: 7 containers left
+=== [setup] Fn server ===
+d2f4203a803548b51f8439ce6fb244e996121778a5bb1b47760495422cd0d208
+=== [setup] hey (reinstall unless it passes a functional smoke test) ===
+hey OK: /home/imran/go/bin/hey (functional smoke test passed)
+=== [setup] function + trigger ===
+Successfully created app:  app1
+Deploying hello to app: app1
+Bumped to version 0.0.17
+Using Container engine docker
+3.12: Pulling from fnproject/python
+Digest: sha256:75f8f338e9607f83354c146f930a43cd212ab4a79d40a91168cb7c0919a85c64
+Status: Image is up to date for fnproject/python:3.12
+docker.io/fnproject/python:3.12
+2026/08/06 23:57:06 Process finished gracefully
+Building image hello:0.0.17 .......
+Updating function hello using image hello:0.0.17...
+Successfully created function: hello with hello:0.0.17
+Successfully created trigger: http-hello
+Trigger Endpoint: http://localhost:8080/t/app1/hello
+=== [setup] sanity ===
+{'message': 'Hello World'}
+CONTAINER ID   IMAGE                COMMAND                  CREATED          STATUS                  PORTS                                                        NAMES
+6c17473ae49a   hello:0.0.17         "/python/bin/fdk /fu…"   1 second ago     Up Less than a second                                                                01KZC6ZKHFNG8G00GZJ0000005
+d2f4203a8035   fnproject/fnserver   "./fnserver"             17 seconds ago   Up 16 seconds           2375-2376/tcp, 0.0.0.0:8080->8080/tcp, [::]:8080->8080/tcp   fnserver
+Fn deploy OK: fnserver serving http://localhost:8080/t/app1/hello
+--- verify
+>>> python3 saqef_harness.py --verify --sampler cgroup --url http://localhost:8080/t/app1/hello --platform fn --cp-containers fnserver --fn-images hello --forbidden-services * --verify-n 100 --verify-budget-ms 5.0 --outdir /home/imran/faas-work/saqef/results/regression/fn
+{
+  "platform": "fn",
+  "url": "http://localhost:8080/t/app1/hello",
+  "calls": 100,
+  "successes": 100,
+  "availability": 1.0,
+  "latency_ms": {
+    "p50": 14.53,
+    "p99": 673.46
+  },
+  "function_cpu_sec_total": 0.472,
+  "function_cpu_ms_per_inv": 4.72,
+  "control_plane_cpu_sec_total": 0.175,
+  "budget_ms": 5.0,
+  "budget_check": "MATCHES budget within 50-150%",
+  "env": {
+    "sampler": "cgroup"
+  }
+}
+
+Saved to /home/imran/faas-work/saqef/results/regression/fn/verify.json
+verify OK: 100/100 successes (function_cpu_ms_per_inv=4.72)
+--- bench (c=4 total=10000 repeat=5 idle_w=4.3)
+>>> python3 saqef_harness.py --url http://localhost:8080/t/app1/hello --platform fn --cp-containers fnserver --fn-images hello --forbidden-services * --idle-w 4.3 --total 10000 --concurrency 4 --duration 60 --warmup 20 --repeat 5 --sampler cgroup --delta-check --loadgen hey --outdir /home/imran/faas-work/saqef/results/regression/fn
+--- run 1/5 ---
+[delta-check] CP cgroup mapping: 1/1 mapped (fnserver)
+--- run 2/5 ---
+[delta-check] CP cgroup mapping: 1/1 mapped (fnserver)
+--- run 3/5 ---
+[delta-check] CP cgroup mapping: 1/1 mapped (fnserver)
+--- run 4/5 ---
+[delta-check] CP cgroup mapping: 1/1 mapped (fnserver)
+--- run 5/5 ---
+[delta-check] CP cgroup mapping: 1/1 mapped (fnserver)
+=== MEDIAN over 5 runs ===
+{
+  "platform": "fn",
+  "url": "http://localhost:8080/t/app1/hello",
+  "mode": "load",
+  "wall_s": 18.51,
+  "wall_harness_s": 18.51,
+  "sampling_covered_s": 18.51,
+  "requests": 10000,
+  "successes": 10000,
+  "availability": 1.0,
+  "throughput_rps": 540.17,
+  "latency_ms": {
+    "p50": 7.0,
+    "p90": 8.4,
+    "p99": 11.3,
+    "max": 40.0
+  },
+  "slo_ms": 500.0,
+  "slo_compliance": 1.0,
+  "compliance_source": "hey_interp",
+  "energy_J": {
+    "total": 304.6,
+    "dynamic": 225.0,
+    "control_plane": 27.6,
+    "function": 197.5
+  },
+  "cp_share_pct": 9.05,
+  "cp_dynamic_share_pct": 12.27,
+  "cpu_sec": {
+    "control_plane": 7.87,
+    "function": 56.42
+  },
+  "cpu_sec_ceiling": 148.1,
+  "physical_plausible": true,
+  "unclassified_cpu_s": 0.0,
+  "container_inventory": [
+    "01KZC6ZKHFNG8G00GZJ0000005",
+    "01KZC6ZM5TNG8G00GZJ000000C",
+    "01KZC6ZM5WNG8G00GZJ000000E",
+    "01KZC6ZM62NG8G00GZJ000000G",
+    "01KZC6ZM66NG8G00GZJ000000J",
+    "01KZC6ZM66NG8G00GZJ000000M",
+    "01KZC6ZM67NG8G00GZJ000000P",
+    "01KZC6ZM68NG8G00GZJ000000R",
+    "01KZC6ZM6BNG8G00GZJ000000T",
+    "01KZC6ZM6BNG8G00GZJ000000W",
+    "fnserver"
+  ],
+  "container_labels": {
+    "01KZC6ZKHFNG8G00GZJ0000005": {
+      "image": "hello:0.0.17",
+      "labels": [
+        "io.buildah.version=1.43.1"
+      ]
+    },
+    "01KZC6ZM5WNG8G00GZJ000000E": {
+      "image": "hello:0.0.17",
+      "labels": [
+        "io.buildah.version=1.43.1"
+      ]
+    },
+    "01KZC6ZM62NG8G00GZJ000000G": {
+      "image": "hello:0.0.17",
+      "labels": [
+        "io.buildah.version=1.43.1"
+      ]
+    },
+    "01KZC6ZM66NG8G00GZJ000000M": {
+      "image": "hello:0.0.17",
+      "labels": [
+        "io.buildah.version=1.43.1"
+      ]
+    },
+    "01KZC6ZM67NG8G00GZJ000000P": {
+      "image": "hello:0.0.17",
+      "labels": [
+        "io.buildah.version=1.43.1"
+      ]
+    },
+    "01KZC6ZM68NG8G00GZJ000000R": {
+      "image": "hello:0.0.17",
+      "labels": [
+        "io.buildah.version=1.43.1"
+      ]
+    },
+    "01KZC6ZM6BNG8G00GZJ000000T": {
+      "image": "hello:0.0.17",
+      "labels": [
+        "io.buildah.version=1.43.1"
+      ]
+    },
+    "01KZC6ZM6BNG8G00GZJ000000W": {
+      "image": "hello:0.0.17",
+      "labels": [
+        "io.buildah.version=1.43.1"
+      ]
+    },
+    "fnserver": {
+      "image": "fnproject/fnserver",
+      "labels": [
+        "io.buildah.version=1.41.8"
+      ]
+    }
+  },
+  "cp_peak_mem_mb": 61.9,
+  "carbon_gCO2": {
+    "op_total": 0.015,
+    "op_control_plane": 0.001,
+    "idle_band": {
+      "15": 0.024,
+      "30": 0.037,
+      "45": 0.051
+    }
+  },
+  "model": {
+    "idle_w": 4.3,
+    "busy_core_w": 3.5,
+    "pue": 1.15,
+    "ci": 150.0
+  },
+  "sensitivity": {
+    "cp_dynamic_share_pct_by_busy_w": {
+      "2.0": 12.27,
+      "3.5": 12.27,
+      "5.0": 12.27
+    },
+    "dynamic_energy_J_by_busy_w": {
+      "2.0": 128.5,
+      "3.5": 225.0,
+      "5.0": 321.4
+    },
+    "op_carbon_gCO2_by_busy_w": {
+      "2.0": 0.01,
+      "3.5": 0.015,
+      "5.0": 0.019
+    }
+  },
+  "kpi_gco2_per_slo_compliant_inv": 1.46e-06,
+  "kpi_gco2_per_inv_dynamic": 1.08e-06,
+  "embodied_dram_g_per_gb_h": 0.0317,
+  "host_cpu_sec": 123.24,
+  "host_window_s": 18.513,
+  "host_saturation_pct": 83.2,
+  "host_plausible": true,
+  "host_saturated": false,
+  "host_overhead_cpu_sec": 58.97,
+  "orchestration_cpu_sec": 66.82,
+  "orchestration_share_pct": 54.22,
+  "steal_sec": null,
+  "steal_pct": null,
+  "cp_delta_sec": 7.874,
+  "cp_sampler_vs_delta_pct": 0.0,
+  "delta_check_map": {
+    "fnserver": "ok"
+  },
+  "env": {
+    "cpu_count": 8,
+    "governor": "powersave",
+    "freq_mhz_before": 2082.5,
+    "freq_mhz_after": 2500.0,
+    "sampler": "cgroup",
+    "loadgen": "hey",
+    "loadgen_requested": "hey",
+    "loadgen_fallback": false
+  },
+  "rapl_validation_err_pct": 1.93,
+  "rapl_available": true,
+  "loadgen": {
+    "source": "hey",
+    "rps": 548.4621122372866,
+    "avg_ms": 7.29,
+    "errors": 0,
+    "wall_s": 18.23
+  },
+  "repetitions": 5,
+  "spread_min_max": {
+    "throughput_rps": [
+      531.64,
+      543.3
+    ],
+    "slo_compliance": [
+      1.0,
+      1.0
+    ],
+    "latency_ms.p50": [
+      6.9,
+      7.0
+    ],
+    "latency_ms.p99": [
+      11.2,
+      11.7
+    ],
+    "cp_dynamic_share_pct": [
+      12.2,
+      12.36
+    ],
+    "cp_share_pct": [
+      9.02,
+      9.09
+    ],
+    "energy_J.dynamic": [
+      224.6,
+      225.6
+    ],
+    "kpi_gco2_per_slo_compliant_inv": [
+      0.0,
+      0.0
+    ]
+  },
+  "bootstrap_ci": {
+    "throughput_rps": [
+      531.64,
+      543.3
+    ],
+    "slo_compliance": [
+      1.0,
+      1.0
+    ],
+    "latency_ms.p50": [
+      6.9,
+      7.0
+    ],
+    "latency_ms.p99": [
+      11.2,
+      11.7
+    ],
+    "cp_dynamic_share_pct": [
+      12.2,
+      12.36
+    ]
+  },
+  "cv_pct": {
+    "throughput_rps": 0.84,
+    "slo_compliance": 0.0,
+    "latency_ms.p50": 0.79,
+    "latency_ms.p99": 1.91,
+    "cp_dynamic_share_pct": 0.54
+  },
+  "iqr": {
+    "throughput_rps": 4.05,
+    "slo_compliance": 0.0,
+    "latency_ms.p50": 0.1,
+    "latency_ms.p99": 0.3,
+    "cp_dynamic_share_pct": 0.09
+  }
+}
+
+Saved runs to /home/imran/faas-work/saqef/results/regression/fn /
+per-run gate table (pass: delta%% ~ 0, CPmapped = expected, host_plausible=true, 95 <= coverage%% <= 100):
+  run_1   delta%: -0.0    delta_s: 7.847  cp_cpu_s: 7.85   fn_cpu_s: 56.46  CPmapped: 1/1 fn_replicas: 10 unclass: 0.0 host_cpu_s: 121.69  host_sat%: 82.6   host_plausible: True  coverage%: 100.0
+  run_2   delta%: 0.0     delta_s: 7.927  cp_cpu_s: 7.93   fn_cpu_s: 56.53  CPmapped: 1/1 fn_replicas: 10 unclass: 0.0 host_cpu_s: 122.1   host_sat%: 82.6   host_plausible: True  coverage%: 100.0
+  run_3   delta%: 0.0     delta_s: 7.848  cp_cpu_s: 7.85   fn_cpu_s: 56.42  CPmapped: 1/1 fn_replicas: 10 unclass: 0.0 host_cpu_s: 123.24  host_sat%: 83.2   host_plausible: True  coverage%: 100.0
+  run_4   delta%: -0.0    delta_s: 7.874  cp_cpu_s: 7.87   fn_cpu_s: 56.28  CPmapped: 1/1 fn_replicas: 10 unclass: 0.0 host_cpu_s: 124.88  host_sat%: 83.8   host_plausible: True  coverage%: 100.0
+  run_5   delta%: -0.0    delta_s: 7.931  cp_cpu_s: 7.93   fn_cpu_s: 56.25  CPmapped: 1/1 fn_replicas: 8 unclass: 0.0 host_cpu_s: 127.47  host_sat%: 84.7   host_plausible: True  coverage%: 100.0
+median: cp_dynamic_share_pct=12.27  slo_compliance=1.0  throughput_rps=540.17
+--- teardown (Fn)
+=== [reset] fresh-session protocol: remove fnserver + orphaned function containers ===
+clean: 1 containers left
+
+########## regression verdict ##########
+  fn         got= 12.27 ref= 11.60 dev=0.67 pp tol=0.50 pp -> FAIL
+  openfaas   got=  7.53 ref=  7.67 dev=0.14 pp tol=0.50 pp -> PASS
+
+REGRESSION FAIL: do NOT trust the refactor. Old runners remain authoritative.

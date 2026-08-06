@@ -1,0 +1,9 @@
+=== [deploy] OpenWhisk (openwhisk) ===
+WARNING: expected control-plane container(s) not seen: openwhisk
+2a24c4d94782398ee9be708ef8a7401448ad82e7eaff98a05a4a828a0e35350a
+openwhisk deploy OK: openwhisk/standalone:nightly serving http://127.0.0.1:3233
+nightly: Pulling from openwhisk/action-python-v3.11
+Digest: sha256:1d3e992779ee133c2a676e3304bc0cc995d33934e9a5b58925fda5f1c2573330
+Status: Image is up to date for openwhisk/action-python-v3.11:nightly
+docker.io/openwhisk/action-python-v3.11:nightly
+openwhisk deploy_function OK: hello action serving http://127.0.0.1:3233/api/v1/web/guest/default/hello

@@ -1,0 +1,135 @@
+{
+  "platform": "openwhisk",
+  "url": "http://127.0.0.1:3233/api/v1/web/guest/default/hello",
+  "mode": "load",
+  "wall_s": 211.44,
+  "wall_harness_s": 211.44,
+  "sampling_covered_s": 211.44,
+  "requests": 10000,
+  "successes": 10000,
+  "availability": 1.0,
+  "throughput_rps": 47.29,
+  "latency_ms": {
+    "p50": 83.8,
+    "p90": 101.0,
+    "p99": 131.3,
+    "max": 237.0
+  },
+  "slo_ms": 500.0,
+  "slo_compliance": 1.0,
+  "compliance_source": "hey_interp",
+  "energy_J": {
+    "total": 2601.9,
+    "dynamic": 1482.6,
+    "control_plane": 1278.5,
+    "function": 204.1
+  },
+  "cp_share_pct": 49.14,
+  "cp_dynamic_share_pct": 86.24,
+  "cpu_sec": {
+    "control_plane": 365.28,
+    "function": 58.31
+  },
+  "cpu_sec_ceiling": 1691.54,
+  "physical_plausible": true,
+  "unclassified_cpu_s": 0.0,
+  "container_inventory": [
+    "openwhisk",
+    "wsk0_1_prewarm_nodejs20",
+    "wsk0_2_prewarm_nodejs20",
+    "wsk0_3_guest_hello",
+    "wsk0_4_guest_hello"
+  ],
+  "container_labels": {
+    "openwhisk": {
+      "image": "openwhisk/standalone:nightly",
+      "labels": []
+    },
+    "wsk0_1_prewarm_nodejs20": {
+      "image": "openwhisk/action-nodejs-v20:nightly",
+      "labels": []
+    },
+    "wsk0_2_prewarm_nodejs20": {
+      "image": "openwhisk/action-nodejs-v20:nightly",
+      "labels": []
+    },
+    "wsk0_3_guest_hello": {
+      "image": "openwhisk/action-python-v3.11:nightly",
+      "labels": []
+    },
+    "wsk0_4_guest_hello": {
+      "image": "openwhisk/action-python-v3.11:nightly",
+      "labels": []
+    }
+  },
+  "cp_peak_mem_mb": 601.4,
+  "carbon_gCO2": {
+    "op_total": 0.125,
+    "op_control_plane": 0.061,
+    "idle_band": {
+      "15": 0.223,
+      "30": 0.375,
+      "45": 0.527
+    }
+  },
+  "model": {
+    "idle_w": 5.294,
+    "busy_core_w": 3.5,
+    "pue": 1.15,
+    "ci": 150.0
+  },
+  "sensitivity": {
+    "cp_dynamic_share_pct_by_busy_w": {
+      "2.0": 86.24,
+      "3.5": 86.24,
+      "5.0": 86.24
+    },
+    "dynamic_energy_J_by_busy_w": {
+      "2.0": 847.2,
+      "3.5": 1482.6,
+      "5.0": 2117.9
+    },
+    "op_carbon_gCO2_by_busy_w": {
+      "2.0": 0.094,
+      "3.5": 0.125,
+      "5.0": 0.155
+    }
+  },
+  "kpi_gco2_per_slo_compliant_inv": 1.247e-05,
+  "kpi_gco2_per_inv_dynamic": 7.1e-06,
+  "embodied_dram_g_per_gb_h": 0.0317,
+  "host_cpu_sec": 1086.01,
+  "host_window_s": 211.442,
+  "host_saturation_pct": 64.2,
+  "host_plausible": true,
+  "host_saturated": false,
+  "host_overhead_cpu_sec": 662.42,
+  "orchestration_cpu_sec": 1027.7,
+  "orchestration_share_pct": 94.63,
+  "steal_sec": null,
+  "steal_pct": null,
+  "cp_delta_sec": 365.281,
+  "cp_sampler_vs_delta_pct": 0.0,
+  "delta_check_map": {
+    "openwhisk": "ok"
+  },
+  "env": {
+    "cpu_count": 8,
+    "governor": "powersave",
+    "freq_mhz_before": 1970.1,
+    "freq_mhz_after": 1595.7,
+    "sampler": "cgroup",
+    "loadgen": "hey",
+    "loadgen_requested": "hey",
+    "loadgen_fallback": false
+  },
+  "rapl_validation_err_pct": 13.15,
+  "rapl_available": true,
+  "loadgen": {
+    "source": "hey",
+    "rps": 47.356377578081194,
+    "avg_ms": 84.45,
+    "errors": 0,
+    "wall_s": 211.16
+  }
+}

@@ -1,0 +1,187 @@
+{
+  "platform": "fn",
+  "url": "http://localhost:8080/t/app1/hello",
+  "mode": "load",
+  "wall_s": 21.19,
+  "wall_harness_s": 21.19,
+  "sampling_covered_s": 21.19,
+  "requests": 10000,
+  "successes": 10000,
+  "availability": 1.0,
+  "throughput_rps": 471.83,
+  "latency_ms": {
+    "p50": 7.3,
+    "p90": 11.3,
+    "p99": 17.8,
+    "max": 39.5
+  },
+  "slo_ms": 500.0,
+  "slo_compliance": 1.0,
+  "compliance_source": "hey_interp",
+  "energy_J": {
+    "total": 313.7,
+    "dynamic": 222.5,
+    "control_plane": 28.6,
+    "function": 194.0
+  },
+  "cp_share_pct": 9.12,
+  "cp_dynamic_share_pct": 12.85,
+  "cpu_sec": {
+    "control_plane": 8.17,
+    "function": 55.42
+  },
+  "cpu_sec_ceiling": 169.55,
+  "physical_plausible": true,
+  "unclassified_cpu_s": 0.0,
+  "container_inventory": [
+    "01KZCC43YCNG8G00GZJ0000005",
+    "01KZCC46AQNG8G00GZJ000000B",
+    "01KZCC46ARNG8G00GZJ000000D",
+    "01KZCC46ARNG8G00GZJ000000E",
+    "01KZCC46ARNG8G00GZJ000000G",
+    "01KZCC46ASNG8G00GZJ000000K",
+    "01KZCC46ASNG8G00GZJ000000M",
+    "01KZCC46AZNG8G00GZJ000000P",
+    "01KZCC46B1NG8G00GZJ000000R",
+    "01KZCC46BJNG8G00GZJ000000T",
+    "fnserver"
+  ],
+  "container_labels": {
+    "01KZCC43YCNG8G00GZJ0000005": {
+      "image": "hello:0.0.18",
+      "labels": [
+        "io.buildah.version=1.43.1"
+      ]
+    },
+    "01KZCC46AQNG8G00GZJ000000B": {
+      "image": "hello:0.0.18",
+      "labels": [
+        "io.buildah.version=1.43.1"
+      ]
+    },
+    "01KZCC46ARNG8G00GZJ000000D": {
+      "image": "hello:0.0.18",
+      "labels": [
+        "io.buildah.version=1.43.1"
+      ]
+    },
+    "01KZCC46ARNG8G00GZJ000000E": {
+      "image": "hello:0.0.18",
+      "labels": [
+        "io.buildah.version=1.43.1"
+      ]
+    },
+    "01KZCC46ARNG8G00GZJ000000G": {
+      "image": "hello:0.0.18",
+      "labels": [
+        "io.buildah.version=1.43.1"
+      ]
+    },
+    "01KZCC46ASNG8G00GZJ000000K": {
+      "image": "hello:0.0.18",
+      "labels": [
+        "io.buildah.version=1.43.1"
+      ]
+    },
+    "01KZCC46ASNG8G00GZJ000000M": {
+      "image": "hello:0.0.18",
+      "labels": [
+        "io.buildah.version=1.43.1"
+      ]
+    },
+    "01KZCC46AZNG8G00GZJ000000P": {
+      "image": "hello:0.0.18",
+      "labels": [
+        "io.buildah.version=1.43.1"
+      ]
+    },
+    "01KZCC46B1NG8G00GZJ000000R": {
+      "image": "hello:0.0.18",
+      "labels": [
+        "io.buildah.version=1.43.1"
+      ]
+    },
+    "01KZCC46BJNG8G00GZJ000000T": {
+      "image": "hello:0.0.18",
+      "labels": [
+        "io.buildah.version=1.43.1"
+      ]
+    },
+    "fnserver": {
+      "image": "fnproject/fnserver",
+      "labels": [
+        "io.buildah.version=1.41.8"
+      ]
+    }
+  },
+  "cp_peak_mem_mb": 130.5,
+  "carbon_gCO2": {
+    "op_total": 0.015,
+    "op_control_plane": 0.001,
+    "idle_band": {
+      "15": 0.026,
+      "30": 0.041,
+      "45": 0.056
+    }
+  },
+  "model": {
+    "idle_w": 4.3,
+    "busy_core_w": 3.5,
+    "pue": 1.15,
+    "ci": 150.0
+  },
+  "sensitivity": {
+    "cp_dynamic_share_pct_by_busy_w": {
+      "2.0": 12.85,
+      "3.5": 12.85,
+      "5.0": 12.85
+    },
+    "dynamic_energy_J_by_busy_w": {
+      "2.0": 127.2,
+      "3.5": 222.5,
+      "5.0": 317.9
+    },
+    "op_carbon_gCO2_by_busy_w": {
+      "2.0": 0.01,
+      "3.5": 0.015,
+      "5.0": 0.02
+    }
+  },
+  "kpi_gco2_per_slo_compliant_inv": 1.5e-06,
+  "kpi_gco2_per_inv_dynamic": 1.07e-06,
+  "embodied_dram_g_per_gb_h": 0.0317,
+  "host_cpu_sec": 155.08,
+  "host_window_s": 21.195,
+  "host_saturation_pct": 91.5,
+  "host_plausible": true,
+  "host_saturated": true,
+  "host_overhead_cpu_sec": 91.5,
+  "orchestration_cpu_sec": 99.66,
+  "orchestration_share_pct": 64.27,
+  "steal_sec": null,
+  "steal_pct": null,
+  "cp_delta_sec": 8.17,
+  "cp_sampler_vs_delta_pct": -0.0,
+  "delta_check_map": {
+    "fnserver": "ok"
+  },
+  "env": {
+    "cpu_count": 8,
+    "governor": "powersave",
+    "freq_mhz_before": 2500.0,
+    "freq_mhz_after": 2400.3,
+    "sampler": "cgroup",
+    "loadgen": "hey",
+    "loadgen_requested": "hey",
+    "loadgen_fallback": false
+  },
+  "rapl_validation_err_pct": 4.66,
+  "rapl_available": true,
+  "loadgen": {
+    "source": "hey",
+    "rps": 480.0698981771746,
+    "avg_ms": 8.31,
+    "errors": 0,
+    "wall_s": 20.83
+  }
+}
