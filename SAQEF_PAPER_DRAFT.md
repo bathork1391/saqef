@@ -201,6 +201,13 @@ The idle-dominance is itself a result: at this light load, **~94% of operational
 
 ### 5.5 Cross-platform, RAPL-validated results (bare metal, 2026-08-05)
 
+*Figures: `figures/figure1_share_by_regime.{png,pdf}` (share by regime),
+`figures/figure2_per_run_scatter.{png,pdf}` (all per-run values, honestly
+showing the bounded Fn drift), `figures/figure3_attribution_split.{png,pdf}`
+(CP / fn / unclassified CPU-time split). Regenerate with
+`python3 figures/make_figures.py` (data-driven; no script edits to add a
+platform or regime).*
+
 Same protocol on an 8-core Ubuntu box (RAPL-validated, idle 4.3 W): Fn vs OpenFaaS serving the
 identical 5 ms CPU-bound function, `c=4 < cpu_count=8`, `TOTAL=10000`, 5 runs, 16 static OF
 replicas, all gates green (`host_saturated=false`, delta-map 6/6, coverage 100%).
@@ -279,6 +286,9 @@ presents both the machine-dependence and its asymmetry as findings.
 
 ### 5.6 Four-platform comparison (2026-08-07, same 8-core box, c=4, REPEAT=5)
 
+*Figure: `figures/figure4_four_platforms.{png,pdf}` (same-day ordering with
+the attribution footnote printed on the figure).*
+
 OpenWhisk (standalone) and Knative (Serving v1.23 + Kourier on k3s v1.36, docker runtime) were
 added to the same protocol. All rows are full REPEAT=5 runs with per-run gate tables (delta ~0,
 coverage 100%, host_plausible true). **Read the attribution map and the contention caveat below
@@ -287,7 +297,7 @@ before citing the absolute values — the *ordering* is the robust finding.**
 | platform | median `cp_dynamic_share_pct` | spread (min–max) | per-inv CP CPU | fn CPU/inv | host_sat% | energy citable? |
 |---|---|---|---|---|---|---|
 | OpenFaaS | **7.53** | 7.53 (ref) | 0.56 ms | 6.7 ms | 74–77 | yes (idle-w 4.3) |
-| Fn | **11.60–12.92** (day-dependent) | 9.80–11.74 (2026-08-05) | 0.79 ms | 5.6 ms | 74–77 | yes (idle-w 4.3) |
+| Fn | **12.27** (11.52–12.96; 3 same-day sessions: old-runner A/B 11.60, CLI 12.27, old-runner A/B 12.92) | 9.80–11.74 (2026-08-05 quiet) | 0.79 ms | 5.6 ms | 74–77 | yes (idle-w 4.3) |
 | Knative | **13.99** | 13.22–14.24, CV 2.8% | ~1.1 ms | ~6.9 ms | 84–87 | no (rapl err 22–32%) |
 | OpenWhisk | **82.54** | 82.0–82.6 (runs 2–5) | ~26 ms | ~5.7 ms | 64–71 | no (rapl err 36%) |
 

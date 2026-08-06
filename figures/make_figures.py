@@ -27,6 +27,7 @@ PLATFORMS = {
     "fn":       {"label": "Fn",       "color": "#1f77b4"},
     "openfaas": {"label": "OpenFaaS", "color": "#ff7f0e"},
     "openwhisk": {"label": "OpenWhisk", "color": "#2ca02c"},
+    "knative":  {"label": "Knative",  "color": "#9467bd"},
 }
 
 # regime -> label + per-platform list of result dirs (each dir is one independent
@@ -50,6 +51,21 @@ REGIMES = {
     },
 }
 
+# Same-day (2026-08-07) four-platform comparison on the same 8-core box, all
+# full REPEAT=5. Fn gets BOTH same-day 8-core sessions so the figure honestly
+# shows its bounded box drift (12.27 new-CLI regression vs 12.92 old-runner
+# A/B). OpenWhisk + Knative ran under a non-quiet box (agent ~2.8 cores):
+# shares are contention-robust but latency from those sessions is not citable.
+FOURPLATFORM = {
+    "label": "8-core bare metal, 2026-08-07",
+    "dirs": {
+        "openfaas":  ["results/regression/openfaas"],
+        "fn":        ["results/fn_cpubound_crosscheck", "results/regression/fn", "results/fn_cpubound_crosscheck2"],
+        "knative":   ["results/knative_cpubound_baremetal"],
+        "openwhisk": ["results/openwhisk_cpubound_baremetal"],
+    },
+}
+
 
 def load_result_dir(d):
     """Return (per_run_values, summary_dict) for one committed result set."""
@@ -58,7 +74,7 @@ def load_result_dir(d):
     return runs, summary
 
 
-def collect(regime_key, platform):
+def collect(regime, platform):
     """Aggregate all sessions of one regime x platform.
 
     Returns dict with:
@@ -69,7 +85,7 @@ def collect(regime_key, platform):
       cp_sec/fn_sec/unc_sec: per-run medians of the CPU-time attribution fields
     """
     sessions = []
-    for d in REGIMES[regime_key]["dirs"][platform]:
+    for d in regime["dirs"][platform]:
         runs, summary = load_result_dir(d)
         sessions.append({"dir": d, "per_run": [r["cp_dynamic_share_pct"] for r in runs],
                          "summary": summary})
@@ -115,7 +131,7 @@ def data():
     agg = {}
     for rk in REGIMES:
         for pk in REGIMES[rk]["dirs"]:
-            agg[(rk, pk)] = collect(rk, pk)
+            agg[(rk, pk)] = collect(REGIMES[rk], pk)
     return agg
 
 
@@ -255,6 +271,47 @@ def figure3_attribution_split(agg):
     print("wrote figure3_attribution_split.{png,pdf}")
 
 
+def figure4_four_platforms():
+    """Same-day 8-core ordering: OF 7.5 < Fn approx Knative 12-14 < OW 82.5.
+
+    Horizontal bars sorted ascending; error bars span the full per-run spread
+    (all sessions flattened). Separate figure because OpenWhisk's 82.5 dwarfs
+    the 0-18 y-scale of figures 1-3. Attribution conventions differ per
+    platform (see the paper §5.6 map) -- stated as a footnote, not buried.
+    """
+    rows = []
+    for pk in ("openfaas", "fn", "knative", "openwhisk"):
+        a = collect(FOURPLATFORM, pk)
+        rows.append((PLATFORMS[pk]["label"], a["reported"], a["spread_min"],
+                     a["spread_max"], PLATFORMS[pk]["color"], a))
+    rows.sort(key=lambda r: r[1])
+    fig, ax = plt.subplots(figsize=(6.4, 3.7), dpi=150)
+    ys = list(range(len(rows)))
+    for i, (label, med, lo, hi, color, a) in enumerate(rows):
+        ax.barh(ys[i], med, height=0.6, color=color, alpha=0.85, zorder=3)
+        ax.errorbar(med, ys[i], xerr=[[med - lo], [hi - med]], fmt="none",
+                    ecolor="0.2", elinewidth=1.0, capsize=3, zorder=4)
+        ax.text(med + 1.4, ys[i], f"{med:.2f}%", va="center", fontsize=9.5)
+    ax.set_yticks(ys)
+    ax.set_yticklabels([r[0] for r in rows], fontsize=10)
+    ax.invert_yaxis()
+    ax.set_xlabel("CP dynamic share of CPU time (%)", fontsize=10)
+    ax.set_xlim(0, 95)
+    ax.axvline(5.0, color="0.6", ls="--", lw=0.9)
+    ax.text(5.3, len(rows) - 0.35, "5 pp gate", fontsize=8, color="0.4")
+    ax.spines[["top", "right"]].set_visible(False)
+    ax.grid(axis="x", ls=":", alpha=0.4, zorder=0)
+    fig.text(0.01, 0.01,
+             "* attribution conventions differ per platform (of-watchdog/queue-proxy in fn; "
+             "kourier gateway + activator in CP; OW standalone log-store in CP) -- see paper §5.6.",
+             fontsize=7, color="0.35", ha="left")
+    fig.tight_layout(rect=(0, 0.06, 1, 1))
+    for ext in ("png", "pdf"):
+        fig.savefig(os.path.join(OUTDIR, f"figure4_four_platforms.{ext}"), bbox_inches="tight")
+    plt.close(fig)
+    print("wrote figure4_four_platforms.{png,pdf}")
+
+
 def main():
     os.makedirs(OUTDIR, exist_ok=True)
     agg = data()
@@ -264,9 +321,15 @@ def main():
             print(f"{PLATFORMS[pk]['label']:9s} {REGIMES[rk]['label']:22s} "
                   f"reported={a['reported']:.2f} range={a['spread_min']:.2f}-{a['spread_max']:.2f} "
                   f"n={len(a['per_run'])} cp={a['cp_sec']:.2f}s fn={a['fn_sec']:.2f}s")
+    for pk in FOURPLATFORM["dirs"]:
+        a = collect(FOURPLATFORM, pk)
+        print(f"{PLATFORMS[pk]['label']:9s} {FOURPLATFORM['label']:22s} "
+              f"reported={a['reported']:.2f} range={a['spread_min']:.2f}-{a['spread_max']:.2f} "
+              f"n={len(a['per_run'])} cp={a['cp_sec']:.2f}s fn={a['fn_sec']:.2f}s")
     figure1_share_by_regime(agg)
     figure2_per_run_scatter(agg)
     figure3_attribution_split(agg)
+    figure4_four_platforms()
 
 
 if __name__ == "__main__":
