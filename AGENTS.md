@@ -18,6 +18,18 @@ a contention-robust discriminator. Decision gate: platform gap in the share must
   the honest saturated-box flag, not a failure).
 
 ## Current state (2026-08-05 / 06)
+- **Paper/figure cleanup (2026-08-07, post-knative):** the paper and figures were refocused
+  **bare-metal-only** per user direction. Codespace results (the 2-vCPU shared-VM origin
+  instrument) were REMOVED from all results sections — RQ3, the §5.5 cross-regime table, §7
+  threats, §10, §11, and Appendix B's codespace columns — and remain only as a one-paragraph
+  origin story in §4.2 (hardware table: "origin instrument, no results cited"). Figures were
+  redesigned from two-panel to **four single-story figures with NO dates on axes** (provenance
+  in paper captions), legends at the bottom, OW handled on shared axes with labels:
+  figure1_core_count (Fn-vs-OF core-count), figure2_four_platform_scatter, figure3_attribution_split,
+  figure4_cp_cost_per_inv. §5.1–5.4 re-anchored to the bare-metal Fn run (was codespace-era).
+  §5.4 carbon values hand-recomputed with the fixed kWh formula (summary.json files from
+  2026-08-05 predate the 2026-08-06 carbon fix and still carry the 1000× bug — do not read
+  carbon from them directly). G6 gate row updated to bare-metal cross-session numbers.
 - **Bare-metal milestone COMPLETE** (8-core Ubuntu, RAPL available). Results in
   `results/fn_cpubound_baremetal` + `results/openfaas_cpubound_baremetal` (protocol-conformant,
   all gates green). Old saturated-invalid runs preserved in `*_sat_invalid/` (do not cite).
@@ -294,13 +306,19 @@ cores (repeat per-platform, OpenFaaS first, same teardown discipline as above):
 
 ## Next-session plan (agreed 2026-08-06, user + external expert greenlighted)
 **Sequencing — do in this order:**
-1. ~~**Figures from committed data**~~ — **DONE (2026-08-07).** `figures/make_figures.py`
-   (data-driven, matplotlib, harness stays stdlib-only): figures 1–3 are two-panel —
-   panel (a) the controlled Fn-vs-OpenFaaS core-count story (8-core quiet vs 2-core pinned),
-   panel (b) ALL FOUR platforms same-day 2026-08-07 (OF 7.53 < Fn 12.27 [11.52–12.96] ≈
-   Knative 13.99 < OW 82.54, own y-scale since OW dwarfs). Figure 4 = control-plane CPU per
-   invocation, all four platforms (of-watchdog 0.56, fnserver 0.79, Kn ~1.1, OW ~27 ms).
-   Adding a platform/regime = one dict entry in REGIMES + panel-grouping tuple + rerun.
+1. ~~**Figures from committed data**~~ — **DONE (2026-08-07), redesigned (2026-08-07).**
+   `figures/make_figures.py` (data-driven, matplotlib, harness stays stdlib-only): **four
+   single-story figures, no dates on axes, legends at the bottom** (provenance lives in the
+   paper captions, not axis labels):
+   - figure1_core_count — the Fn-vs-OF core-count effect (8-core quiet vs 2-core pinned, same
+     instrument), 5 pp gate line + gap arrows (2.79 → 7.00 pp).
+   - figure2_four_platform_scatter — per-run shares, all four platforms, 8-core same-day
+     (OF 7.53 < Fn 12.27 [11.52–12.96] ≈ Knative 13.99 < OW 82.54); every per-run value shown
+     (n=5/session, Fn 3 sessions = 15 points), black tick = reported median.
+   - figure3_attribution_split — CP / fn / unclassified CPU-time, four platforms.
+   - figure4_cp_cost_per_inv — control-plane CPU per invocation (of-watchdog 0.56, fnserver
+     0.79, Kn ~1.1, OW ~27 ms).
+   Adding a platform/regime = one dict entry in REGIMES + rerun.
    Regenerate: `python3 figures/make_figures.py`.
 2. **Adapter refactor** (fn + openfaas) WITH an automated **regression gate** before the new
    plumbing is trusted: `saqef regression` reruns c=4 8-core both platforms and FAILS if median
