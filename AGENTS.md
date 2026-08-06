@@ -152,11 +152,67 @@ a contention-robust discriminator. Decision gate: platform gap in the share must
     shares. NOT yet a citable paper number: needs a full REPEAT=5 run + gates before citation, and
     decide in the paper how much of the standalone's log-store overhead is "control plane" vs
     deployment-mode artifact.
+  - **Full REPEAT=5 run (2026-08-07, `results/openwhisk_cpubound_baremetal`):** `cp_dynamic_share_pct`
+    **82.54** (median; runs 2–5 flat 82.0–82.6, CV 2.1%, IQR 0.26; run_1 transient 86.24), slo_compliance
+    1.0, availability 1.0, fn_cpu_s rock-solid 57.3–57.5 s, all gates green (delta ~0, CPmapped 1/1,
+    coverage 100%, host_plausible true, host_saturated false ~64–71%). The standalone's CP burns
+    262–365 CPU-s/run vs ~57 s function CPU — **~4.6× the function CPU, i.e. share 82.5 vs Fn 12.3 /
+    OF 7.5**. OpenWhisk is the "heavy control-plane" pole of the study. **Caveats:** (a) box was
+    NOT quiet (opencode agent at ~2.8 cores — see TROUBLESHOOTING_RUNBOOK.md §1): the share is
+    contention-robust and flat across runs even as host load rose, but a quiet-box rerun is the
+    clean provenance for citation; (b) `rapl_validation_err_pct` 36.3% — the standalone JVM's power
+    draw does not fit the linear busy-core energy model, so OW **energy/carbon is NOT citable**
+    (share is, being a pure cgroup CPU-time ratio); (c) throughput declined across runs (47→25 rps)
+    as host load accumulated — QoS percentiles from this session are agent-contaminated, rerun for
+    latency. Per-invocation CP cost ≈ 262 CPU-s / 10000 inv ≈ **26 ms CPU per invocation** (vs
+    fnserver 0.79 ms / of-watchdog 0.56 ms) — the standalone's `docker logs` log-store and JVM
+    orchestration dominate. Deployment-mode decision for the paper: how much is "control plane" vs
+    standalone-emulator artifact (same § as the OW adapter notes).
   - `.gitignore` had CRLF line endings (broke the `vendor/docker` pattern); rewritten LF +
     `vendor/` + `results/*_quick*/` guard. `results/verify.json` is a tracked working artifact —
     revert before committing (OpenWhisk verify overwrote it — now fixed: verify outdir defaults to
     `results/<platform>_verify`, so cross-platform verify can no longer collide).
-- **External-review findings fixed (2026-08-06; verified by tests, not yet committed).**
+- **Knative adapter DONE + full REPEAT=5 run (2026-08-07, `results/knative_cpubound_baremetal`).**
+  `platforms/knative.py` + `KNATIVE_FUNCTION/` (the identical ~5 ms spin handler) deploy/verify/
+  bench/gates clean; 38/38 tests (adapter schema now includes knative; byte-identical argv tests
+  for bench + verify). Deployment = Knative Serving v1.23 + Kourier on k3s v1.36.3 (docker
+  runtime, so every pod is a docker container the harness can classify), function = the hello
+  Service with **static scaling** minScale=maxScale=16, containerConcurrency 4 (GIL parity).
+  - **Result: median `cp_dynamic_share_pct` = 13.99 (13.22–14.24, CV ~2.8%)** — statistically
+    tied with Fn's 8-core value (11.6–12.9 box-drift range, today's crosschecks 12.27–12.92) and
+    ~1.9× OpenFaaS (7.53). So the ordering on this box is now OF 7.5 < Fn ≈ Knative 12–14 <
+    OpenWhisk 82.5. All gates pass on the citable share (delta ~0, CPmapped 15–17/15–17 ok,
+    coverage 100%, host_plausible true); `fn_replicas` shows 32 (16 user-container + 16
+    queue-proxy — the `_count_fn_containers` gate display now matches fn_containers by name for
+    platforms whose function image shows only a bare digest).
+  - **Attribution map (must be documented in the paper, asymmetric vs OF):** Knative's *fn*
+    bucket includes the per-replica **queue-proxy sidecar** (on the request path, same honesty
+    caveat OF solves by putting of-watchdog inside the function cgroup) AND the function; its *CP*
+    bucket includes **kourier-gateway + svclb-kourier** (the data-plane gateway) + activator +
+    controller/autoscaler/webhook/net-kourier-controller. OpenFaaS counts its proxy in fn, so the
+    true OF-vs-Kn control-plane gap is even smaller than the raw 7.5-vs-14 share suggests. Per-
+    invocation CP cost ≈ 10.5–11.4 CPU-s / 10000 inv ≈ **~1.1 ms CPU per invocation** (fnserver
+    0.79 / of-watchdog 0.56 / OW 26).
+  - **k3s embedded control plane is measurement-invisible:** apiserver/etcd/scheduler/
+    controller-manager run INSIDE the `k3s server` process, not as docker containers → their CPU
+    lands in `host_cpu_sec` residual, NOT in the CP bucket. Document as a boundary (a production
+    cluster would bill it as shared infra); the container-visible CP (knative-serving + kourier)
+    is what the share measures.
+  - **Idle baseline finding:** calibrated idle package watts with the knative stack up (60 s RAPL,
+    zero traffic) = **11.14 W** vs 4.3 W bare — the k8s-native platform carries a ~7 W always-on
+    baseline (16 warm replicas + 32 proxies + knative-serving + kourier). This is itself a citable
+    sustainability observation, but it is why `rapl_validation_err_pct` is 22.6–32.2% (the linear
+    busy-core energy model does not fit a stack whose idle draw already exceeds the flat model) →
+    knative **energy/carbon NOT citable** (share is).
+  - **QoS NOT citable from this session:** host_sat 84.3–87.2% (3/5 runs ≥85, flagged) — box not
+    quiet (opencode agent ~2.8 cores). slo_compliance 1.0, p50 8.3–8.7 / p99 13.8–14.8 ms @
+    431–452 rps, but those percentiles are agent-contaminated; quiet-box rerun before citing
+    latency (TROUBLESHOOTING_RUNBOOK.md §1 + §10).
+  - Run knative (bench only) with: `python3 saqef run --platform knative --total 10000
+    --concurrency 4 --duration 300 --warmup 20 --repeat 5 --idle-w <calibrated> --out
+    results/<name>`; deploy/verify first. Calibrate `--idle-w` with the stack up — it is ~2.6× the
+    bare-box value.
+- **External-review findings fixed (2026-08-06; committed 2026-08-07 as `57f8a6f`).**
   - **🔴 Carbon ×1000 unit bug — FIXED in `saqef_harness.py`.** `carbon_gCO2` used `J/3600` (Wh)
     with `CI` in gCO2/kWh → every gCO₂ figure was 1000× too high. Formula now `J/3.6e6` (kWh).
     `energy_J`, `cp_dynamic_share_pct` (unit-free), `rapl_validation_err_pct` NEVER affected. Paper
@@ -172,9 +228,13 @@ a contention-robust discriminator. Decision gate: platform gap in the share must
     and regression = 16 replicas (16/16/16/16/16 across runs 1–5), 2-core = 4 (2×N protocol),
     legacy codespace = 4/1 (pre-citable). "10" was Fn's *dynamic function-container count*.
   - **⚠️ `saqef_harness.py` NOW DIVERGES from `saqef-v2.0-frozen`** (carbon fix + isolation port).
-    New frozen tag (e.g. `saqef-v2.2`) must be cut AFTER the full suite passes and, per the
-    refactor discipline, a `saqef regression` rerun confirms 11.60/7.67 before the next citable run.
-    Measurement-path bytes beyond those two edits are untouched.
+    Fixed + committed 2026-08-07 (`57f8a6f`). **Regression rerun executed live 2026-08-07** (c=4,
+    10000, REPEAT=5, idle_w=4.3): OpenFaaS **7.53 PASS** (ref 7.67, dev 0.14 pp); Fn **12.27 vs ref
+    11.60 → dev 0.67 pp > 0.5 pp FAIL**, but proven box drift by same-day old-runner A/B
+    (`results/fn_cpubound_crosscheck2` = **12.92**) — the refactor is faithful (see
+    TROUBLESHOOTING_RUNBOOK.md §2/§3). The 11.60 reference is stale for this box; recalibrate it
+    from a quiet-box old-runner A/B before trusting the Fn gate (OF's 7.67 stays). Measurement-path
+    bytes beyond the two edits are untouched.
 
 ## Bare-metal protocol (proven on this box)
 1. `sudo bash setup_baremetal.sh` (docker + CLIs + RAPL readable by the user).

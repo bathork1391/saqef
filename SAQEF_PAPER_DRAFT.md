@@ -49,7 +49,9 @@ The gap we target: most prior work reports QoS (latency/throughput) and/or aggre
 
 - **RQ1 (methodology):** Can container-level sampling attribute marginal CPU/energy to the control plane vs the function with a *verifiable* error bound?
 - **RQ2 (measurement):** What fraction of dynamic CPU/energy does the Fn control plane consume for a CPU-bound function under a realistic load?
-- **RQ3 (comparison):** Does the framework discriminate between platforms (Fn vs OpenFaaS)? — **answered (2026-08-06, core-count confirmed):** yes, with a caveat. On the 2-vCPU saturated codespace the gap is 8.8 pp (gate passes); on the 8-core bare-metal box it is 2.8 pp (gate fails), flat with concurrency within each machine. A controlled same-instrument test (this 8-core box cpuset-pinned to 2 cores) confirms the gap is core-count-driven: it returns to 7.1 pp at 2 pinned cores. Direction is stable (Fn's share higher everywhere); the *magnitude* is a machine-pair property, and the mechanism is asymmetric — Fn's share is what inflates under core scarcity, not both platforms proportionally (see §5.5). OpenWhisk remains future work.
+- **RQ3 (comparison):** Does the framework discriminate between platforms (Fn vs OpenFaaS)? — **answered (2026-08-06, core-count confirmed):** yes, with a caveat. On the 2-vCPU saturated codespace the gap is 8.8 pp (gate passes); on the 8-core bare-metal box it is 2.8 pp (gate fails), flat with concurrency within each machine. A controlled same-instrument test (this 8-core box cpuset-pinned to 2 cores) confirms the gap is core-count-driven: it returns to 7.1 pp at 2 pinned cores. Direction is stable (Fn's share higher everywhere); the *magnitude* is a machine-pair property, and the mechanism is asymmetric — Fn's share is what inflates under core scarcity, not both platforms proportionally (see §5.5). Extended to four platforms (2026-08-07, §5.6): the
+container-visible control-plane share spans an order of magnitude — OpenFaaS 7.5 < Fn ≈ Knative
+12–14 < OpenWhisk 82.5 (attribution conventions differ; see §5.6 map).
 
 ---
 
@@ -275,6 +277,54 @@ presents both the machine-dependence and its asymmetry as findings.
 > at identical clocks there is no CP-on-faster-core channel either. **Mechanism remains future
 > work:** `perf stat -e context-switches,migrations` on fnserver at 2 vs 8 cores.
 
+### 5.6 Four-platform comparison (2026-08-07, same 8-core box, c=4, REPEAT=5)
+
+OpenWhisk (standalone) and Knative (Serving v1.23 + Kourier on k3s v1.36, docker runtime) were
+added to the same protocol. All rows are full REPEAT=5 runs with per-run gate tables (delta ~0,
+coverage 100%, host_plausible true). **Read the attribution map and the contention caveat below
+before citing the absolute values — the *ordering* is the robust finding.**
+
+| platform | median `cp_dynamic_share_pct` | spread (min–max) | per-inv CP CPU | fn CPU/inv | host_sat% | energy citable? |
+|---|---|---|---|---|---|---|
+| OpenFaaS | **7.53** | 7.53 (ref) | 0.56 ms | 6.7 ms | 74–77 | yes (idle-w 4.3) |
+| Fn | **11.60–12.92** (day-dependent) | 9.80–11.74 (2026-08-05) | 0.79 ms | 5.6 ms | 74–77 | yes (idle-w 4.3) |
+| Knative | **13.99** | 13.22–14.24, CV 2.8% | ~1.1 ms | ~6.9 ms | 84–87 | no (rapl err 22–32%) |
+| OpenWhisk | **82.54** | 82.0–82.6 (runs 2–5) | ~26 ms | ~5.7 ms | 64–71 | no (rapl err 36%) |
+
+**Reading.** The container-visible control-plane share spans an order of magnitude: of-watchdog
+(per-replica, inside the function cgroup) 7.5 < fnserver (a dedicated broker process) ~12 <
+Knative's knative-serving + kourier gateway + activator ~14 < the standalone's JVM
+orchestrator+log-store 82.5. Fn and Knative are statistically tied on this box; OpenWhisk burns
+~6× the function CPU in orchestration.
+
+**Attribution map (must be printed next to the table).** Knative's *fn* bucket includes the
+per-replica **queue-proxy sidecar** (on the request path) AND the function; its *CP* bucket
+includes the **kourier gateway + svclb-kourier** (data-plane) + activator + controller/autoscaler/
+webhook/net-kourier-controller. OpenFaaS counts its of-watchdog proxy *in fn*. So the true
+OF-vs-Kn control-plane gap is even smaller than the raw 7.5-vs-14 suggests; the reported CP shares
+are per-platform *attribution conventions*, and the asymmetry is intentional (mirrors where the
+platform itself puts its proxy). The k3s **embedded control plane** (apiserver/etcd/scheduler/
+controller-manager) runs inside the `k3s server` process — invisible to the container sampler,
+lands in the host residual; a production cluster would bill it as shared infra, so the Knative CP
+share is a *container-visible* lower bound. OpenWhisk's CP is the standalone emulator's single JVM
+(controller + invoker + scheduler + log-store); its per-activation `docker logs` log-store is
+"control plane" here because the standalone ships it that way — how much is emulator artifact is
+the deployment-mode decision flagged in §5.
+
+**Idle-baseline finding.** Calibrated idle package power with the stack up, zero traffic: Fn/
+OpenFaaS 4.3 W; OpenWhisk 5.29 W; **Knative 11.14 W** — a k8s-native platform carries a ~7 W
+always-on baseline (16 warm replicas + 32 proxies + knative-serving + kourier) even fully idle.
+This is itself a citable sustainability observation and is why the linear busy-core energy model
+under-fits these stacks (rapl err 22–36% → energy/carbon NOT citable for OW/Kn; the share, a pure
+cgroup CPU-time ratio, is).
+
+**Contention caveat.** None of these sessions was run on a quiet box (the benchmark agent itself
+consumed ~2.8 cores during measurement). `cp_dynamic_share_pct` is contention-robust (a ratio of
+CPU-times over the same window) and was flat across runs as host load rose; but Knative host_sat
+84–87% (3/5 ≥85, flagged) and the OW/Kn QoS percentiles are **agent-contaminated — rerun on a
+quiet box before citing latency**. Fn/OF latency remains citable from the 2026-08-05 quiet c=4
+run (§5.5).
+
 ---
 
 ## 6. Discussion
@@ -293,7 +343,7 @@ presents both the machine-dependence and its asymmetry as findings.
 2. **Function CPU is a lower bound.** Function containers live 2–5 s and are only partially captured by the sparse nested-mount sampler (`sampling_covered_s` ranged 13–100% across runs; totals stay exact for *sampled* containers because of cumulative differencing). CP is exact (proven); treat `cpu_sec.function` as ≥ the reported value. Improves on bare metal.
 3. **Co-tenanted shared VM (codespace only).** Host-level metrics on the 2-vCPU codespace include neighbor noise; excluded from claims (definition unchanged: `orchestration_cpu_sec` is a host-wide residual, never presented as pure orchestration). The bare-metal 8-core box is dedicated, so host metrics there are clean; the cgroup-exact control-plane container share (`cp_dynamic_share_pct`) is the claim on both machines.
 4. **Contention-contaminated QoS (closed for bare-metal c=4).** On the codespace, `host_saturation_pct` ≈ 100% made latency percentiles reflect scheduler contention, not intrinsic platform overhead. On the 8-core box at c=4 (host_sat 74–77%) QoS is citable for the first time: Fn p50 6.5 / p99 8.9 ms @ 597 rps; OF p50 7.2 / p99 12.1 ms @ 532 rps; SLO 1.0. The c=8 quick runs (sat 91–93%) carry the `host_saturated` flag and their latency is NOT citable — consistent with the discipline that a saturated box measures reproducibly wrong.
-5. **Two platforms, two machines.** Fn and OpenFaaS are measured on both the 2-vCPU codespace and the 8-core bare-metal box. The discriminator's magnitude is machine-dependent (RQ3 answer, §5.5) — a bounded threat that is now quantified rather than unknown. OpenWhisk remains **[CANDID]**.
+5. **Four platforms, one machine, shared attribution caveat.** Fn, OpenFaaS, OpenWhisk and Knative are measured on the 8-core bare-metal box with the *same* instrument (§5.6), but the CP/fn attribution convention differs per platform (OF's of-watchdog in fn; Kn's queue-proxy in fn but kourier gateway in CP; OW's whole JVM as CP) — the reported share is a per-platform convention, so cross-platform share comparisons must cite the map. The discriminator's magnitude is machine-dependent (RQ3 answer, §5.5) — a bounded threat that is now quantified rather than unknown. OpenWhisk's share additionally depends on the standalone emulator's deployment mode (per-activation log-store) — flagged **[CANDID]** for the paper.
 6. **Control plane measured as one container** (`fnserver`), not decomposed into gateway/scheduler/queue sub-components. **[CANDID]**: profiling inside the control plane.
 7. **Model constants** (idle 30 W, 3.5 W/core, PUE 1.15, CI 150) are literature defaults; CI in particular is regional/temporal.
 8. **Two machines only; the machine-dependence is itself the new threat.** The share scales with machine capacity (~2.3× between 2-vCPU and 8-core; flat with load on a fixed machine). A third machine (e.g., a different core count / NUMA) would bound the trend; the paper must present the per-machine-pair gate so reviewers can apply the framework to their own hardware.
@@ -376,7 +426,7 @@ Full command log and historical decisions: `SAQEF_TECHNICAL_REPORT.md` §§3, 4,
 ## 10. Future Work
 
 1. ~~**OpenFaaS** (same function image, same protocol)~~ — **done (2026-08-05)**: gap 8.8 pp on the codespace, 2.8 pp on the 8-core box (per-machine-pair gate, §5.5).
-2. **OpenWhisk** (and optionally Fission) — cross-platform comparison.
+2. ~~**OpenWhisk + Knative — cross-platform comparison**~~ — **done (2026-08-07)**: four platforms on the same box (§5.6): OF 7.5 < Fn ≈ Knative 12–14 < OpenWhisk 82.5. Remaining for OW: decide how much of the standalone's per-activation log-store is "control plane" vs emulator artifact; quiet-box reruns for latency (all 2026-08-07 sessions ran under an active benchmark agent).
 3. ~~**Bare metal** (dual-boot Ubuntu) — RAPL ground truth~~ — **done (2026-08-05)**: RAPL-validated 4.2–8.2%, idle 4.3 W. Remaining: a *third* machine to bound the machine-dependence trend.
 4. **Control-plane decomposition** — which fnserver subcomponent (gateway, scheduler, freeze manager, watchers) costs what.
 5. **Cold-start vs warm** — `--interarrival-ms 1000` isolation experiment: the "carbon cost of elasticity."
