@@ -125,6 +125,36 @@ a contention-robust discriminator. Decision gate: platform gap in the share must
   bare-metal result above does that on a clean instrument) but still usable as the original
   "regime differs" observation. The expert-review Findings A/B resolutions (GIL concurrency
   parity) still stand independently.
+- **OpenWhisk adapter PROVEN end-to-end (2026-08-06 evening; commit after saqef-v2.1).**
+  `platforms/openwhisk.py` + `OW_FUNCTION/hello.py` pass deploy/verify/bench/gates and 26/26 tests.
+  Deployment = the Apache `openwhisk/standalone:nightly` image: the whole control plane is ONE
+  container (`cp=openwhisk`); the invoker spawns per-activation action containers from
+  `action-python-v3.11` (`fn_images`). Isolation: any swarm service or `fnserver` forbidden
+  (data-driven contract). Standalone's two `wsk0_*_prewarm_nodejs20` containers are invoker
+  warmup (excluded from fn_images, idle ~0%, land in unclassified fail-open).
+  - **Frozen-GET constraint:** the measurement harness is GET-only, OpenWhisk's native invoke is
+    POST → the action is a WEB ACTION: `GET http://127.0.0.1:3233/api/v1/web/guest/default/hello`
+    → HTTP 204 (blocking). Verify 100/100, `function_cpu_ms_per_inv=5.5` (budget MATCHES).
+  - **Rate-limit fix (expensive to learn):** the standalone defaults to **60 invokes/minute per
+    action** (`standalone.conf: limits-actions-invokes-perMinute=60`) → ~40% HTTP 429 at
+    concurrency 4, which silently corrupts verify AND bench availability. The key is enforced by
+    WhiskConfig from `whisk-config.limits.actions.invokes.perMinute` (the `whisk-config.`-prefix
+    dotted path — standalone.conf's kebab keys under `whisk.config` are a separate UNREAD path).
+    Override via `JVM_EXTRA_ARGS` (`/init` passes it into `java`): raised per-minute + concurrent
+    + trigger-fire limits to 1e9/1000. After the fix: 300/300 → 204.
+  - **Static docker CLI shadow-mount:** the standalone ships a 2018 docker client (API 1.38) that
+    host dockerd ≥29 rejects; `deploy()` mounts a modern STATIC CLI at `/usr/bin/docker`
+    (`vendor/docker`, gitignored, fetched from download.docker.com, cleaned up after extraction).
+  - **Proof bench** (quick, c=4, repeat=2, total=2000): `cp_dynamic_share_pct` **87.5 / 81.1**
+    (run_1/run_2), delta 0.0%, CPmapped 1/1, coverage 100%, availability 1.0, unclassified 0.0.
+    OpenWhisk's CP uses ~4–5× the function CPU steady-state (per-activation `docker logs` in the
+    standalone's DockerCliLogStoreProvider) → a real, defensible contrast vs Fn ~11.6 / OF ~7.7
+    shares. NOT yet a citable paper number: needs a full REPEAT=5 run + gates before citation, and
+    decide in the paper how much of the standalone's log-store overhead is "control plane" vs
+    deployment-mode artifact.
+  - `.gitignore` had CRLF line endings (broke the `vendor/docker` pattern); rewritten LF +
+    `vendor/` + `results/*_quick*/` guard. `results/verify.json` is a tracked working artifact —
+    revert before committing (OpenWhisk verify overwrote it).
 
 ## Bare-metal protocol (proven on this box)
 1. `sudo bash setup_baremetal.sh` (docker + CLIs + RAPL readable by the user).
@@ -202,8 +232,9 @@ cores (repeat per-platform, OpenFaaS first, same teardown discipline as above):
      (which ramped 9.8→11.7). fn_cpu_s identical (~56.7 s) both days. Full context in
      `metrics/cpubound.json` → `regression.reference_notes`. The gate is day-sensitive for Fn;
      it catches refactor-scale breaks (100%/0-success bugs), not ~0.5 pp box noise.
-3. **OpenWhisk as a NEW adapter**, tested in isolation only after the framework is proven on
-   fn+openfaas (don't mix abstraction bugs with platform bugs in one session).
+3. **OpenWhisk adapter — DONE (proven in isolation on 2026-08-06 after the framework passed
+   regression; see Current state).** If reused for a citable number: full REPEAT=5 run + gates, and
+   decide how much of the standalone's per-activation log-store overhead is "control plane".
 
 **Architecture decisions (agreed):**
 - Adapter-per-platform (`platforms/<name>.py`), metric-as-config (JSON recipes under `metrics/`,
