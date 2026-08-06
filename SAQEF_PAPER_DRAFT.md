@@ -201,12 +201,10 @@ The idle-dominance is itself a result: at this light load, **~94% of operational
 
 ### 5.5 Cross-platform, RAPL-validated results (bare metal, 2026-08-05)
 
-*Figures: `figures/figure1_share_by_regime.{png,pdf}` (share by regime),
-`figures/figure2_per_run_scatter.{png,pdf}` (all per-run values, honestly
-showing the bounded Fn drift), `figures/figure3_attribution_split.{png,pdf}`
-(CP / fn / unclassified CPU-time split). Regenerate with
-`python3 figures/make_figures.py` (data-driven; no script edits to add a
-platform or regime).*
+*Figure 1 — share by regime:* ![figure1](figures/figure1_share_by_regime.png)
+*Figure 2 — per-run scatter (all per-run values, honestly showing the bounded Fn drift):* ![figure2](figures/figure2_per_run_scatter.png)
+*Figure 3 — attribution split (CP / fn / unclassified CPU-time):* ![figure3](figures/figure3_attribution_split.png)
+*(PDF: `figures/figure*.pdf`; regenerate with `python3 figures/make_figures.py` — data-driven, no script edits.)*
 
 Same protocol on an 8-core Ubuntu box (RAPL-validated, idle 4.3 W): Fn vs OpenFaaS serving the
 identical 5 ms CPU-bound function, `c=4 < cpu_count=8`, `TOTAL=10000`, 5 runs, 16 static OF
@@ -286,8 +284,7 @@ presents both the machine-dependence and its asymmetry as findings.
 
 ### 5.6 Four-platform comparison (2026-08-07, same 8-core box, c=4, REPEAT=5)
 
-*Figure: `figures/figure4_four_platforms.{png,pdf}` (same-day ordering with
-the attribution footnote printed on the figure).*
+*Figure 4 — four-platform same-day ordering (attribution footnote on the figure):* ![figure4](figures/figure4_four_platforms.png)
 
 OpenWhisk (standalone) and Knative (Serving v1.23 + Kourier on k3s v1.36, docker runtime) were
 added to the same protocol. All rows are full REPEAT=5 runs with per-run gate tables (delta ~0,
