@@ -435,3 +435,77 @@ calibrated idle-w now per platform), §4.6 (N=5 + session medians + GIL parity),
 table" note for §5.1–5.4 QoS/attribution tables and Appendix A/B self-sufficiency pass; verify no
 codespace-era protocol numbers anywhere in §4–§5 (grep clean as of this session: only the §4.2
 origin row). Then update this file's "Current state" block, commit, push.
+
+## Future-work proposals (2026-08-07, user + agent agreed; design-only, no measurements yet)
+
+**Ordering rule:** all of these need a QUIET box and come AFTER the OW/Kn quiet reruns (§1 of the
+handoff) and the Fn-drift `perf stat` check. Nothing here is a priority over finishing the paper's
+remaining prose/tables.
+
+### A. Workload variation (highest new-science value)
+**Question it answers:** is the share / platform ordering a property of the *platform*, or of the
+5 ms CPU-bound spin specifically? A reviewer's first "so what" is "does this generalize?"
+**Design:** same protocol (c=4, TOTAL=10000, REPEAT=5, 16 static replicas, idle-w per platform),
+four platforms, three variants:
+- spin 1 ms and 20 ms (test the workload-anchoring sensitivity; the 5 ms spin was chosen because
+  a near-free function makes both ratio terms tiny — does the share hold at 1 ms or 20 ms?),
+- an I/O-bound function (e.g. `time.sleep(0.005)` — same wall duration, no busy CPU) to separate
+  "orchestration for the request" from "CPU anchoring", and
+- optionally a mixed 50/50 split to simulate a realistic service mix.
+**Success criterion:** ordering (OF < Fn ≈ Kn < OW) and the 2-core gap direction survive across
+variants; if the share collapses at 1 ms the workload-anchoring claim in §4.3 needs strengthening.
+**Cost:** pure function-image swap + rerun; no harness changes (the adapter recipe takes the new
+image via config). Keep old `hello` variants under `functions/` or a `WORKLOADS` dict.
+
+### B. Minimal strawman control plane (the "floor")
+**Purpose:** anchor the platform shares to a lower bound. Fn ≈ 12%, OW ≈ 82% are meaningless
+until we know the *minimum possible* share for the same handler on the same box. OpenFaaS (7.5%,
+of-watchdog proxy inside the function cgroup) already approximates it, so expect the floor to sit
+**below or near OF**; then "real orchestration tax" = platform − floor (e.g. Fn 12 − floor ≈ 4–5
+pp) becomes a citable number, and OW − floor is the emulator/deployment-mode overhead.
+**Design (dumbest possible):** nginx or haproxy in front of 16 *static* function replicas (the
+same 5 ms handler, plain HTTP server, no FaaS runtime). No scheduling, no spawn/freeze, no logs.
+CP = the proxy container only. Same protocol + gates. Caveat to record: a dumb reverse proxy is
+NOT a "serverless control plane" (no scale-to-zero, no scheduling) — its value is strictly as a
+reference floor, and it must preserve GIL parity (16 replicas, same handler). If the proxy floor
+lands within noise of OF, that *strengthens* OF's honesty claim; if it lands far below, it shows
+how much headroom a "lean" serverless CP has.
+**Deliverable:** one `platforms/proxy.py` adapter (deploy nginx + static replicas) + a
+`strawman` metric recipe. This is the natural seed for the carbon-aware CP in §C.
+
+### C. Carbon-aware control plane — the future-paper direction (user's ask)
+**Yes — we found concrete, fixable things, all measurable with this framework:**
+1. **Central-orchestrator contention under core scarcity (Fn).** Fn's share rose 10.46 → 13.91
+   (+33%) at 2 pinned cores while OF's per-replica model stayed flat (7.67 → 6.82). Mechanism
+   observed-not-explained (fnserver thread starvation), but the *design* lesson is concrete:
+   co-locating orchestration in per-replica proxies (of-watchdog style) is both cheaper
+   (0.56 vs 0.79 ms/inv) AND immune to the core-scarcity amplification. → **Design principle 1:
+   keep control-plane work per-replica/co-located, avoid a single central orchestrator on the
+   request path.**
+2. **Per-activation log-store reads (OpenWhisk).** OW's CP burns ~26 ms CPU *per invocation* and
+   the share is 82.5% — dominated by the standalone's `docker logs` read per activation
+   (DockerCliLogStoreProvider). Reading full logs per activation is O(container-spawn + log I/O)
+   per request — pure waste, zero QoS value. → **Design principle 2: structured/streaming log
+   collection (OTel-style), never per-activation `docker logs`; log volume is a first-class
+   carbon metric.**
+3. **Always-on idle baseline (Knative).** Kn carries ~7 W of always-on idle (11.14 W vs 4.3 W
+   bare: 16 warm replicas + 32 proxies + k8s + kourier) on top of a 1.1 ms/inv CP cost. A
+   scale-to-zero / low-idle policy is a real carbon lever, but it trades against cold-start
+   energy+latency. → **Design principle 3: an autoscaler with an explicit idle-watts budget and a
+   carbon-aware cold-start policy, evaluated with the exact idle-w measurement methodology this
+   study built (§4.5).**
+**Proposed future paper:** design + implement a minimal carbon-aware control plane embodying
+principles 1–3, then measure it against Fn/OF/Kn/OW with THIS harness (same box, same gates).
+The measurement framework — not the control plane — is the transferable artifact. It also gives
+the "improves QoS" angle: principle 1 removes contention-spike latency, principle 3 can be tuned
+to a QoS SLO budget.
+
+### D. Universal adapter — clarify the scope before starting
+The **measurement** side is already universal (metric-as-config recipes in `metrics/` + the
+data-driven isolation contract); deployment/verify will always be platform-bespoke (swarm vs k8s
+vs standalone are structurally different). A "universal adapter" therefore means: *one* adapter
+that can measure *any containerized control plane* from a JSON recipe (CP/fn image allowlists +
+isolation fields) without new Python code. All four current platforms are containerized, so this
+is achievable and would make platform N a 30-minute config job instead of a coding task. Do NOT
+start until the paper is out; this is refactor-for-refactor's-sake otherwise. If the strawman
+(§B) is built as `platforms/proxy.py`, that's already a 5th test of the adapter contract.
