@@ -16,12 +16,17 @@ been MEASURED as a controlled experiment -- this tool does it:
                 p50/p99, throughput; written to contamination_ab.json
 
 Run from a BARE bash shell with opencode/agents quit (the clean leg enforces
-this). REPEAT < 5 writes to a `_quick` outdir (never publish as headline);
-bump --repeat 5 if this becomes a §7 methodology figure.
+this). The synthetic load reproduces the DOCUMENTED 2026-08-07 incident
+profile: --cores spinners (default 3, pinned to distinct cores ~ 2.8-core
+opencode) + --mem-gb RSS (default 1.1, the real RSS). --repeat defaults to 5
+-- the same N>=5 discipline as every citable number in this study; a single
+A/B pair is NOT a bound. The dirty leg prints the achieved aggregate host
+busy% (target = cores / cpu_count) so a profile mismatch fails loud.
 
 Usage:
   python3 tools/contamination_ab.py --platform fn
-  python3 tools/contamination_ab.py --platform openfaas --repeat 5
+  python3 tools/contamination_ab.py --platform openfaas
+  python3 tools/contamination_ab.py --platform fn --repeat 3 --cores 2  # exploratory
 """
 
 import argparse
@@ -123,7 +128,7 @@ def main():
                     help="base outdir (default: results/<platform>_contamination_ab); "
                          "saqef's _quick suffix is appended when --repeat < 5")
     ap.add_argument("--total", type=int, default=3000)
-    ap.add_argument("--repeat", type=int, default=3)
+    ap.add_argument("--repeat", type=int, default=5, help="runs per leg (default 5; <5 -> _quick outdir, never citable)")
     ap.add_argument("--concurrency", type=int, default=4)
     ap.add_argument("--duration", type=int, default=120)
     ap.add_argument("--warmup", type=int, default=10)
@@ -134,6 +139,8 @@ def main():
 
     outdir = args.outdir or os.path.join("results", "%s_contamination_ab" % args.platform)
     resolved = outdir + "_quick" if args.repeat < 5 else outdir  # same _quick rule as saqef
+    if not os.path.isabs(resolved):
+        resolved = os.path.join(REPO, resolved)  # saqef writes into REPO (cwd=REPO); read back from there
     clean_dir = os.path.join(resolved, "clean")
     dirty_dir = os.path.join(resolved, "dirty")
 
@@ -144,8 +151,9 @@ def main():
     procs = spawn_agent_load(args.cores, args.mem_gb)
     try:
         achieved = measure_busy_pct(window_s=10)
-        print("[ab] achieved aggregate host busy: %.1f%% (target: ~%.1f%%)"
-              % (achieved or 0.0, args.cores * 100.0 / 8.0))
+        ncores = os.cpu_count() or 8
+        print("[ab] achieved aggregate host busy: %.1f%% (target: ~%.1f%% = %d/%d cores)"
+              % (achieved or 0.0, args.cores * 100.0 / ncores, args.cores, ncores))
         run_bench(args, dirty_dir, quiet_gate=False)
     finally:
         kill_procs(procs)
@@ -179,14 +187,16 @@ def main():
         delta = dv - cv
         print(fmt % (name, round(cv, 3), round(dv, 3), ("%+.3f" % delta)))
         report[name] = {"clean": cv, "dirty": dv, "delta": delta}
-    report["emulated_load"] = {"cores": args.cores, "mem_gb": args.mem_gb}
+    report["emulated_load"] = {"cores": args.cores, "mem_gb": args.mem_gb, "repeat": args.repeat}
     report["results_dir"] = resolved
     with open(os.path.join(resolved, "contamination_ab.json"), "w") as f:
         json.dump(report, f, indent=2)
     print("\nSaved report -> %s/contamination_ab.json" % resolved)
     print("\nInterpretation: this is the measured upper bound of 'opencode-style' "
-          "background-load contamination for %s on THIS box. It is a methodology "
-          "figure for §7, not a headline number (REPEAT<5 quick outdir)." % args.platform)
+          "background-load contamination for %s on THIS box (profile-matched to the "
+          "2026-08-07 incident: %d busy cores + %.1f GB RSS, N=%d/leg). It is a §7 "
+          "methodology figure -- the honest bound, NOT a number to correct headlines "
+          "by." % (args.platform, args.cores, args.mem_gb, args.repeat))
 
 
 if __name__ == "__main__":

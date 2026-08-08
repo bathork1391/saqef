@@ -25,6 +25,18 @@ import time
 import urllib.error
 import urllib.request
 
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def repo_script(name):
+    """Absolute path to a top-level repo file (e.g. a shell runner). The
+    adapters must NOT spawn 'bash run_saqef.sh' with a bare relative path: the
+    CLI can be invoked from any CWD (tools/run_contamination_ab.sh calls
+    '$REPO/saqef' while the user sits in tools/), and the subprocess would then
+    inherit a CWD where the script does not exist. Resolve against the repo
+    root from this file's own location instead."""
+    return os.path.join(REPO_ROOT, name)
+
 
 def run(cmd):
     return subprocess.run(cmd, shell=True, capture_output=True, text=True)

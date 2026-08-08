@@ -22,7 +22,7 @@ import subprocess
 import time
 
 from platforms.base import (Adapter, IsolationPolicy, container_names,
-                            wait_containers, wait_for_url)
+                            repo_script, wait_containers, wait_for_url)
 
 
 class OpenFaaSAdapter(Adapter):
@@ -82,7 +82,7 @@ class OpenFaaSAdapter(Adapter):
         # Mirrors run_openfaas.sh 'stack': swarm init + stack deploy + wait for
         # gateway. Returns once the whole 6-container control plane is visible
         # (run_openfaas.sh's own curl wait only proves the gateway is up).
-        r = subprocess.run(["bash", "run_openfaas.sh", "stack"], text=True)
+        r = subprocess.run(["bash", repo_script("run_openfaas.sh"), "stack"], text=True)
         if r.returncode != 0:
             raise RuntimeError("openfaas deploy: stack deploy failed (rc=%d)" % r.returncode)
         ok, names = wait_containers(expected=self.cp_containers,
@@ -133,7 +133,7 @@ class OpenFaaSAdapter(Adapter):
     def scale(self, replicas):
         env = dict(os.environ)
         env["SAQEF_REPLICAS"] = str(replicas)
-        r = subprocess.run(["bash", "run_openfaas.sh", "scale"], text=True, env=env)
+        r = subprocess.run(["bash", repo_script("run_openfaas.sh"), "scale"], text=True, env=env)
         if r.returncode != 0:
             raise RuntimeError("openfaas scale FAILED: is the 'hello' function service "
                                "deployed? run 'deploy_function' first (rc=%d)" % r.returncode)
