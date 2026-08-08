@@ -249,7 +249,10 @@ def cmd_run(args):
     cmd = ad.harness_argv(metric, total, concurrency, duration, warmup, repeat,
                           out, idle_w=args.idle_w,
                           cpu_count_override=args.cpu_count_override,
-                          host_cpu_list=args.host_cpu_list)
+                          host_cpu_list=args.host_cpu_list,
+                          no_quiet_gate=args.no_quiet_gate,
+                          ambient_window_s=args.ambient_window_s,
+                          max_ambient_cpu_pct=args.max_ambient_cpu_pct)
     run_sub(cmd, dry_run=args.dry_run)
     if not args.dry_run:
         gates_for(out)
@@ -380,6 +383,10 @@ def main(argv=None):
     p.add_argument("--idle-w", type=float, default=None)
     p.add_argument("--cpu-count-override", type=int, default=None)
     p.add_argument("--host-cpu-list", default=None)
+    p.add_argument("--no-quiet-gate", action="store_true",
+                   help="skip the pre-run ambient-load quiet check (exploratory / contamination A/B only)")
+    p.add_argument("--ambient-window-s", type=float, default=None)
+    p.add_argument("--max-ambient-cpu-pct", type=float, default=None)
     p.add_argument("--dry-run", action="store_true")
     p.set_defaults(func=cmd_run)
 

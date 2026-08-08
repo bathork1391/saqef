@@ -31,9 +31,23 @@ host contention through three second-order channels:
 - Energy/carbon + idle-w calibration: need a quiet box.
 
 **Fix / protocol:**
-- **Stop the agent and heavy desktop apps before any citable run.** From a bare
-  bash shell (or with opencode quit), confirm `uptime` load < ~0.5 and
-  `ps aux --sort=-%cpu | head` shows nothing > 5% CPU.
+- **Automated (added 2026-08-09):** the harness now runs an **ambient-load quiet
+  gate** before every bench — it samples whole-host busy CPU over a 20 s window
+  (`--ambient-window-s`) and **refuses to start** above `--max-ambient-cpu-pct`
+  (default 15%, ~1.2 cores on 8 — a 2.8-core agent reads ~35%). The reading and a
+  top-CPU `ps` snapshot are written into `summary.json` → `ambient`, so "quiet box"
+  is a *measured, self-certifying precondition*, not a manual assertion. Override
+  with `--no-quiet-gate` only for exploratory runs and the contamination A/B tool
+  (a citable run must never need it). Manual fallback for a bare-shell eyeball:
+  `uptime` load < ~0.5 and `ps aux --sort=-%cpu | head` shows nothing > 5% CPU.
+- **Measure the contamination bound (not just assume it):**
+  `python3 tools/contamination_ab.py --platform fn` runs the same bench with the
+  quiet gate active (clean leg) vs an emulated 3-core + 1.1 GB agent signature
+  (dirty leg, gate disabled) and reports the measured delta on
+  `cp_dynamic_share_pct`, `host_saturation_pct`, p50/p99, throughput → the honest
+  "how much does an agent-style load actually move our numbers on THIS box"
+  figure for §7. Run it from a bare shell with agents quit; REPEAT=3 default is a
+  `_quick` outdir (bump `--repeat 5` if it becomes a citable methodology figure).
 - Treat `host_saturation_pct` from any agent-attended session as unreliable.
 - When day-over-day Fn drift is observed, run a **same-day A/B** against the old
   runner (`run_saqef.sh all`) before trusting any reference or gate verdict.
@@ -201,6 +215,12 @@ an empty box is still the point of a "quiet-box" run, not just a passing gate).
 uptime                                  # load < ~0.5
 ps aux --sort=-%cpu | head              # nothing > 5% CPU
 docker ps --format '{{.Names}}'         # empty (incl. no leftover k8s_* / Knative pods)
+```
+
+Every `saqef run` below additionally enforces the **ambient-load quiet gate**
+(20 s window / 15% ceiling, runbook §1) and records the reading + top-CPU snapshot
+in the result dir's `summary.json` → `ambient` — so each citable result
+self-certifies that it was measured on a quiet box.
 
 # 1) regression gate (OF first, then Fn; calibrates nothing, uses idle_w=4.3)
 python3 saqef regression

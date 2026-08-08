@@ -205,6 +205,88 @@ def host_cpu_ticks():
         return None
 
 
+def host_cpu_busy_total():
+    """Return (busy_ticks, total_ticks) over the SAME core scope host_cpu_ticks
+    uses (whole machine, or --host-cpu-list cores when pinned), or None.
+    Used by the ambient-load quiet gate; kept separate from host_cpu_ticks so
+    the in-run host_saturation measurement path stays byte-identical."""
+    try:
+        with open("/proc/stat") as f:
+            lines = f.readlines()
+        if _HOST_CPU_LIST_OVERRIDE is not None:
+            wanted = {"cpu%d" % c for c in _HOST_CPU_LIST_OVERRIDE}
+            busy = total = 0
+            found = 0
+            for line in lines:
+                parts = line.split()
+                if parts and parts[0] in wanted:
+                    if len(parts) < 9:
+                        return None
+                    vals = [int(v) for v in parts[1:9]]
+                    busy += sum(vals) - vals[3] - vals[4]
+                    total += sum(vals)
+                    found += 1
+            return (busy, total) if found == len(wanted) else None
+        parts = lines[0].split()
+        if len(parts) < 9:
+            return None
+        vals = [int(v) for v in parts[1:9]]
+        return (sum(vals) - vals[3] - vals[4], sum(vals))
+    except Exception:
+        return None
+
+
+def ps_top_snapshot(n=8):
+    """Top-N CPU processes (ps aux --sort=-%cpu) for quiet-gate provenance.
+    Returns a list of header + n rows, or None."""
+    try:
+        out = subprocess.run(["ps", "aux", "--sort=-%cpu"],
+                             capture_output=True, text=True, timeout=15).stdout
+        lines = out.strip().splitlines()
+        return lines[:1 + n] if lines else None
+    except Exception:
+        return None
+
+
+def ambient_load_check(window_s, max_pct, quiet_gate=True):
+    """Measure whole-host background CPU over a window BEFORE any measurement
+    and fail loud if the box is not quiet -- the automated replacement for the
+    runbook's manual `uptime`/`ps aux` precondition.
+
+    Why: runbook §1 documents that a ~2.8-core background agent (opencode at
+    276% CPU, 1.1 GB RSS on 2026-08-07) contaminated host_saturation_pct and
+    drifted Fn's cp_dynamic_share_pct ~0.3-1 pp via cache pollution, context
+    switching, and DVFS -- second-order channels even the cgroup CPU-time ratio
+    is not immune to. busy_pct is 0..100 (100 = every logical core in scope
+    fully busy). Hard-fails above max_pct unless quiet_gate=False (exploratory
+    runs and the contamination A/B tool, which needs the dirty leg to run).
+
+    Returns (busy_pct, top_ps_snapshot) for provenance."""
+    t0 = host_cpu_busy_total()
+    time.sleep(window_s)
+    t1 = host_cpu_busy_total()
+    busy_pct = None
+    if t0 and t1:
+        d_busy = t1[0] - t0[0]
+        d_total = t1[1] - t0[1]
+        if d_total > 0:
+            busy_pct = d_busy / d_total * 100.0
+    top = ps_top_snapshot()
+    label = ("%.1f%%" % busy_pct) if busy_pct is not None else "n/a"
+    print("[quiet-gate] ambient host busy over %gs window: %s (threshold %.1f%%)"
+          % (window_s, label, max_pct))
+    if top:
+        print("[quiet-gate] top CPU processes:\n" + "\n".join(top))
+    if quiet_gate and busy_pct is not None and busy_pct > max_pct:
+        print("FATAL: box not quiet (ambient %.1f%% > %.1f%%). Background load "
+              "(agents incl. opencode, heavy apps) drifts the headline share "
+              "~0.5-1 pp even through the cgroup ratio (runbook §1). Quit "
+              "background processes and rerun, or pass --no-quiet-gate to "
+              "override (exploratory/contamination-AB only)." % (busy_pct, max_pct))
+        sys.exit(1)
+    return busy_pct, top
+
+
 def host_saturated_flag(sat_pct):
     """QoS-contamination flag for a host_saturation_pct value.
 
@@ -1461,6 +1543,14 @@ def main():
                     help="cross-validate sampler vs direct before/after cgroup counter of the CP container")
     ap.add_argument("--idle-probe", action="store_true",
                     help="platform up, zero traffic for --duration s: static orchestration baseline")
+    ap.add_argument("--no-quiet-gate", action="store_true",
+                    help="skip the pre-run ambient-load quiet check (runbook §1): exploratory runs and "
+                         "the contamination A/B tool only -- a citable run must self-certify a quiet box")
+    ap.add_argument("--ambient-window-s", type=float, default=20.0,
+                    help="seconds the quiet gate samples whole-host busy CPU before the bench")
+    ap.add_argument("--max-ambient-cpu-pct", type=float, default=15.0,
+                    help="quiet-gate ceiling: aggregate host busy%% over the window (100 = all cores) "
+                         "above which the run refuses to start; ~2.8 cores of opencode reads ~35%%")
     args = ap.parse_args()
 
     if args.cpu_count_override is not None:
@@ -1501,6 +1591,18 @@ def main():
         verify(args, cp_sub)
         sys.exit(0)
 
+    # Quiet-box precondition (runbook §1): measure whole-host background CPU
+    # once, BEFORE any measurement, and refuse to run if the box is not quiet.
+    # Idle-probe (idle-w calibration) is exempt: the platform stack itself is
+    # the 'load' under study and its steady-state CPU is legitimately nonzero.
+    ambient = {"window_s": args.ambient_window_s,
+               "threshold_pct": args.max_ambient_cpu_pct,
+               "quiet_gate_disabled": bool(args.no_quiet_gate)}
+    if not args.idle_probe:
+        ambient["load_pct"], ambient["top_cpu"] = ambient_load_check(
+            args.ambient_window_s, args.max_ambient_cpu_pct,
+            quiet_gate=not args.no_quiet_gate)
+
     if args.repeat > 1:
         os.makedirs(args.outdir, exist_ok=True)
         summaries = []
@@ -1515,6 +1617,7 @@ def main():
         with open(os.path.join(args.outdir, "runs.json"), "w") as f:
             json.dump(clean_json(summaries), f, indent=2)
         med = median_summary(summaries)
+        med["ambient"] = ambient
         med["repetitions"] = args.repeat
         med["spread_min_max"] = spread_of(summaries, [
             ("throughput_rps",), ("slo_compliance",),
@@ -1535,6 +1638,7 @@ def main():
         print("\nSaved runs to", os.path.abspath(args.outdir), "/")
     else:
         summary, all_snaps, reqs, ld = run_once(args, cp_sub)
+        summary["ambient"] = ambient
         write_run(args.outdir, summary, all_snaps, reqs)
         if ld is not None:
             with open(os.path.join(args.outdir, "hey.csv"), "w") as f:

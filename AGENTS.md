@@ -56,6 +56,36 @@ wording."** Disposition of each point:
   policy, median_summary rewrite) — OPEN, recommended before submission.** Track record: every
   prior pass found something real.
 
+## Current state (2026-08-09 — quiet-gate automation + contamination A/B, reviewer #5 follow-up)
+
+Reviewer #5 confirmed the runbook's own documentation: opencode at ~276% CPU / 1.1 GB RSS
+(2026-08-07) contaminated `host_saturation_pct` and drifted Fn's `cp_dynamic_share_pct`
+~0.3–1 pp via cache pollution / context switching / DVFS. "Quiet box" was a manual `uptime`/`ps`
+assertion — a hope, not a gate. Addressed:
+
+1. **Ambient-load quiet gate baked into the harness** (`ambient_load_check()`): samples whole-host
+   busy CPU over a 20 s window before every bench and **refuses to start** above
+   `--max-ambient-cpu-pct` (default 15%); reading + top-CPU `ps` snapshot land in `summary.json`
+   → `ambient`, so a citable run self-certifies a quiet box. Live-verified: with this session's
+   opencode + dockerd + k3s + chrome it read 19.5% and refused. `--no-quiet-gate` = exploratory /
+   contamination-AB only. Idle-probe (idle-w calibration) is exempt (the platform stack itself is
+   the subject). 3 new tests (47/47 pass).
+2. **Contamination A/B tool** (`tools/contamination_ab.py`): runs the same bench clean (gate
+   active) vs an emulated 3-core + 1.1 GB agent signature (gate disabled) and reports the
+   measured delta on `cp_dynamic_share_pct` / `host_saturation_pct` / p50/p99 / throughput →
+   the honest "how much does an agent-style load move our numbers on THIS box" figure for §7.
+   **Must be run from a bare shell with agents quit** (the clean leg enforces it). REPEAT=3 →
+   `_quick` outdir; bump `--repeat 5` if it becomes a citable methodology figure.
+3. **Flags threaded through the adapter layer** (`harness_argv` keyword args, default-preserving
+   → byte-identical argv tests still pass) and `saqef run --no-quiet-gate/--ambient-window-s/
+   --max-ambient-cpu-pct`.
+
+**Box task, next quiet session (bare shell, opencode quit):** (a) `tools/contamination_ab.py
+--platform fn` and `--platform openfaas` → §7 contamination bound; (b) re-anchor the Fn/OF
+regression references (11.60/7.67) via same-day old-runner A/B under the now-self-certifying
+gate (runbook §2/§3); (c) Knative idle-w N≥3 recalibration (finding #13). All three now produce
+results whose quiet provenance is in the data, not the prose.
+
 ## Current state (2026-08-08 independent reverification + 11 bugs found/fixed — READ THIS FIRST)
 
 A follow-up audit (independent of the agent that did the quiet-box reruns below) re-derived every
