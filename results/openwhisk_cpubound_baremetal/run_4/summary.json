@@ -2,43 +2,43 @@
   "platform": "openwhisk",
   "url": "http://127.0.0.1:3233/api/v1/web/guest/default/hello",
   "mode": "load",
-  "wall_s": 325.64,
-  "wall_harness_s": 325.64,
-  "sampling_covered_s": 325.64,
+  "wall_s": 254.34,
+  "wall_harness_s": 254.34,
+  "sampling_covered_s": 254.34,
   "requests": 10000,
   "successes": 10000,
   "availability": 1.0,
-  "throughput_rps": 30.71,
+  "throughput_rps": 39.32,
   "latency_ms": {
-    "p50": 127.8,
-    "p90": 160.2,
-    "p99": 185.7,
-    "max": 273.9
+    "p50": 99.6,
+    "p90": 122.0,
+    "p99": 143.2,
+    "max": 180.6
   },
   "slo_ms": 500.0,
   "slo_compliance": 1.0,
   "compliance_source": "hey_interp",
   "energy_J": {
-    "total": 2873.0,
-    "dynamic": 1149.1,
-    "control_plane": 948.4,
-    "function": 200.6
+    "total": 1999.5,
+    "dynamic": 1010.3,
+    "control_plane": 810.5,
+    "function": 199.8
   },
-  "cp_share_pct": 33.01,
-  "cp_dynamic_share_pct": 82.54,
+  "cp_share_pct": 40.54,
+  "cp_dynamic_share_pct": 80.23,
   "cpu_sec": {
-    "control_plane": 270.98,
-    "function": 57.32
+    "control_plane": 231.58,
+    "function": 57.08
   },
-  "cpu_sec_ceiling": 2605.08,
+  "cpu_sec_ceiling": 2034.75,
   "physical_plausible": true,
-  "unclassified_cpu_s": 0.04,
+  "unclassified_cpu_s": 0.0,
   "container_inventory": [
     "openwhisk",
     "wsk0_3_guest_hello",
     "wsk0_4_guest_hello",
-    "wsk0_6_guest_hello",
-    "wsk0_7_prewarm_nodejs20"
+    "wsk0_5_prewarm_nodejs20",
+    "wsk0_6_guest_hello"
   ],
   "container_labels": {
     "openwhisk": {
@@ -53,62 +53,62 @@
       "image": "openwhisk/action-python-v3.11:nightly",
       "labels": []
     },
+    "wsk0_5_prewarm_nodejs20": {
+      "image": "openwhisk/action-nodejs-v20:nightly",
+      "labels": []
+    },
     "wsk0_6_guest_hello": {
       "image": "openwhisk/action-python-v3.11:nightly",
       "labels": []
-    },
-    "wsk0_7_prewarm_nodejs20": {
-      "image": "openwhisk/action-nodejs-v20:nightly",
-      "labels": []
     }
   },
-  "cp_peak_mem_mb": 498.9,
+  "cp_peak_mem_mb": 507.1,
   "carbon_gCO2": {
-    "op_total": 0.138,
-    "op_control_plane": 0.045,
+    "op_total": 0.096,
+    "op_control_plane": 0.039,
     "idle_band": {
-      "15": 0.289,
-      "30": 0.523,
-      "45": 0.757
+      "15": 0.231,
+      "30": 0.414,
+      "45": 0.597
     }
   },
   "model": {
-    "idle_w": 5.294,
+    "idle_w": 3.889,
     "busy_core_w": 3.5,
     "pue": 1.15,
     "ci": 150.0
   },
   "sensitivity": {
     "cp_dynamic_share_pct_by_busy_w": {
-      "2.0": 82.54,
-      "3.5": 82.54,
-      "5.0": 82.54
+      "2.0": 80.23,
+      "3.5": 80.23,
+      "5.0": 80.23
     },
     "dynamic_energy_J_by_busy_w": {
-      "2.0": 656.6,
-      "3.5": 1149.1,
-      "5.0": 1641.5
+      "2.0": 577.3,
+      "3.5": 1010.3,
+      "5.0": 1443.3
     },
     "op_carbon_gCO2_by_busy_w": {
-      "2.0": 0.114,
-      "3.5": 0.138,
-      "5.0": 0.161
+      "2.0": 0.075,
+      "3.5": 0.096,
+      "5.0": 0.117
     }
   },
-  "kpi_gco2_per_slo_compliant_inv": 1.377e-05,
-  "kpi_gco2_per_inv_dynamic": 5.51e-06,
+  "kpi_gco2_per_slo_compliant_inv": 9.58e-06,
+  "kpi_gco2_per_inv_dynamic": 4.84e-06,
   "embodied_dram_g_per_gb_h": 0.0317,
-  "host_cpu_sec": 1827.31,
-  "host_window_s": 325.636,
-  "host_saturation_pct": 70.1,
+  "host_cpu_sec": 1137.69,
+  "host_window_s": 254.344,
+  "host_saturation_pct": 55.9,
   "host_plausible": true,
   "host_saturated": false,
-  "host_overhead_cpu_sec": 1499.0,
-  "orchestration_cpu_sec": 1769.99,
-  "orchestration_share_pct": 96.86,
+  "host_overhead_cpu_sec": 849.03,
+  "orchestration_cpu_sec": 1080.61,
+  "orchestration_share_pct": 94.98,
   "steal_sec": null,
   "steal_pct": null,
-  "cp_delta_sec": 270.983,
+  "cp_delta_sec": 231.58,
   "cp_sampler_vs_delta_pct": 0.0,
   "delta_check_map": {
     "openwhisk": "ok"
@@ -116,20 +116,20 @@
   "env": {
     "cpu_count": 8,
     "governor": "powersave",
-    "freq_mhz_before": 1932.9,
-    "freq_mhz_after": 1009.1,
+    "freq_mhz_before": 3349.0,
+    "freq_mhz_after": 3156.0,
     "sampler": "cgroup",
     "loadgen": "hey",
     "loadgen_requested": "hey",
     "loadgen_fallback": false
   },
-  "rapl_validation_err_pct": 41.24,
+  "rapl_validation_err_pct": 52.78,
   "rapl_available": true,
   "loadgen": {
     "source": "hey",
-    "rps": 30.737538003123547,
-    "avg_ms": 129.98,
+    "rps": 39.35176622532349,
+    "avg_ms": 101.57,
     "errors": 0,
-    "wall_s": 325.34
+    "wall_s": 254.12
   }
 }

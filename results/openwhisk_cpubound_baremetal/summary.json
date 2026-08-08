@@ -2,35 +2,35 @@
   "platform": "openwhisk",
   "url": "http://127.0.0.1:3233/api/v1/web/guest/default/hello",
   "mode": "load",
-  "wall_s": 261.01,
-  "wall_harness_s": 261.01,
-  "sampling_covered_s": 261.01,
+  "wall_s": 244.9,
+  "wall_harness_s": 244.9,
+  "sampling_covered_s": 244.9,
   "requests": 10000,
   "successes": 10000,
   "availability": 1.0,
-  "throughput_rps": 38.31,
+  "throughput_rps": 40.83,
   "latency_ms": {
-    "p50": 109.5,
-    "p90": 136.2,
-    "p99": 155.6,
-    "max": 269.9
+    "p50": 97.4,
+    "p90": 117.6,
+    "p99": 136.5,
+    "max": 195.9
   },
   "slo_ms": 500.0,
   "slo_compliance": 1.0,
   "compliance_source": "hey_interp",
   "energy_J": {
-    "total": 2601.9,
-    "dynamic": 1149.1,
-    "control_plane": 948.4,
-    "function": 200.8
+    "total": 1870.5,
+    "dynamic": 1010.3,
+    "control_plane": 810.5,
+    "function": 198.9
   },
-  "cp_share_pct": 36.68,
-  "cp_dynamic_share_pct": 82.54,
+  "cp_share_pct": 40.54,
+  "cp_dynamic_share_pct": 80.23,
   "cpu_sec": {
-    "control_plane": 270.98,
-    "function": 57.38
+    "control_plane": 231.58,
+    "function": 56.84
   },
-  "cpu_sec_ceiling": 2088.07,
+  "cpu_sec_ceiling": 1959.21,
   "physical_plausible": true,
   "unclassified_cpu_s": 0.0,
   "container_inventory": [
@@ -54,105 +54,105 @@
       "labels": []
     }
   },
-  "cp_peak_mem_mb": 538.9,
+  "cp_peak_mem_mb": 580.9,
   "carbon_gCO2": {
-    "op_total": 0.125,
-    "op_control_plane": 0.045,
+    "op_total": 0.09,
+    "op_control_plane": 0.039,
     "idle_band": {
-      "15": 0.241,
-      "30": 0.429,
-      "45": 0.616
+      "15": 0.22,
+      "30": 0.396,
+      "45": 0.572
     }
   },
   "model": {
-    "idle_w": 5.294,
+    "idle_w": 3.889,
     "busy_core_w": 3.5,
     "pue": 1.15,
     "ci": 150.0
   },
   "sensitivity": {
     "cp_dynamic_share_pct_by_busy_w": {
-      "2.0": 82.54,
-      "3.5": 82.54,
-      "5.0": 82.54
+      "2.0": 80.23,
+      "3.5": 80.23,
+      "5.0": 80.23
     },
     "dynamic_energy_J_by_busy_w": {
-      "2.0": 656.6,
-      "3.5": 1149.1,
-      "5.0": 1641.5
+      "2.0": 577.3,
+      "3.5": 1010.3,
+      "5.0": 1443.3
     },
     "op_carbon_gCO2_by_busy_w": {
-      "2.0": 0.097,
-      "3.5": 0.125,
-      "5.0": 0.155
+      "2.0": 0.071,
+      "3.5": 0.09,
+      "5.0": 0.108
     }
   },
-  "kpi_gco2_per_slo_compliant_inv": 1.247e-05,
-  "kpi_gco2_per_inv_dynamic": 5.51e-06,
+  "kpi_gco2_per_slo_compliant_inv": 8.96e-06,
+  "kpi_gco2_per_inv_dynamic": 4.84e-06,
   "embodied_dram_g_per_gb_h": 0.0317,
-  "host_cpu_sec": 1401.87,
-  "host_window_s": 261.01,
-  "host_saturation_pct": 69.7,
+  "host_cpu_sec": 867.97,
+  "host_window_s": 244.902,
+  "host_saturation_pct": 54.4,
   "host_plausible": true,
   "host_saturated": false,
-  "host_overhead_cpu_sec": 1077.16,
-  "orchestration_cpu_sec": 1344.58,
-  "orchestration_share_pct": 95.91,
+  "host_overhead_cpu_sec": 581.53,
+  "orchestration_cpu_sec": 811.13,
+  "orchestration_share_pct": 93.45,
   "steal_sec": null,
   "steal_pct": null,
-  "cp_delta_sec": 270.983,
-  "cp_sampler_vs_delta_pct": -0.0,
+  "cp_delta_sec": 231.58,
+  "cp_sampler_vs_delta_pct": 0.0,
   "delta_check_map": {
     "openwhisk": "ok"
   },
   "env": {
     "cpu_count": 8,
     "governor": "powersave",
-    "freq_mhz_before": 3887.9,
-    "freq_mhz_after": 2527.9,
+    "freq_mhz_before": 3349.0,
+    "freq_mhz_after": 3700.0,
     "sampler": "cgroup",
     "loadgen": "hey",
     "loadgen_requested": "hey",
     "loadgen_fallback": false
   },
-  "rapl_validation_err_pct": 36.31,
+  "rapl_validation_err_pct": 52.78,
   "rapl_available": true,
   "loadgen": {
     "source": "hey",
-    "rps": 38.349484218612,
-    "avg_ms": 104.26,
+    "rps": 40.87760957549829,
+    "avg_ms": 97.86,
     "errors": 0,
-    "wall_s": 260.76
+    "wall_s": 244.63
   },
   "repetitions": 5,
   "spread_min_max": {
     "throughput_rps": [
-      25.22,
-      47.29
+      31.22,
+      65.88
     ],
     "slo_compliance": [
       1.0,
       1.0
     ],
     "latency_ms.p50": [
-      83.8,
-      154.3
+      59.3,
+      126.0
     ],
     "latency_ms.p99": [
-      131.3,
-      230.3
+      111.6,
+      182.6
     ],
     "cp_dynamic_share_pct": [
-      82.0,
-      86.24
+      78.45,
+      82.71
     ],
     "cp_share_pct": [
-      29.34,
-      49.14
+      36.57,
+      54.39
     ],
     "energy_J.dynamic": [
-      1118.5,
-      1482.6
+      918.0,
+      1133.6
     ],
     "kpi_gco2_per_slo_compliant_inv": [
       0.0,
@@ -161,38 +161,38 @@
   },
   "bootstrap_ci": {
     "throughput_rps": [
-      25.22,
-      47.29
+      31.22,
+      65.88
     ],
     "slo_compliance": [
       1.0,
       1.0
     ],
     "latency_ms.p50": [
-      83.8,
-      154.3
+      59.3,
+      126.0
     ],
     "latency_ms.p99": [
-      131.3,
-      230.3
+      111.6,
+      182.6
     ],
     "cp_dynamic_share_pct": [
-      82.0,
-      86.24
+      78.45,
+      82.71
     ]
   },
   "cv_pct": {
-    "throughput_rps": 23.62,
+    "throughput_rps": 29.11,
     "slo_compliance": 0.0,
-    "latency_ms.p50": 24.11,
-    "latency_ms.p99": 24.07,
-    "cp_dynamic_share_pct": 2.1
+    "latency_ms.p50": 27.6,
+    "latency_ms.p99": 18.08,
+    "cp_dynamic_share_pct": 1.89
   },
   "iqr": {
-    "throughput_rps": 9.64,
+    "throughput_rps": 10.83,
     "slo_compliance": 0.0,
-    "latency_ms.p50": 31.1,
-    "latency_ms.p99": 47.2,
-    "cp_dynamic_share_pct": 0.26
+    "latency_ms.p50": 23.4,
+    "latency_ms.p99": 6.9,
+    "cp_dynamic_share_pct": 0.49
   }
 }
