@@ -187,11 +187,20 @@ not a bug (fixed 2026-08-08: `deploy()` no longer hardcodes the old revision num
 
 From a bare bash shell, **with opencode/agent stopped and desktop apps idle**:
 
+**Before step 1 or 2, also confirm no leftover Knative deployment is up**
+(`docker ps --format '{{.Names}}' | grep k8s_` should be empty, or run
+`python3 saqef teardown --platform knative` first) — k3s itself stays
+resident as the substrate, but a leftover `hello` ksvc's pods can silently
+misclassify into another platform's CPU accounting (fixed 2026-08-08: OpenFaaS's
+`cp_containers` no longer collides with `kourier-gateway`, and Fn/OpenFaaS/
+OpenWhisk's isolation policies now forbid any `k8s_`-prefixed container; but
+an empty box is still the point of a "quiet-box" run, not just a passing gate).
+
 ```bash
 # sanity: box quiet
 uptime                                  # load < ~0.5
 ps aux --sort=-%cpu | head              # nothing > 5% CPU
-docker ps --format '{{.Names}}'         # empty
+docker ps --format '{{.Names}}'         # empty (incl. no leftover k8s_* / Knative pods)
 
 # 1) regression gate (OF first, then Fn; calibrates nothing, uses idle_w=4.3)
 python3 saqef regression
@@ -201,13 +210,38 @@ python3 saqef deploy --platform openwhisk
 python3 saqef verify --platform openwhisk     # expect 100/100, ~5.3 ms/inv
 python3 -c "import time;p='/sys/class/powercap/intel-rapl:0/energy_uj';\
  e0=int(open(p).read())/1e6;time.sleep(60);e1=int(open(p).read())/1e6;\
- print('idle_w=%.3f'%((e1-e0)/60.0))"          # -> SAQEF_IDLE_W (was 5.294)
+ print('idle_w=%.3f'%((e1-e0)/60.0))"
+# ^ USE THE PRINTED VALUE, do not copy a number from this file: idle watts are
+# box-state, not a constant (this run measured 5.294 on 2026-08-07, 3.889 on
+# the 2026-08-08 quiet rerun -- same box, different day). Pasting an old
+# number here defeats the calibration step and silently reproduces a stale
+# baseline (this bug existed in this exact runbook until 2026-08-08 -- the
+# example below had literally hardcoded 5.294 right after telling you to
+# recalibrate it). Substitute <IDLE_W> with whatever just printed.
 python3 saqef run --platform openwhisk --metric cpubound \
   --total 10000 --concurrency 4 --duration 300 --warmup 20 --repeat 5 \
-  --idle-w 5.294 --out results/openwhisk_cpubound_baremetal
+  --idle-w <IDLE_W> --out results/openwhisk_cpubound_baremetal
 python3 saqef gates --out results/openwhisk_cpubound_baremetal
+
+# 3) Knative full run: calibrate idle-w WITH the knative+kourier+k3s stack up,
+# zero traffic (this stack's idle draw is ~2x the bare/OW-standalone baseline
+# -- 16 warm replicas + 32 proxies + knative-serving + kourier -- so do NOT
+# reuse the OpenWhisk idle-w above; measured 11.138 W on 2026-08-07 (agent-
+# contaminated box), 7.007 W on the 2026-08-08 quiet rerun. This section was
+# entirely missing from the runbook until 2026-08-08 despite a cited result
+# depending on it -- re-deriving it from scratch was the only way to
+# reproduce Knative's cp_dynamic_share_pct=11.40 / energy citability verdict.
+python3 saqef deploy --platform knative
+python3 saqef verify --platform knative       # expect 100/100, ~5 ms/inv
+python3 -c "import time;p='/sys/class/powercap/intel-rapl:0/energy_uj';\
+ e0=int(open(p).read())/1e6;time.sleep(60);e1=int(open(p).read())/1e6;\
+ print('idle_w=%.3f'%((e1-e0)/60.0))"
+python3 saqef run --platform knative --metric cpubound \
+  --total 10000 --concurrency 4 --duration 60 --warmup 20 --repeat 5 \
+  --idle-w <IDLE_W> --out results/knative_cpubound_baremetal
+python3 saqef gates --out results/knative_cpubound_baremetal
 ```
 
-Gates must show: delta% ~0, CPmapped 1/1 (OW) / 6/6 (OF), coverage 100%,
-`host_plausible=true`, `host_saturated=false` (else latency is not citable;
-the share still is — it is contention-robust).
+Gates must show: delta% ~0, CPmapped 1/1 (OW) / 6/6 (OF) / 15+/15+ (Kn),
+coverage 100%, `host_plausible=true`, `host_saturated=false` (else latency is
+not citable; the share still is — it is contention-robust).
