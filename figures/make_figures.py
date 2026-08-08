@@ -261,7 +261,7 @@ def figure4_cp_cost_per_inv(agg):
     """Control-plane CPU cost per invocation (ms CPU / inv), all four platforms.
 
     cp_cpu_s median per run / 10000 inv * 1000. This is the per-request
-    orchestration tax (of-watchdog 0.56, fnserver 0.79, Kn ~1.1, OW ~27) and
+    orchestration tax (of-watchdog 0.54, fnserver 0.75, Kn 0.86, OW 23.2) and
     does not duplicate any other figure.
     """
     rows = []

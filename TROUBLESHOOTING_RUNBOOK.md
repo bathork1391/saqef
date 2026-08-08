@@ -176,7 +176,7 @@ be stuck retrying `KillContainer` on stale pods with `DeadlineExceeded` (dockerd
 mid-restart) — `kubectl get pods` shows nothing but `docker ps` still shows the containers Up.
 These are orphaned (API objects already deleted); safe to force-remove directly:
 ```bash
-docker ps -a --format '{{.Names}}' | grep 'hello-NNNNN-deployment' | xargs -r -n1 -P8 docker rm -f
+docker ps -a --format '{{.Names}}' | grep 'hello-[0-9]*-deployment' | xargs -r -n1 -P8 docker rm -f
 ```
 Then `python3 saqef teardown --platform knative && python3 saqef deploy --platform knative` for a
 clean redeploy. Note the redeploy lands on a FRESH revision number (`hello-00001-...`, not
