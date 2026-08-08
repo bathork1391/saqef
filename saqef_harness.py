@@ -127,6 +127,27 @@ def rapl_max_range_j():
         return None
 
 
+def rapl_correct_wrap(raw_delta):
+    """Return (e_rapl, wrap_flag) for a raw RAPL (end - start) energy delta.
+
+    Corrects for the energy_uj counter's wraparound: a single wrap is corrected
+    exactly using rapl_max_range_j(); anything else (double wrap, or a
+    counter with no known range) is reported as uncertain and returns None --
+    fail-open, never a garbage validation number. wrap_flag is one of
+    'none' | 'corrected_single' | 'uncertain_double' | 'uncertain_no_range',
+    so a discarded reading is DISTINGUISHABLE in the output from "RAPL not
+    available" (rapl_available is a separate field)."""
+    if raw_delta is None or raw_delta >= 0:
+        return raw_delta, "none"
+    rng = rapl_max_range_j()
+    if not rng:
+        return None, "uncertain_no_range"
+    corrected = raw_delta + rng
+    if corrected < 0:
+        return None, "uncertain_double"
+    return corrected, "corrected_single"
+
+
 def env_frequency():
     """Return (freq_mhz, scaling_governor) or (None, None)."""
     mhz, gov = None, None
@@ -1088,15 +1109,9 @@ def run_once(args, cp_sub):
 
     # --- RAPL validation -------------------------------------------------------
     rapl_validation = None
+    rapl_wrap = "none"
     if rapl_start is not None and rapl_end is not None:
-        e_rapl = rapl_end - rapl_start
-        if e_rapl < 0:
-            # Counter wrapped (see rapl_max_range_j docstring). Correct for a
-            # single wrap if we know the range; otherwise the reading is
-            # untrustworthy -- report no validation rather than a garbage
-            # number, consistent with the fail-open discipline elsewhere.
-            rng = rapl_max_range_j()
-            e_rapl = e_rapl + rng if rng else None
+        e_rapl, rapl_wrap = rapl_correct_wrap(rapl_end - rapl_start)
         rapl_validation = (abs(e_total - e_rapl) / e_rapl * 100
                            if e_rapl is not None and e_rapl > 0 else None)
 
@@ -1168,6 +1183,7 @@ def run_once(args, cp_sub):
                 "loadgen_requested": args.loadgen,
                 "loadgen_fallback": bool(args.loadgen == "hey" and ld is None)},
         "rapl_validation_err_pct": round(rapl_validation, 2) if rapl_validation is not None else None,
+        "rapl_wrap": rapl_wrap,
         "rapl_available": rapl_start is not None,
     }
     if ld is not None:
@@ -1211,8 +1227,10 @@ def clean_json(obj):
 
 
 def median_summary(summaries):
-    """Median of numeric leaves (statistics.median semantics); first value for strings/None.
-    Non-finite values are skipped so a NaN from one run can't poison a median."""
+    """Median of numeric leaves (statistics.median semantics); dict and list leaves are
+    UNIONED across all runs (not first-run-only), so container pools that grow over a
+    session (OpenWhisk's wsk0_N numbering) keep every run's entries; first value for
+    strings/None. Non-finite values are skipped so a NaN from one run can't poison a median."""
     def med(vals):
         s = sorted(v for v in vals if v is not None and not (isinstance(v, float) and not math.isfinite(v)))
         n = len(s)
@@ -1245,6 +1263,22 @@ def median_summary(summaries):
                 sample = present[0][k]
                 if isinstance(sample, dict):
                     out[k] = rec([it[k] for it in present])
+                elif isinstance(sample, list):
+                    # Lists must be unioned the same way dicts are: the
+                    # container pool can grow run-to-run, so first-run-only
+                    # would silently drop later runs' entries from the
+                    # aggregate (the exact bug fixed for dicts above, applied
+                    # to container_inventory). Dedup, preserve first-seen
+                    # order, skip None/non-list values.
+                    merged, seen = [], set()
+                    for it in present:
+                        v = it[k]
+                        if isinstance(v, list):
+                            for item in v:
+                                if item not in seen:
+                                    seen.add(item)
+                                    merged.append(item)
+                    out[k] = merged
                 elif isinstance(sample, (int, float)):
                     out[k] = med([it[k] for it in present])
                 else:
