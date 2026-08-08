@@ -17,6 +17,136 @@ a contention-robust discriminator. Decision gate: platform gap in the share must
   `host_plausible` (must be true), `physical_plausible`, `host_sat%` (~100 on the codespace is
   the honest saturated-box flag, not a failure).
 
+## Current state (2026-08-08 independent reverification + 11 bugs found/fixed — READ THIS FIRST)
+
+A follow-up audit (independent of the agent that did the quiet-box reruns below) re-derived every
+headline number directly from `runs.json`/`summary.json` and re-read the harness/adapters/scripts
+line by line, specifically hunting for anything that could contaminate results. **Verdict: the
+headline numbers hold** (OW 80.23, Kn 11.40 reproduce exactly from raw data; CIs, CVs match) —
+but 11 real bugs were found, all fixed except where noted:
+
+1. **[confirmed active, ~0.1 pp impact]** OpenFaaS's `cp_containers` included a bare `"gateway"`
+   substring that collides with Knative's `kourier-gateway`/`3scale-kourier-gateway` pod
+   containers. Since k3s/Knative stays resident on this box across every platform's session, this
+   was silently folding leftover Kourier CPU into OpenFaaS's control-plane bucket — confirmed
+   present in all 5 `results/regression/openfaas` runs (`k8s_kourier-gateway_*` in the
+   `delta_check_map`, ~1.5% of `cp_cpu_s`). **Fixed:** `cp_containers` now prefixed
+   `"openfaas_gateway"` etc. (`platforms/openfaas.py`, `run_openfaas.sh`) — matches the same real
+   containers, no longer matches Kourier's.
+2. **[isolation gap, root cause of #1 and #3]** Fn/OpenFaaS/OpenWhisk's `IsolationPolicy` never
+   accounted for a leftover Knative/k3s deployment (Knative's own policy already forbids
+   fnserver/openwhisk/openfaas, but the reverse was never added when Knative became the 4th
+   platform). **Fixed:** all three now forbid any `k8s_`-prefixed container, both in the
+   data-driven adapter path and the harness's legacy shell-runner fallback.
+3. **[latent, currently masked by luck]** Fn's `fn_images=("hello",)` substring would match
+   Knative's function image `kn-hello` if a leftover Knative `hello` ksvc were up during an Fn
+   session. Currently harmless only because k3s-managed containers show a bare image digest in
+   `docker ps`, not the resolved tag — an incidental quirk, not a defense. Primary fix is #2 (a
+   leftover Knative deployment now fails loud before this could matter).
+4. **[docs, confirmed]** `TROUBLESHOOTING_RUNBOOK.md`'s quiet-box runbook calibrated idle-w live,
+   then the very next command hardcoded the OLD value (`--idle-w 5.294`) instead of the fresh
+   reading — following it literally would have reproduced the contaminated baseline. Also had zero
+   Knative-specific steps despite a cited result needing them. **Fixed:** placeholder + explicit
+   warning, plus the missing Knative section added.
+5. **[defensive, not currently triggered]** `rapl_energy()` did a naive two-point read with no
+   protection against the RAPL `energy_uj` counter's wraparound (a documented Linux powercap
+   hazard). This box's range is ~262 kJ (no wraparound at realistic power over even OW's 320 s
+   runs), but the code had zero defense for a smaller-range machine. **Fixed:** added
+   `rapl_max_range_j()` + single-wrap correction in `saqef_harness.py`.
+6. **[confirmed, cosmetic-but-real]** `median_summary()`'s dict-merge only kept keys present in
+   *every* run, silently dropping `delta_check_map`/`container_labels` entries for platforms whose
+   container names change run-to-run (OpenWhisk's `wsk0_N` pool grows over a session). **Fixed:**
+   now unions keys across all runs.
+7. **[structural, ~0 current impact]** OpenWhisk's fn/cp classification depends entirely on a
+   *single* post-run `docker_inventory()` snapshot (it has no `fn_containers` name fallback);
+   any action container recycled before that snapshot would misclassify as unclassified instead of
+   fn. **Fixed:** `run_once()` now unions a pre-run and post-run inventory snapshot.
+8. **[paper hygiene, high impact]** `SAQEF_PAPER_DRAFT.md` (§5.6, Appendix A/B, abstract, roadmap)
+   still cited the CONTAMINATED 2026-08-07 numbers (OW 82.54, Kn 13.99, Fn 12.27, OF 7.53)
+   throughout, even though this file's "Current state" already had the corrected quiet-box values.
+   **Fixed:** every table/prose reference synced to OF 7.62 / Fn 11.60 (today 11.01) / Kn 11.40 /
+   OW 80.23, with an explicit "superseded, do not cite" note on the old snapshot.
+9. **[methodology note]** `bootstrap_ci()` at N=5 is numerically close to raw min/max — CI-overlap
+   arguments (e.g. "OW's old and new CIs overlap, so it wasn't contamination") are weaker than they
+   read. The paper already had an IQR caveat for this; strengthened it with an explicit warning
+   about CI-overlap-only reasoning (§4.6).
+10. **[confirmed active, real]** The regression re-anchor session that produced the headline
+    **OF 7.62 / Fn 11.01** numbers has its OWN RAPL validation at **14–32% (OF) / 26–29% (Fn)** —
+    NOT the 4.2–8.2%/4.2–5.5% "citable" figure the paper attributes to Fn/OpenFaaS energy (which
+    is real, but comes from the separate `fn_cpubound_baremetal`/`openfaas_cpubound_baremetal`
+    sessions). Root cause: `saqef regression` reuses `metrics/cpubound.json`'s `idle_w=4.3`
+    forever and never recalibrates it — by 2026-08-08 that constant was stale for this box's
+    actual idle draw, exactly the same class of drift already documented for OW/Kn idle-w. **Fixed:**
+    `saqef gates` now prints a loud "RAPL FIT DEGRADED (>15%)" warning; the paper's energy-citable
+    flags no longer imply the regression session's energy is trustworthy.
+11. `platforms/base.py`'s `harness_argv()` used `if idle_w:`/`if cpu_count_override:` (truthy)
+    instead of `is not None` — an explicitly-passed `0` would silently be dropped and fall back to
+    the harness's wrong hardcoded default with no warning. **Fixed.**
+
+**What this does NOT change:** none of these bugs are large enough to move any headline
+conclusion (ordering, the 5 pp gate finding, OW's structural CP-heaviness, Kn's energy-citability
+reversal all stand).
+
+### Live rerun executed the same day (2026-08-08, immediately after the fixes above)
+
+All four platforms rerun on the actual box with the fixed code, back-to-back, same session:
+`saqef regression` (OF + Fn), then OpenWhisk full protocol, then Knative full protocol. Two bugs
+caught DURING this rerun that the static code review above missed:
+
+12. **[caught live, fixed immediately]** The isolation fix (bug #2 above) was initially written as
+    "forbid any `k8s_`-prefixed container." Live-tested against the box's actual leftover Knative
+    deployment: it correctly blocked Fn/OpenFaaS/OpenWhisk while `hello` was up — but ALSO
+    permanently blocked them even after `hello` was torn down, because k3s/Knative-serving's own
+    control plane (activator, kourier-gateway, coredns, ...) is *designed* to stay resident on this
+    box as "the substrate" (see the Knative adapter docstring). **Fixed:** narrowed
+    `forbidden_containers` to `("user-container", "queue-proxy")` — the two containers that only
+    exist when `hello` is actually deployed — in `platforms/fn.py`, `openfaas.py`, `openwhisk.py`,
+    and the harness's legacy fallback. Verified both directions live: blocks correctly with `hello`
+    up, passes correctly with only the idle substrate up.
+13. **[discovered live, not yet fixed — flag for next session]** Knative's "idle premium" claim
+    does not reproduce. The paper (post-fix-#8) said Knative carries a ~2.7 W always-on idle
+    premium over bare metal (11.14 W contaminated-session reading → 7.007 W "quiet" reading, both
+    vs Fn/OpenFaaS's 4.3 W). Today's live recalibration measured: bare k3s+Knative-serving+Kourier
+    substrate with NO `hello` deployed = **4.15 W and 4.23 W** (two repeated 60 s reads, consistent
+    with each other, statistically indistinguishable from Fn/OpenFaaS's 4.3 W bare baseline); WITH
+    `hello` deployed at 16 replicas = **4.906 W**. That is a real but much smaller premium (~0.5–0.8 W)
+    than the previously-reported ~2.7 W, and neither of today's readings resembles the earlier
+    7.007 W or 11.138 W figures. **Root cause (methodological, not a code bug):** `idle_w`
+    calibration is a *single* 60-second point-in-time RAPL read with no repeats, no median, no
+    CI/CV — unlike every other metric in this study (N=5 with bootstrap CI). A metric this small
+    (single-digit watts) is exactly the kind of measurement where a single point sample is fragile.
+    **Recommendation, not yet implemented:** upgrade idle-w calibration to N≥3 repeated 60s reads
+    with median + spread reported, for every platform, before trusting any "always-on idle premium"
+    number in the paper. Until then, treat the "Knative idle premium" narrative as **open, not
+    citable at the ~2.7 W figure** — today's data argues for something smaller, but a single day's
+    single readings aren't enough to replace one shaky number with another.
+
+**Final same-day, same-fixed-code numbers (2026-08-08, supersede everything above pending the
+idle-w methodology fix in #13):**
+- OpenFaaS (regression session): **7.14** (CI 7.07–7.25, CV 0.93%), p50 6.9 / p99 12.8 ms @ 537 rps.
+  Gate table clean: `CPmapped 6/6`, delta_check_map = exactly the 6 real OpenFaaS containers, zero
+  Kourier/k8s entries (bug #1 fix confirmed live).
+- Fn (regression session): **10.65** (CI 10.51–10.74, CV 0.85%), p50 6.4 / p99 9.2 ms @ 593 rps;
+  3-session aggregate (unchanged by today's leg) stays **11.60**.
+- Both Fn/OF **FAIL** `saqef regression`'s stale 11.60/7.67 reference (dev 0.95/0.53 pp) — expected,
+  documented day-to-day box drift (TROUBLESHOOTING_RUNBOOK.md §2/§3), not a refactor break: every
+  gate is green (delta≈0, host_plausible true, coverage 100%). Reference needs a same-day
+  old-runner A/B recalibration before the next session, per the existing (pre-dating this audit)
+  protocol — not done here to keep this session's scope bounded.
+- Knative: **12.44** (CI 12.12–12.97, CV 2.73%), p50 7.6 / p99 11.8 ms @ 494 rps, RAPL err 1.3–4.7%
+  (all 5 runs steady-state, no run_1 transient this time) — energy/carbon citable, cleanly.
+- OpenWhisk: **82.36** (CI 81.94–86.86, CV 2.44%), p50 113.6 / p99 182.0 ms @ 34.2 rps. Box was
+  measurably less quiet during this run (host_sat 56.6–69.7%, vs 42–56% two days ago — `dockerd`
+  itself ran at 45–64% CPU during the bench, consistent with the "per-activation `docker logs`"
+  hypothesis already in the paper) — still within the non-contamination gate (<85%) and the share
+  is contention-robust by construction, but flagged for transparency. RAPL err still 31–50%
+  (steady-state runs) — structural, confirmed again — except run_1 at an outlier 0.19%, a curiosity
+  not investigated further.
+- Figures regenerated (`figures/make_figures.py`) from this fresh data.
+
+Full test suite (38/38, updated for the isolation-policy changes, including the #12 narrowing) passes:
+`python3 -m unittest tests.test_saqef_cli`.
+
 ## Current state (2026-08-08 quiet-box reruns + 2 bugs fixed — READ THIS FIRST)
 - **Two real bugs found and fixed** while investigating why OW/Kn looked "fishy":
   1. **k3s dynamic serving cert can be issued with a `notBefore` in the future**
@@ -577,11 +707,16 @@ how much headroom a "lean" serverless CP has.
    per request — pure waste, zero QoS value. → **Design principle 2: structured/streaming log
    collection (OTel-style), never per-activation `docker logs`; log volume is a first-class
    carbon metric.**
-3. **Always-on idle baseline (Knative).** Kn carries ~7 W of always-on idle (11.14 W vs 4.3 W
-   bare: 16 warm replicas + 32 proxies + k8s + kourier) on top of a 1.1 ms/inv CP cost. A
-   scale-to-zero / low-idle policy is a real carbon lever, but it trades against cold-start
-   energy+latency. → **Design principle 3: an autoscaler with an explicit idle-watts budget and a
-   carbon-aware cold-start policy, evaluated with the exact idle-w measurement methodology this
+3. **Always-on idle baseline (Knative) — direction confirmed, magnitude UNRESOLVED (see 2026-08-08
+   evening rerun above, finding #13).** Kn's idle draw with 16 warm replicas up has read 11.14 W,
+   7.01 W, and 4.91 W across three single-sample calibrations (vs 4.3 W / 4.15-4.23 W bare, the
+   latter also single/double-sampled) — direction is consistently "some premium over bare metal"
+   but the size of that premium is NOT yet pinned down by a properly repeated measurement. Before
+   citing a specific W figure for this design principle, calibrate idle-w with N≥3 repeated reads
+   per condition. A scale-to-zero / low-idle policy is still a real carbon lever in direction, but
+   it trades against cold-start energy+latency. → **Design principle 3: an autoscaler with an
+   explicit idle-watts budget and a carbon-aware cold-start policy, evaluated with a properly
+   repeated version of the idle-w measurement methodology this
    study built (§4.5).**
 **Proposed future paper:** design + implement a minimal carbon-aware control plane embodying
 principles 1–3, then measure it against Fn/OF/Kn/OW with THIS harness (same box, same gates).
