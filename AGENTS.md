@@ -47,7 +47,9 @@ wording."** Disposition of each point:
   scoped absence") is already implemented: §5.6 labels it "OPEN, not citable at any specific W
   figure" and the abstract cites the three readings only as "some premium, not yet pinned down"
   (also §12). No paper edit needed; the remaining action is the N≥3 recalibration (box task,
-  pending a quiet session — see finding #13 below).
+  pending a quiet session — see finding #13 below). **RESOLVED 2026-08-09:** the N=5 protocol ran
+  (finding #13 CLOSED; §5.6 is now CLOSED, not OPEN — see "BOX TASK (a)+(b)+(c)" below for
+  3.871/4.561 W and the 0.690 W premium).
 - **n=1 machine (blocking B) — AGREED + REWORDED.** Contribution #3 and T5V #8 now say explicitly:
   core-count effect demonstrated on **one physical host via cpuset restriction** (instrument held
   fixed — that is the validity argument), a second physical machine is future work. **Reviewer's
@@ -62,7 +64,7 @@ wording."** Disposition of each point:
   reviewer who already knows the codebase pattern-matches instead of re-deriving, which defeats
   the purpose (this session counts as "reviewer #5, continued" from here on).
 
-## Current state (2026-08-09 — quiet-gate automation + contamination A/B, reviewer #5 follow-up)
+## Current state (2026-08-09 — box tasks (a)+(b)+(c) COMPLETE: quiet gate + contamination A/B + regression re-anchor verified + Knative idle-w N≥5; finding #13 CLOSED)
 
 Reviewer #5 confirmed the runbook's own documentation: opencode at ~276% CPU / 1.1 GB RSS
 (2026-08-07) contaminated `host_saturation_pct` and drifted Fn's `cp_dynamic_share_pct`
@@ -101,6 +103,60 @@ load-average check), otherwise the re-anchor is anchored against a session whose
 still being established — a subtle circularity. All three produce results whose quiet
 provenance is in the data, not the prose.
 
+**(b) executed 2026-08-09 — refs CONFIRMED, not corrected; script bug found+fixed.** Same-day
+old-runner A/B on the quiet box (self-certifying gate, ambient 5.6–5.9%): OpenFaaS **7.61**,
+Fn **11.49**, all gates green (`results/{of,fn}_cpubound_crosscheck_2026-08-09`). Both within
+~0.1 pp of the old references (7.67/11.60) — i.e. the 2026-08-08 regression FAILs (OF 7.14 /
+Fn 10.65) were that day's box drift, NOT a refactor break, and the old refs were right.
+References updated to 11.49/7.61 in `metrics/cpubound.json` (backup `.bak-2026-08-09`), so the
+gate is anchored to a same-day value. **Bug found:** `tools/reanchor_and_kn_idle.sh` ran the
+Fn old-runner leg (leaves `fnserver` up) then immediately invoked `saqef regression` — which
+starts with OpenFaaS, whose isolation guard correctly refuses while `fnserver` is present. The
+script therefore died at the verify step every full run, wasting the A/B. Fixed: added the Fn
+teardown before the regression verify, plus a `--skip-legs` mode (refs already applied → Fn
+teardown + regression verify + (c) only). Orchestration bug only — no measurement touched.
+Resume with: `bash tools/reanchor_and_kn_idle.sh --skip-legs --idle-reps 3`.
+
+**Post-hoc review of `tools/reanchor_and_kn_idle.sh` (2026-08-09, before running (c)) — 3 real
+bugs found + fixed, 1 maintainability fix, 1 doc nit:**
+1. **[confirmed, not yet triggered]** `rapl_w_series()` (used only by section (c), which has not
+   run yet) did a raw `(e1-e0)/60` RAPL delta with no wraparound guard — bypassing the
+   wrap-correction (`rapl_correct_wrap()`/`rapl_max_range_j()`) already built into
+   `saqef_harness.py` for exactly this hazard (finding #5, 2026-08-09 above). Ironic given (c)'s
+   whole point is fixing single-sample RAPL fragility at single-digit watts — the most
+   wrap-sensitive regime. **Fixed:** `rapl_w_series()` now imports `saqef_harness` directly and
+   discards/retries any wrapped/uncertain read instead of folding it into the median.
+2. **[gap, not yet triggered]** Section (b) never asserted the k3s/Knative substrate was actually
+   up before running the Fn/OpenFaaS legs — relying on it being permanent infra rather than
+   enforcing it, inconsistent with the isolation/quiet-gate self-certification discipline
+   elsewhere. Re-verified from `results/{fn,of}_cpubound_crosscheck_2026-08-09/summary.json`:
+   `k8s_*` substrate containers were present in both `container_inventory` with no
+   `user-container`/`queue-proxy`/`kn-hello` leftovers, so both already-banked legs were run
+   substrate-up and clean. **Fixed:** explicit `docker ps | grep k8s_` precondition check added at
+   the top of section (b); fails loud, same pattern as the isolation guard.
+3. **[latent since bug #3, 2026-08-08 — now actually closed, not just masked]** Fn/OpenFaaS's
+   `fn_images=("hello",)` still substring-matched Knative's `kn-hello` image (that bug was logged
+   2026-08-08 but left "masked by luck," never actually closed). **Fixed:**
+   `saqef_harness._class_matches()` now does exact repo-basename matching
+   (`_image_repo_basename()`: strip registry/path + tag, then require equality) for
+   `fn_images`/`cp_images`, closing this by construction instead of relying on the isolation guard
+   plus a docker/containerd digest-vs-tag quirk. Confirmed the two already-banked
+   2026-08-09 crosscheck runs were unaffected (no `kn-hello` pods were up during either leg).
+4. **[maintainability]** `check_isolation()`'s remediation advice was hardcoded to
+   `docker rm -f fnserver` / `docker service rm hello` regardless of which forbidden
+   container/service actually matched — wrong for a Knative-leftover failure on Fn/OpenFaaS/
+   OpenWhisk (3 of 4 adapters forbid `user-container`/`queue-proxy` too). **Fixed:** advice is now
+   a substring-keyed lookup (`platforms/base.py`: `_advice_for_container()`/`_advice_for_service()`).
+5. **[doc nit]** `saqef`'s help text described `scale` as OpenFaaS-only; Knative's adapter
+   implements the identical static-replica mechanism via `minScale`/`maxScale` annotations.
+   **Fixed:** help text now says "OpenFaaS, Knative".
+
+None of these touch banked headline numbers: bugs 1/4/5 never had a citable artifact to
+corrupt ((c) hasn't run yet; advice text and CLI help are cosmetic), and bug 3 is confirmed
+unreached in the two crosscheck runs banked so far. 47/47 tests pass
+(`python3 -m unittest tests.test_saqef_cli`). Section (c) (Knative idle-w N≥3, finding #13) still
+needs to be run — do that next with the now-fixed script.
+
 **Reviewer #5 follow-up on execution quality (2026-08-09) — AGREED, incorporated above:**
 (1) the A/B synthetic load must reproduce the documented incident profile (2.76 cores + 1.1 GB
 RSS), not a generic light stressor — now the tool default; (2) sequence the A/B BEFORE the
@@ -112,6 +168,73 @@ passes → four real bugs is the argument FOR independence); (4) n=1 machine —
 toward a genuinely distinct second box if the timeline has any give, since machine-pair
 dependence is the paper's central contribution; shipping the honestly-scoped n=1 is a
 legitimate fallback, not the preferred path. User's call.
+
+**Follow-up (2026-08-09, later same day) — same script, same pattern as the Fn/fnserver bug
+above, recurred for Knative.** `reanchor_and_kn_idle.sh --skip-legs --idle-reps 5` hit the
+OpenFaaS isolation guard again, this time on a leftover Knative `hello` ksvc (16 replicas'
+worth of queue-proxy/user-container pods) resident from a prior session — not created by this
+invocation (`--skip-legs` skips the bench legs). The script tore down Fn before `saqef
+regression` but not Knative; Knative teardown didn't run until section (c), which executes
+AFTER that verify. Post-hoc-review bug #2 (line ~127 above) had flagged that section (b) never
+asserted the substrate was up front but missed that the *teardown* side had the identical gap.
+**Fixed:** added `saqef teardown --platform knative` alongside the Fn teardown, before the
+regression verify. Unblocking the live run needed a manual `sudo python3 saqef teardown
+--platform knative` first; its own `wait_containers` 120s timeout fired while k3s was still
+draining the 16 pods (kubelet logged transient `KillContainer ... DeadlineExceeded` under that
+load), but the container count reached 0 about a minute after the WARNING printed —
+self-resolved, not the clock-skew orphan case in TROUBLESHOOTING_RUNBOOK.md's "Downstream
+gotcha" (that one needs a manual `docker rm -f`; this one didn't). No measurement touched.
+
+**BOX TASK (a)+(b)+(c) — ALL COMPLETE (2026-08-09, quiet box, bare shell).** This is the closing
+entry for the sequenced box-task list above; reviewer #5's "two loose ends" are now both closed
+with real, traced, re-derived numbers:
+
+- **(a) contamination A/B** — done 2026-08-08 (see below): Fn +2.2 pp / OpenFaaS +0.3 pp, N=5/leg.
+- **(b) regression re-anchor + verify — DONE, PASS.** Same-day old-runner A/B gave OpenFaaS
+  **7.61** / Fn **11.49** (refs applied to `metrics/cpubound.json`, backup `.bak-2026-08-09`); the
+  refactored path then reproduced them: `saqef regression` verdict fn **11.27** (dev 0.22 pp) /
+  openfaas **7.40** (dev 0.21 pp), tolerance 0.50 pp → **PASS both**. Tonight's full regression
+  gate table (all 5 runs/platform, delta ~0, CPmapped 6/6 & 1/1, coverage 100%, host_plausible
+  true, ambient gate 9.9% / 11.7% of a 15% ceiling) is the durable evidence, in
+  `results/regression/{openfaas,fn}` (2026-08-09 run, overwrote the 2026-08-08 sets in place).
+  Figures regenerated from the current data (`python3 figures/make_figures.py`): figure2/3/4 now
+  reflect Fn/OF's 2026-08-09 leg (figure2 OF 7.40, Fn 11.60 3-session; figure4 OF 0.53 ms/inv) and
+  the paper's §5.6/Appendix A captions + tables were synced to match (figure1 unchanged — its data
+  sources are the baremetal/2core sets, byte-identical render).
+- **(c) Knative idle-w N≥3 — DONE, finding #13 CLOSED.** `tools/reanchor_and_kn_idle.sh` (c)
+  section, 60 s RAPL reads with the wraparound-guarded `rapl_w_series()`:
+  - condition A (bare k3s+knative-serving+kourier, no `hello`): **median 3.871 W** (3.692–3.946, n=5)
+  - condition B (`hello` @ 16 replicas, exact bench-time stack): **median 4.561 W** (4.309–4.719, n=5)
+  - **premium B−A = 0.690 W** — a real but small always-on premium over the ~4.2–4.3 W
+    bare/Fn/OpenFaaS baseline, matching the earlier back-of-envelope decomposition (~4.2 W substrate
+    + ~0.7 W for the warm replicas) to within noise. This supersedes the three conflicting
+    single-sample readings (11.14 / 7.01 / 4.91 W) — **use the condition-B median (≈4.56 W) as
+    `--idle-w` for a Knative bench**, and the premium (≈0.69 W) is now the citable "Knative
+    always-on idle premium" figure for §5.6 / design-principle C3. Both conditions were
+    statistically well-behaved (spreads 0.25 W / 0.41 W, far tighter than the old single-sample
+    scatter).
+- **Corroborating note (idle-term-dominance hypothesis, direction only):** tonight's longer
+  regression runs (TOTAL=10000, ~17–19 s wall) show mostly clean RAPL fits — Fn 16.6/12.1/0.6/1.5/0.65,
+  OF 18.9/14.8/2.3/0.6/5.8 (only run_1 crosses the 15% degraded flag on each) — vs every run failing
+  at 20–55% on the earlier short contamination A/B legs (TOTAL=3000, ~5 s wall) with the same
+  `idle_w=4.3`. Directionally consistent with "light load → stale idle-w dominates the fit error";
+  one-line note in the paper, not proof (idle_w was not recalibrated tonight).
+- **What remains (reviewer #5 disposition):** (1) **cold review pass #6** on the four newest code
+  paths (Kn adapter, OW adapter, narrowed isolation policy, `median_summary` rewrite) — **still OPEN
+  and recommended before submission**, must be a genuinely fresh reviewer (fresh model session with
+  no prior context — not a continuation of this thread). **Use `EXPERT_REVIEW_PROMPT_COLD.md`** for
+  that review — it leaks zero prior findings. `EXPERT_REVIEW_PROMPT.md` is now the authors'
+  internal known-fix checklist (contains the expected answers; do NOT hand it to the fresh
+  reviewer). Commit the pending box-task work first, then set the pinned commit in the cold prompt.
+  (2) the **second physical machine**
+  decision (preferred if timeline allows; honestly-scoped n=1 is the fallback — wording already in
+  the paper, Contribution #3 + T5V #8); (3) OpenWhisk's **structural** energy-model mismatch
+  (31–50% RAPL err stable across all sessions — a linear-busy-core model does not fit the
+  standalone JVM) is named explicitly in the paper's Future Work as a separate, larger open item,
+  NOT treated as "the same calibration gap, just not gotten to yet." It was never in `saqef
+  regression`'s scope: that gate exists to prove the refactored CLI reproduces the *old-runner*
+  values for the two platforms with established tight references (fn/openfaas); OW has no old
+  runner and its open problem is not a calibration gap, so idle-w recalibration would not close it.
 
 ### Contamination A/B — BOTH LEGS DONE (2026-08-08 ~23:00 + rerun 2026-08-08, box quiet, N=5/leg)
 
@@ -847,14 +970,15 @@ how much headroom a "lean" serverless CP has.
    per request — pure waste, zero QoS value. → **Design principle 2: structured/streaming log
    collection (OTel-style), never per-activation `docker logs`; log volume is a first-class
    carbon metric.**
-3. **Always-on idle baseline (Knative) — direction confirmed, magnitude UNRESOLVED (see 2026-08-08
-   evening rerun above, finding #13).** Kn's idle draw with 16 warm replicas up has read 11.14 W,
-   7.01 W, and 4.91 W across three single-sample calibrations (vs 4.3 W / 4.15-4.23 W bare, the
-   latter also single/double-sampled) — direction is consistently "some premium over bare metal"
-   but the size of that premium is NOT yet pinned down by a properly repeated measurement. Before
-   citing a specific W figure for this design principle, calibrate idle-w with N≥3 repeated reads
-   per condition. A scale-to-zero / low-idle policy is still a real carbon lever in direction, but
-   it trades against cold-start energy+latency. → **Design principle 3: an autoscaler with an
+3. **Always-on idle baseline (Knative) — direction confirmed, magnitude now PINNED (2026-08-09).**
+   Kn's idle draw with 16 warm replicas up had read 11.14 W, 7.01 W, and 4.91 W across three
+   single-sample calibrations (vs 4.3 W / 4.15–4.23 W bare, the latter also single/double-sampled)
+   — direction was consistently "some premium over bare metal" but the size was not pinned down by
+   a properly repeated measurement. **Closed 2026-08-09:** the N=5 protocol (finding #13, §(c)
+   above) measured 3.871 W bare / 4.561 W with `hello` @ 16 replicas (medians, spreads 0.25/0.41 W)
+   → **premium = 0.690 W**, now the citable figure for this design principle (paper §5.6, §11). A
+   scale-to-zero / low-idle policy is still a real carbon lever in direction, but it trades against
+   cold-start energy+latency. → **Design principle 3: an autoscaler with an
    explicit idle-watts budget and a carbon-aware cold-start policy, evaluated with a properly
    repeated version of the idle-w measurement methodology this
    study built (§4.5).**

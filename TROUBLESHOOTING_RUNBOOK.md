@@ -244,18 +244,26 @@ python3 saqef run --platform openwhisk --metric cpubound \
 python3 saqef gates --out results/openwhisk_cpubound_baremetal
 
 # 3) Knative full run: calibrate idle-w WITH the knative+kourier+k3s stack up,
-# zero traffic (this stack's idle draw is ~2x the bare/OW-standalone baseline
-# -- 16 warm replicas + 32 proxies + knative-serving + kourier -- so do NOT
-# reuse the OpenWhisk idle-w above; measured 11.138 W on 2026-08-07 (agent-
-# contaminated box), 7.007 W on the 2026-08-08 quiet rerun. This section was
-# entirely missing from the runbook until 2026-08-08 despite a cited result
-# depending on it -- re-deriving it from scratch was the only way to
-# reproduce Knative's cp_dynamic_share_pct=11.40 / energy citability verdict.
+# zero traffic (this stack's idle draw is a bit above the bare/OW-standalone
+# baseline -- 16 warm replicas + 32 proxies + knative-serving + kourier -- so do
+# NOT reuse the OpenWhisk idle-w above). Use the N>=3 repeated-read protocol,
+# not a single 60 s read: single-sample Knative idle-w reads spanned 11.14 /
+# 7.01 / 4.91 W across three sessions (>2x) with no repeats -- that N=1
+# fragility is finding #13, closed 2026-08-09 by the N=5 protocol in
+# tools/reanchor_and_kn_idle.sh (c): bare substrate 3.871 W, with hello @ 16
+# replicas 4.561 W (medians), premium 0.690 W. Run the (c) section for the
+# fresh pair, or at minimum repeat the single-read calibration N>=3 and take
+# the median. This section was entirely missing from the runbook until
+# 2026-08-08 despite a cited result depending on it -- re-deriving it from
+# scratch was the only way to reproduce Knative's cp_dynamic_share_pct=11.40 /
+# energy citability verdict.
 python3 saqef deploy --platform knative
 python3 saqef verify --platform knative       # expect 100/100, ~5 ms/inv
 python3 -c "import time;p='/sys/class/powercap/intel-rapl:0/energy_uj';\
  e0=int(open(p).read())/1e6;time.sleep(60);e1=int(open(p).read())/1e6;\
  print('idle_w=%.3f'%((e1-e0)/60.0))"
+# ^ repeat 3+ times with the stack in the state you will bench (hello deployed
+# at 16 replicas), take the median, use THAT as <IDLE_W> below.
 python3 saqef run --platform knative --metric cpubound \
   --total 10000 --concurrency 4 --duration 60 --warmup 20 --repeat 5 \
   --idle-w <IDLE_W> --out results/knative_cpubound_baremetal

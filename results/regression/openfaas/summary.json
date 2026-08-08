@@ -2,54 +2,54 @@
   "platform": "openfaas",
   "url": "http://127.0.0.1:8080/function/hello",
   "mode": "load",
-  "wall_s": 18.63,
-  "wall_harness_s": 18.63,
-  "sampling_covered_s": 18.63,
+  "wall_s": 19.04,
+  "wall_harness_s": 19.04,
+  "sampling_covered_s": 19.04,
   "requests": 10000,
   "successes": 10000,
   "availability": 1.0,
-  "throughput_rps": 536.87,
+  "throughput_rps": 525.26,
   "latency_ms": {
-    "p50": 6.9,
-    "p90": 8.2,
-    "p99": 12.8,
-    "max": 20.4
+    "p50": 7.0,
+    "p90": 8.7,
+    "p99": 13.1,
+    "max": 22.1
   },
   "slo_ms": 500.0,
   "slo_compliance": 1.0,
   "compliance_source": "hey_interp",
   "energy_J": {
-    "total": 324.8,
-    "dynamic": 245.2,
-    "control_plane": 17.5,
-    "function": 227.6
+    "total": 331.3,
+    "dynamic": 248.9,
+    "control_plane": 18.4,
+    "function": 230.5
   },
-  "cp_share_pct": 5.38,
-  "cp_dynamic_share_pct": 7.14,
+  "cp_share_pct": 5.47,
+  "cp_dynamic_share_pct": 7.4,
   "cpu_sec": {
-    "control_plane": 4.99,
-    "function": 65.02
+    "control_plane": 5.27,
+    "function": 65.85
   },
-  "cpu_sec_ceiling": 149.01,
+  "cpu_sec_ceiling": 152.31,
   "physical_plausible": true,
-  "unclassified_cpu_s": 0.28,
+  "unclassified_cpu_s": 0.3,
   "container_inventory": [
-    "hello.1.qzoca70xp776z6k7rk1hill9g",
-    "hello.10.iio0pjzq3d7puw4i3m3bziuhd",
-    "hello.11.2unjjxlqnnldrx10d3pengned",
-    "hello.12.i98ur2kueqthxv06liir0zmau",
-    "hello.13.5syg31vj3x8813i2n9zc3qfp4",
-    "hello.14.6yw5a9xeqnle0gpwn8l119rot",
-    "hello.15.c9ua3mh4lrsvbbq7d4s7ksar7",
-    "hello.16.z7069rvpqu6rmp12byqtvyhaw",
-    "hello.2.uk823sdtg4jngl6fxjpybc0nf",
-    "hello.3.n1srynda9f11qbd6huexy7an3",
-    "hello.4.sa9ddkzb0evp6nd7v8ja43bot",
-    "hello.5.1paghay5tbjnwa1ktryrm97y6",
-    "hello.6.zp6pmcg81nsvg1n8v2x6rsvgm",
-    "hello.7.a1wqw7pzp9lynnidxi9fj14ci",
-    "hello.8.nu1e6ajxezyf2acd625eh1di3",
-    "hello.9.9g6mmag3y9j36zpdi2hogd5lm",
+    "hello.1.ursi0s6x1j5bgtqbo870qlb0i",
+    "hello.10.ldnlwujxmb4uk3dc2w5crrmuy",
+    "hello.11.pucndz3w0wm3opspaslu8xxk5",
+    "hello.12.up4wcz4wigggh4ujh6gztnfm6",
+    "hello.13.kl0ulwxcfjf5e9bqwlc0jki0h",
+    "hello.14.rxytpvzs4bcz37wfik3vb0v8p",
+    "hello.15.mj7155ewssx8v4k0g7zoc1d1e",
+    "hello.16.yhqh0rnpufze1nb8hs5cl0jhg",
+    "hello.2.zbvpkqk6o9hfqr343gjnwrk1f",
+    "hello.3.q9rnebciynh8wixc5vch41ypr",
+    "hello.4.peui068x88xuhro7d4kdua7df",
+    "hello.5.dfnssu2cixn430vbb0rtaws7z",
+    "hello.6.o59bjtyp5k6brg94vbhamnoe9",
+    "hello.7.t6qx8n3sitb4eb5gpylosr1f9",
+    "hello.8.sothx7fdny6rg6ralttsiadk4",
+    "hello.9.w53zstvzre4zxrhumfcneruux",
     "k8s_POD_3scale-kourier-gateway-d95dfffb6-z2zzz_kourier-system_69daf3cc-53df-449a-ba4e-12ca3f124bf1_1",
     "k8s_POD_activator-67cbcccdfb-t6cg7_knative-serving_af70f812-f578-45d9-aafe-c711ea35ebd4_1",
     "k8s_POD_autoscaler-847d45f498-rkvpp_knative-serving_ec82673b-6dc8-472a-9e8a-04e02f65f117_1",
@@ -71,187 +71,187 @@
     "k8s_local-path-provisioner_local-path-provisioner-58d557dc48-p9j96_kube-system_7fd6cb3b-fa1b-4cf6-91b8-2dc48f5ebd0f_1",
     "k8s_metrics-server_metrics-server-6dc596dfb8-46tvx_kube-system_b8abf359-78cf-46b7-afb3-a3cf654e93c0_1",
     "k8s_webhook_webhook-7d56465b69-khwt8_knative-serving_a7b84bd9-4373-4bbe-843a-0e2fb9c788d8_1",
-    "openfaas_alertmanager.1.px9dv15jic5rc8450baxx7ne6",
-    "openfaas_faas-swarm.1.zrdqgyp3vzn10o3hbekcanj7e",
-    "openfaas_gateway.1.c15yprmwxl42uuhdvl78yytyb",
-    "openfaas_nats.1.jl5ow37vnruxqu9hlnkaid6ov",
-    "openfaas_prometheus.1.mkpx01jdbefuc1uqddcwtjha1",
-    "openfaas_queue-worker.1.xpez4jfw9wejafid9aszw4xkw"
+    "openfaas_alertmanager.1.xng87oiruf46ksuio6fhcqg3g",
+    "openfaas_faas-swarm.1.8ymuj8zvyar9mvxm4486c9gzj",
+    "openfaas_gateway.1.akajq11xkk4qe5vptnjxozhun",
+    "openfaas_nats.1.c86o3vu1ez9rrka0osmv7ov6c",
+    "openfaas_prometheus.1.nlluskstzdts3piyvhudc7scx",
+    "openfaas_queue-worker.1.ns4an0kcjdj3vhfxrplgdhhci"
   ],
   "container_labels": {
-    "hello.1.qzoca70xp776z6k7rk1hill9g": {
+    "hello.1.ursi0s6x1j5bgtqbo870qlb0i": {
       "image": "hello:latest",
       "labels": [
         "com.docker.swarm.node.id=um81p3fox793t97gw5y94zn75",
-        "com.docker.swarm.service.id=e4zcxp3yljp5ku72of2jwr9x0",
+        "com.docker.swarm.service.id=trj615sm9zbf6gyhc82543oip",
         "com.docker.swarm.service.name=hello",
-        "com.docker.swarm.task.id=qzoca70xp776z6k7rk1hill9g",
-        "com.docker.swarm.task.name=hello.1.qzoca70xp776z6k7rk1hill9g",
+        "com.docker.swarm.task.id=ursi0s6x1j5bgtqbo870qlb0i",
+        "com.docker.swarm.task.name=hello.1.ursi0s6x1j5bgtqbo870qlb0i",
         "com.docker.swarm.task="
       ]
     },
-    "hello.10.iio0pjzq3d7puw4i3m3bziuhd": {
+    "hello.10.ldnlwujxmb4uk3dc2w5crrmuy": {
       "image": "hello:latest",
       "labels": [
         "com.docker.swarm.node.id=um81p3fox793t97gw5y94zn75",
-        "com.docker.swarm.service.id=e4zcxp3yljp5ku72of2jwr9x0",
+        "com.docker.swarm.service.id=trj615sm9zbf6gyhc82543oip",
         "com.docker.swarm.service.name=hello",
-        "com.docker.swarm.task.id=iio0pjzq3d7puw4i3m3bziuhd",
-        "com.docker.swarm.task.name=hello.10.iio0pjzq3d7puw4i3m3bziuhd",
+        "com.docker.swarm.task.id=ldnlwujxmb4uk3dc2w5crrmuy",
+        "com.docker.swarm.task.name=hello.10.ldnlwujxmb4uk3dc2w5crrmuy",
         "com.docker.swarm.task="
       ]
     },
-    "hello.11.2unjjxlqnnldrx10d3pengned": {
+    "hello.11.pucndz3w0wm3opspaslu8xxk5": {
       "image": "hello:latest",
       "labels": [
         "com.docker.swarm.node.id=um81p3fox793t97gw5y94zn75",
-        "com.docker.swarm.service.id=e4zcxp3yljp5ku72of2jwr9x0",
+        "com.docker.swarm.service.id=trj615sm9zbf6gyhc82543oip",
         "com.docker.swarm.service.name=hello",
-        "com.docker.swarm.task.id=2unjjxlqnnldrx10d3pengned",
-        "com.docker.swarm.task.name=hello.11.2unjjxlqnnldrx10d3pengned",
+        "com.docker.swarm.task.id=pucndz3w0wm3opspaslu8xxk5",
+        "com.docker.swarm.task.name=hello.11.pucndz3w0wm3opspaslu8xxk5",
         "com.docker.swarm.task="
       ]
     },
-    "hello.12.i98ur2kueqthxv06liir0zmau": {
+    "hello.12.up4wcz4wigggh4ujh6gztnfm6": {
       "image": "hello:latest",
       "labels": [
         "com.docker.swarm.node.id=um81p3fox793t97gw5y94zn75",
-        "com.docker.swarm.service.id=e4zcxp3yljp5ku72of2jwr9x0",
+        "com.docker.swarm.service.id=trj615sm9zbf6gyhc82543oip",
         "com.docker.swarm.service.name=hello",
-        "com.docker.swarm.task.id=i98ur2kueqthxv06liir0zmau",
-        "com.docker.swarm.task.name=hello.12.i98ur2kueqthxv06liir0zmau",
+        "com.docker.swarm.task.id=up4wcz4wigggh4ujh6gztnfm6",
+        "com.docker.swarm.task.name=hello.12.up4wcz4wigggh4ujh6gztnfm6",
         "com.docker.swarm.task="
       ]
     },
-    "hello.13.5syg31vj3x8813i2n9zc3qfp4": {
+    "hello.13.kl0ulwxcfjf5e9bqwlc0jki0h": {
       "image": "hello:latest",
       "labels": [
         "com.docker.swarm.node.id=um81p3fox793t97gw5y94zn75",
-        "com.docker.swarm.service.id=e4zcxp3yljp5ku72of2jwr9x0",
+        "com.docker.swarm.service.id=trj615sm9zbf6gyhc82543oip",
         "com.docker.swarm.service.name=hello",
-        "com.docker.swarm.task.id=5syg31vj3x8813i2n9zc3qfp4",
-        "com.docker.swarm.task.name=hello.13.5syg31vj3x8813i2n9zc3qfp4",
+        "com.docker.swarm.task.id=kl0ulwxcfjf5e9bqwlc0jki0h",
+        "com.docker.swarm.task.name=hello.13.kl0ulwxcfjf5e9bqwlc0jki0h",
         "com.docker.swarm.task="
       ]
     },
-    "hello.14.6yw5a9xeqnle0gpwn8l119rot": {
+    "hello.14.rxytpvzs4bcz37wfik3vb0v8p": {
       "image": "hello:latest",
       "labels": [
         "com.docker.swarm.node.id=um81p3fox793t97gw5y94zn75",
-        "com.docker.swarm.service.id=e4zcxp3yljp5ku72of2jwr9x0",
+        "com.docker.swarm.service.id=trj615sm9zbf6gyhc82543oip",
         "com.docker.swarm.service.name=hello",
-        "com.docker.swarm.task.id=6yw5a9xeqnle0gpwn8l119rot",
-        "com.docker.swarm.task.name=hello.14.6yw5a9xeqnle0gpwn8l119rot",
+        "com.docker.swarm.task.id=rxytpvzs4bcz37wfik3vb0v8p",
+        "com.docker.swarm.task.name=hello.14.rxytpvzs4bcz37wfik3vb0v8p",
         "com.docker.swarm.task="
       ]
     },
-    "hello.15.c9ua3mh4lrsvbbq7d4s7ksar7": {
+    "hello.15.mj7155ewssx8v4k0g7zoc1d1e": {
       "image": "hello:latest",
       "labels": [
         "com.docker.swarm.node.id=um81p3fox793t97gw5y94zn75",
-        "com.docker.swarm.service.id=e4zcxp3yljp5ku72of2jwr9x0",
+        "com.docker.swarm.service.id=trj615sm9zbf6gyhc82543oip",
         "com.docker.swarm.service.name=hello",
-        "com.docker.swarm.task.id=c9ua3mh4lrsvbbq7d4s7ksar7",
-        "com.docker.swarm.task.name=hello.15.c9ua3mh4lrsvbbq7d4s7ksar7",
+        "com.docker.swarm.task.id=mj7155ewssx8v4k0g7zoc1d1e",
+        "com.docker.swarm.task.name=hello.15.mj7155ewssx8v4k0g7zoc1d1e",
         "com.docker.swarm.task="
       ]
     },
-    "hello.16.z7069rvpqu6rmp12byqtvyhaw": {
+    "hello.16.yhqh0rnpufze1nb8hs5cl0jhg": {
       "image": "hello:latest",
       "labels": [
         "com.docker.swarm.node.id=um81p3fox793t97gw5y94zn75",
-        "com.docker.swarm.service.id=e4zcxp3yljp5ku72of2jwr9x0",
+        "com.docker.swarm.service.id=trj615sm9zbf6gyhc82543oip",
         "com.docker.swarm.service.name=hello",
-        "com.docker.swarm.task.id=z7069rvpqu6rmp12byqtvyhaw",
-        "com.docker.swarm.task.name=hello.16.z7069rvpqu6rmp12byqtvyhaw",
+        "com.docker.swarm.task.id=yhqh0rnpufze1nb8hs5cl0jhg",
+        "com.docker.swarm.task.name=hello.16.yhqh0rnpufze1nb8hs5cl0jhg",
         "com.docker.swarm.task="
       ]
     },
-    "hello.2.uk823sdtg4jngl6fxjpybc0nf": {
+    "hello.2.zbvpkqk6o9hfqr343gjnwrk1f": {
       "image": "hello:latest",
       "labels": [
         "com.docker.swarm.node.id=um81p3fox793t97gw5y94zn75",
-        "com.docker.swarm.service.id=e4zcxp3yljp5ku72of2jwr9x0",
+        "com.docker.swarm.service.id=trj615sm9zbf6gyhc82543oip",
         "com.docker.swarm.service.name=hello",
-        "com.docker.swarm.task.id=uk823sdtg4jngl6fxjpybc0nf",
-        "com.docker.swarm.task.name=hello.2.uk823sdtg4jngl6fxjpybc0nf",
+        "com.docker.swarm.task.id=zbvpkqk6o9hfqr343gjnwrk1f",
+        "com.docker.swarm.task.name=hello.2.zbvpkqk6o9hfqr343gjnwrk1f",
         "com.docker.swarm.task="
       ]
     },
-    "hello.3.n1srynda9f11qbd6huexy7an3": {
+    "hello.3.q9rnebciynh8wixc5vch41ypr": {
       "image": "hello:latest",
       "labels": [
         "com.docker.swarm.node.id=um81p3fox793t97gw5y94zn75",
-        "com.docker.swarm.service.id=e4zcxp3yljp5ku72of2jwr9x0",
+        "com.docker.swarm.service.id=trj615sm9zbf6gyhc82543oip",
         "com.docker.swarm.service.name=hello",
-        "com.docker.swarm.task.id=n1srynda9f11qbd6huexy7an3",
-        "com.docker.swarm.task.name=hello.3.n1srynda9f11qbd6huexy7an3",
+        "com.docker.swarm.task.id=q9rnebciynh8wixc5vch41ypr",
+        "com.docker.swarm.task.name=hello.3.q9rnebciynh8wixc5vch41ypr",
         "com.docker.swarm.task="
       ]
     },
-    "hello.4.sa9ddkzb0evp6nd7v8ja43bot": {
+    "hello.4.peui068x88xuhro7d4kdua7df": {
       "image": "hello:latest",
       "labels": [
         "com.docker.swarm.node.id=um81p3fox793t97gw5y94zn75",
-        "com.docker.swarm.service.id=e4zcxp3yljp5ku72of2jwr9x0",
+        "com.docker.swarm.service.id=trj615sm9zbf6gyhc82543oip",
         "com.docker.swarm.service.name=hello",
-        "com.docker.swarm.task.id=sa9ddkzb0evp6nd7v8ja43bot",
-        "com.docker.swarm.task.name=hello.4.sa9ddkzb0evp6nd7v8ja43bot",
+        "com.docker.swarm.task.id=peui068x88xuhro7d4kdua7df",
+        "com.docker.swarm.task.name=hello.4.peui068x88xuhro7d4kdua7df",
         "com.docker.swarm.task="
       ]
     },
-    "hello.5.1paghay5tbjnwa1ktryrm97y6": {
+    "hello.5.dfnssu2cixn430vbb0rtaws7z": {
       "image": "hello:latest",
       "labels": [
         "com.docker.swarm.node.id=um81p3fox793t97gw5y94zn75",
-        "com.docker.swarm.service.id=e4zcxp3yljp5ku72of2jwr9x0",
+        "com.docker.swarm.service.id=trj615sm9zbf6gyhc82543oip",
         "com.docker.swarm.service.name=hello",
-        "com.docker.swarm.task.id=1paghay5tbjnwa1ktryrm97y6",
-        "com.docker.swarm.task.name=hello.5.1paghay5tbjnwa1ktryrm97y6",
+        "com.docker.swarm.task.id=dfnssu2cixn430vbb0rtaws7z",
+        "com.docker.swarm.task.name=hello.5.dfnssu2cixn430vbb0rtaws7z",
         "com.docker.swarm.task="
       ]
     },
-    "hello.6.zp6pmcg81nsvg1n8v2x6rsvgm": {
+    "hello.6.o59bjtyp5k6brg94vbhamnoe9": {
       "image": "hello:latest",
       "labels": [
         "com.docker.swarm.node.id=um81p3fox793t97gw5y94zn75",
-        "com.docker.swarm.service.id=e4zcxp3yljp5ku72of2jwr9x0",
+        "com.docker.swarm.service.id=trj615sm9zbf6gyhc82543oip",
         "com.docker.swarm.service.name=hello",
-        "com.docker.swarm.task.id=zp6pmcg81nsvg1n8v2x6rsvgm",
-        "com.docker.swarm.task.name=hello.6.zp6pmcg81nsvg1n8v2x6rsvgm",
+        "com.docker.swarm.task.id=o59bjtyp5k6brg94vbhamnoe9",
+        "com.docker.swarm.task.name=hello.6.o59bjtyp5k6brg94vbhamnoe9",
         "com.docker.swarm.task="
       ]
     },
-    "hello.7.a1wqw7pzp9lynnidxi9fj14ci": {
+    "hello.7.t6qx8n3sitb4eb5gpylosr1f9": {
       "image": "hello:latest",
       "labels": [
         "com.docker.swarm.node.id=um81p3fox793t97gw5y94zn75",
-        "com.docker.swarm.service.id=e4zcxp3yljp5ku72of2jwr9x0",
+        "com.docker.swarm.service.id=trj615sm9zbf6gyhc82543oip",
         "com.docker.swarm.service.name=hello",
-        "com.docker.swarm.task.id=a1wqw7pzp9lynnidxi9fj14ci",
-        "com.docker.swarm.task.name=hello.7.a1wqw7pzp9lynnidxi9fj14ci",
+        "com.docker.swarm.task.id=t6qx8n3sitb4eb5gpylosr1f9",
+        "com.docker.swarm.task.name=hello.7.t6qx8n3sitb4eb5gpylosr1f9",
         "com.docker.swarm.task="
       ]
     },
-    "hello.8.nu1e6ajxezyf2acd625eh1di3": {
+    "hello.8.sothx7fdny6rg6ralttsiadk4": {
       "image": "hello:latest",
       "labels": [
         "com.docker.swarm.node.id=um81p3fox793t97gw5y94zn75",
-        "com.docker.swarm.service.id=e4zcxp3yljp5ku72of2jwr9x0",
+        "com.docker.swarm.service.id=trj615sm9zbf6gyhc82543oip",
         "com.docker.swarm.service.name=hello",
-        "com.docker.swarm.task.id=nu1e6ajxezyf2acd625eh1di3",
-        "com.docker.swarm.task.name=hello.8.nu1e6ajxezyf2acd625eh1di3",
+        "com.docker.swarm.task.id=sothx7fdny6rg6ralttsiadk4",
+        "com.docker.swarm.task.name=hello.8.sothx7fdny6rg6ralttsiadk4",
         "com.docker.swarm.task="
       ]
     },
-    "hello.9.9g6mmag3y9j36zpdi2hogd5lm": {
+    "hello.9.w53zstvzre4zxrhumfcneruux": {
       "image": "hello:latest",
       "labels": [
         "com.docker.swarm.node.id=um81p3fox793t97gw5y94zn75",
-        "com.docker.swarm.service.id=e4zcxp3yljp5ku72of2jwr9x0",
+        "com.docker.swarm.service.id=trj615sm9zbf6gyhc82543oip",
         "com.docker.swarm.service.name=hello",
-        "com.docker.swarm.task.id=9g6mmag3y9j36zpdi2hogd5lm",
-        "com.docker.swarm.task.name=hello.9.9g6mmag3y9j36zpdi2hogd5lm",
+        "com.docker.swarm.task.id=w53zstvzre4zxrhumfcneruux",
+        "com.docker.swarm.task.name=hello.9.w53zstvzre4zxrhumfcneruux",
         "com.docker.swarm.task="
       ]
     },
@@ -428,10 +428,8 @@
         "\"protocol\":\"TCP\"}",
         "{\"name\":\"profiling\"",
         "\"containerPort\":8008",
-        "\"protocol\":\"TCP\"}",
         "{\"name\":\"http1\"",
         "\"containerPort\":8012",
-        "\"protocol\":\"TCP\"}",
         "{\"name\":\"h2c\"",
         "\"containerPort\":8013",
         "\"protocol\":\"TCP\"}]",
@@ -458,7 +456,6 @@
         "\"protocol\":\"TCP\"}",
         "{\"name\":\"profiling\"",
         "\"containerPort\":8008",
-        "\"protocol\":\"TCP\"}",
         "{\"name\":\"websocket\"",
         "\"containerPort\":8080",
         "\"protocol\":\"TCP\"}]",
@@ -485,7 +482,6 @@
         "\"protocol\":\"TCP\"}",
         "{\"name\":\"profiling\"",
         "\"containerPort\":8008",
-        "\"protocol\":\"TCP\"}",
         "{\"name\":\"probes\"",
         "\"containerPort\":8080",
         "\"protocol\":\"TCP\"}]",
@@ -535,7 +531,6 @@
         "\"containerPort\":53",
         "\"protocol\":\"UDP\"}",
         "{\"name\":\"dns-tcp\"",
-        "\"containerPort\":53",
         "\"protocol\":\"TCP\"}",
         "{\"name\":\"metrics\"",
         "\"containerPort\":9153",
@@ -562,16 +557,12 @@
         "\"protocol\":\"TCP\"}",
         "{\"name\":\"http2-internal\"",
         "\"containerPort\":8081",
-        "\"protocol\":\"TCP\"}",
         "{\"name\":\"https-external\"",
         "\"containerPort\":8443",
-        "\"protocol\":\"TCP\"}",
         "{\"name\":\"http-probe\"",
         "\"containerPort\":8090",
-        "\"protocol\":\"TCP\"}",
         "{\"name\":\"https-probe\"",
         "\"containerPort\":9443",
-        "\"protocol\":\"TCP\"}",
         "{\"name\":\"metrics\"",
         "\"containerPort\":9000",
         "\"protocol\":\"TCP\"}]",
@@ -682,7 +673,6 @@
         "\"protocol\":\"TCP\"}",
         "{\"name\":\"profiling\"",
         "\"containerPort\":8008",
-        "\"protocol\":\"TCP\"}",
         "{\"name\":\"https-webhook\"",
         "\"containerPort\":8443",
         "\"protocol\":\"TCP\"}]",
@@ -700,40 +690,40 @@
         "org.opencontainers.image.created=2026-07-13T21:26:57Z"
       ]
     },
-    "openfaas_alertmanager.1.px9dv15jic5rc8450baxx7ne6": {
+    "openfaas_alertmanager.1.xng87oiruf46ksuio6fhcqg3g": {
       "image": "prom/alertmanager:v0.18.0",
       "labels": [
         "com.docker.stack.namespace=openfaas",
         "com.docker.swarm.node.id=um81p3fox793t97gw5y94zn75",
-        "com.docker.swarm.service.id=046e6brbqk70un7h58fjz2hmy",
+        "com.docker.swarm.service.id=n6qf4ozhn294yo6xw60czrsdc",
         "com.docker.swarm.service.name=openfaas_alertmanager",
-        "com.docker.swarm.task.id=px9dv15jic5rc8450baxx7ne6",
-        "com.docker.swarm.task.name=openfaas_alertmanager.1.px9dv15jic5rc8450baxx7ne6",
+        "com.docker.swarm.task.id=xng87oiruf46ksuio6fhcqg3g",
+        "com.docker.swarm.task.name=openfaas_alertmanager.1.xng87oiruf46ksuio6fhcqg3g",
         "com.docker.swarm.task=",
         "maintainer=The Prometheus Authors <prometheus-developers@googlegroups.com>"
       ]
     },
-    "openfaas_faas-swarm.1.zrdqgyp3vzn10o3hbekcanj7e": {
+    "openfaas_faas-swarm.1.8ymuj8zvyar9mvxm4486c9gzj": {
       "image": "functions/faas-swarm:0.3.3",
       "labels": [
         "com.docker.stack.namespace=openfaas",
         "com.docker.swarm.node.id=um81p3fox793t97gw5y94zn75",
-        "com.docker.swarm.service.id=f1o1p97mau7rsylxuphqz60z2",
+        "com.docker.swarm.service.id=j6aw22s69ii501ukzkxz38u2t",
         "com.docker.swarm.service.name=openfaas_faas-swarm",
-        "com.docker.swarm.task.id=zrdqgyp3vzn10o3hbekcanj7e",
-        "com.docker.swarm.task.name=openfaas_faas-swarm.1.zrdqgyp3vzn10o3hbekcanj7e",
+        "com.docker.swarm.task.id=8ymuj8zvyar9mvxm4486c9gzj",
+        "com.docker.swarm.task.name=openfaas_faas-swarm.1.8ymuj8zvyar9mvxm4486c9gzj",
         "com.docker.swarm.task="
       ]
     },
-    "openfaas_gateway.1.c15yprmwxl42uuhdvl78yytyb": {
+    "openfaas_gateway.1.akajq11xkk4qe5vptnjxozhun": {
       "image": "functions/gateway:0.8.3",
       "labels": [
         "com.docker.stack.namespace=openfaas",
         "com.docker.swarm.node.id=um81p3fox793t97gw5y94zn75",
-        "com.docker.swarm.service.id=xo96x3x4zaghny0qywprarcd2",
+        "com.docker.swarm.service.id=043flytklag0i1qzwf1uzw1gh",
         "com.docker.swarm.service.name=openfaas_gateway",
-        "com.docker.swarm.task.id=c15yprmwxl42uuhdvl78yytyb",
-        "com.docker.swarm.task.name=openfaas_gateway.1.c15yprmwxl42uuhdvl78yytyb",
+        "com.docker.swarm.task.id=akajq11xkk4qe5vptnjxozhun",
+        "com.docker.swarm.task.name=openfaas_gateway.1.akajq11xkk4qe5vptnjxozhun",
         "com.docker.swarm.task=",
         "org.label-schema.docker.schema-version=1.0",
         "org.label-schema.license=MIT",
@@ -743,52 +733,52 @@
         "org.label-schema.vendor=openfaas"
       ]
     },
-    "openfaas_nats.1.jl5ow37vnruxqu9hlnkaid6ov": {
+    "openfaas_nats.1.c86o3vu1ez9rrka0osmv7ov6c": {
       "image": "nats-streaming:0.25.6",
       "labels": [
         "com.docker.stack.namespace=openfaas",
         "com.docker.swarm.node.id=um81p3fox793t97gw5y94zn75",
-        "com.docker.swarm.service.id=rm6d2e6hk3wp3dm07jldo32qm",
+        "com.docker.swarm.service.id=i17fyjw71vwwerhqgjfq215kx",
         "com.docker.swarm.service.name=openfaas_nats",
-        "com.docker.swarm.task.id=jl5ow37vnruxqu9hlnkaid6ov",
-        "com.docker.swarm.task.name=openfaas_nats.1.jl5ow37vnruxqu9hlnkaid6ov",
+        "com.docker.swarm.task.id=c86o3vu1ez9rrka0osmv7ov6c",
+        "com.docker.swarm.task.name=openfaas_nats.1.c86o3vu1ez9rrka0osmv7ov6c",
         "com.docker.swarm.task="
       ]
     },
-    "openfaas_prometheus.1.mkpx01jdbefuc1uqddcwtjha1": {
+    "openfaas_prometheus.1.nlluskstzdts3piyvhudc7scx": {
       "image": "prom/prometheus:v2.11.0",
       "labels": [
         "com.docker.stack.namespace=openfaas",
         "com.docker.swarm.node.id=um81p3fox793t97gw5y94zn75",
-        "com.docker.swarm.service.id=o4ytmoin086acjflt5rwljl33",
+        "com.docker.swarm.service.id=x69xnoia3lw33gy1wntfkpek0",
         "com.docker.swarm.service.name=openfaas_prometheus",
-        "com.docker.swarm.task.id=mkpx01jdbefuc1uqddcwtjha1",
-        "com.docker.swarm.task.name=openfaas_prometheus.1.mkpx01jdbefuc1uqddcwtjha1",
+        "com.docker.swarm.task.id=nlluskstzdts3piyvhudc7scx",
+        "com.docker.swarm.task.name=openfaas_prometheus.1.nlluskstzdts3piyvhudc7scx",
         "com.docker.swarm.task=",
         "maintainer=The Prometheus Authors <prometheus-developers@googlegroups.com>"
       ]
     },
-    "openfaas_queue-worker.1.xpez4jfw9wejafid9aszw4xkw": {
+    "openfaas_queue-worker.1.ns4an0kcjdj3vhfxrplgdhhci": {
       "image": "functions/queue-worker:0.4.6",
       "labels": [
         "com.docker.stack.namespace=openfaas",
         "com.docker.swarm.node.id=um81p3fox793t97gw5y94zn75",
-        "com.docker.swarm.service.id=rpseb5ayc5ksqvlkvy2tgbtnk",
+        "com.docker.swarm.service.id=pvq08y2n7o5za1j1bxg3ilijo",
         "com.docker.swarm.service.name=openfaas_queue-worker",
-        "com.docker.swarm.task.id=xpez4jfw9wejafid9aszw4xkw",
-        "com.docker.swarm.task.name=openfaas_queue-worker.1.xpez4jfw9wejafid9aszw4xkw",
+        "com.docker.swarm.task.id=ns4an0kcjdj3vhfxrplgdhhci",
+        "com.docker.swarm.task.name=openfaas_queue-worker.1.ns4an0kcjdj3vhfxrplgdhhci",
         "com.docker.swarm.task="
       ]
     }
   },
-  "cp_peak_mem_mb": 25.1,
+  "cp_peak_mem_mb": 24.2,
   "carbon_gCO2": {
     "op_total": 0.016,
     "op_control_plane": 0.001,
     "idle_band": {
-      "15": 0.025,
+      "15": 0.026,
       "30": 0.039,
-      "45": 0.052
+      "45": 0.053
     }
   },
   "model": {
@@ -799,14 +789,14 @@
   },
   "sensitivity": {
     "cp_dynamic_share_pct_by_busy_w": {
-      "2.0": 7.14,
-      "3.5": 7.14,
-      "5.0": 7.14
+      "2.0": 7.4,
+      "3.5": 7.4,
+      "5.0": 7.4
     },
     "dynamic_energy_J_by_busy_w": {
-      "2.0": 140.1,
-      "3.5": 245.2,
-      "5.0": 350.3
+      "2.0": 142.2,
+      "3.5": 248.9,
+      "5.0": 355.6
     },
     "op_carbon_gCO2_by_busy_w": {
       "2.0": 0.011,
@@ -814,77 +804,95 @@
       "5.0": 0.021
     }
   },
-  "kpi_gco2_per_slo_compliant_inv": 1.56e-06,
-  "kpi_gco2_per_inv_dynamic": 1.17e-06,
+  "kpi_gco2_per_slo_compliant_inv": 1.59e-06,
+  "kpi_gco2_per_inv_dynamic": 1.19e-06,
   "embodied_dram_g_per_gb_h": 0.0317,
-  "host_cpu_sec": 108.78,
-  "host_window_s": 18.627,
-  "host_saturation_pct": 72.4,
+  "host_cpu_sec": 109.74,
+  "host_window_s": 19.039,
+  "host_saturation_pct": 72.0,
   "host_plausible": true,
   "host_saturated": false,
-  "host_overhead_cpu_sec": 38.73,
-  "orchestration_cpu_sec": 43.76,
-  "orchestration_share_pct": 40.23,
+  "host_overhead_cpu_sec": 39.98,
+  "orchestration_cpu_sec": 44.91,
+  "orchestration_share_pct": 40.93,
   "steal_sec": null,
   "steal_pct": null,
-  "cp_delta_sec": 4.995,
-  "cp_sampler_vs_delta_pct": 0.03,
+  "cp_delta_sec": 5.262,
+  "cp_sampler_vs_delta_pct": 0.02,
   "delta_check_map": {
-    "openfaas_prometheus.1.mkpx01jdbefuc1uqddcwtjha1": "ok",
-    "openfaas_queue-worker.1.xpez4jfw9wejafid9aszw4xkw": "ok",
-    "openfaas_nats.1.jl5ow37vnruxqu9hlnkaid6ov": "ok",
-    "openfaas_gateway.1.c15yprmwxl42uuhdvl78yytyb": "ok",
-    "openfaas_faas-swarm.1.zrdqgyp3vzn10o3hbekcanj7e": "ok",
-    "openfaas_alertmanager.1.px9dv15jic5rc8450baxx7ne6": "ok"
+    "openfaas_faas-swarm.1.8ymuj8zvyar9mvxm4486c9gzj": "ok",
+    "openfaas_gateway.1.akajq11xkk4qe5vptnjxozhun": "ok",
+    "openfaas_alertmanager.1.xng87oiruf46ksuio6fhcqg3g": "ok",
+    "openfaas_prometheus.1.nlluskstzdts3piyvhudc7scx": "ok",
+    "openfaas_queue-worker.1.ns4an0kcjdj3vhfxrplgdhhci": "ok",
+    "openfaas_nats.1.c86o3vu1ez9rrka0osmv7ov6c": "ok"
   },
   "env": {
     "cpu_count": 8,
     "governor": "powersave",
-    "freq_mhz_before": 610.6,
-    "freq_mhz_after": 2782.2,
+    "freq_mhz_before": 2670.8,
+    "freq_mhz_after": 517.2,
     "sampler": "cgroup",
     "loadgen": "hey",
     "loadgen_requested": "hey",
     "loadgen_fallback": false
   },
-  "rapl_validation_err_pct": 18.02,
+  "rapl_validation_err_pct": 5.8,
+  "rapl_wrap": "none",
   "rapl_available": true,
   "loadgen": {
     "source": "hey",
-    "rps": 545.9468902865129,
-    "avg_ms": 7.27,
+    "rps": 535.2287567706438,
+    "avg_ms": 7.44,
     "errors": 0,
-    "wall_s": 18.32
+    "wall_s": 18.68
+  },
+  "ambient": {
+    "window_s": 20.0,
+    "threshold_pct": 15.0,
+    "quiet_gate_disabled": false,
+    "load_pct": 9.948979591836734,
+    "top_cpu": [
+      "USER         PID %CPU %MEM    VSZ   RSS TTY      STAT START   TIME COMMAND",
+      "root        3260 35.8  0.4 5731212 154432 ?      Ssl  Aug08 237:29 /usr/bin/dockerd -H fd:// --containerd=/run/containerd/containerd.sock",
+      "root        1806 28.8  0.3 3650736 99800 ?       Ssl  Aug08 190:57 /usr/bin/containerd",
+      "root     1271611 10.6  2.2 2037172 727988 ?      Ssl  Aug08  66:30 /usr/local/bin/k3s server",
+      "imran     114399  5.2  0.5 2155176 162020 ?      Sl   02:17   0:42 ptyxis --new-window --working-directory /home/imran/faas-work/saqef/tools",
+      "imran       4192  2.2  0.8 6188300 271048 ?      Ssl  Aug08  14:38 /usr/bin/gnome-shell --mode=ubuntu",
+      "root      127058  2.1  0.0  24792 17796 ?        S    02:30   0:00 python3 index.py",
+      "root      126928  2.1  0.0  24792 17844 ?        S    02:30   0:00 python3 index.py",
+      "root      127038  2.1  0.0  24792 17688 ?        S    02:30   0:00 python3 index.py"
+    ]
   },
   "repetitions": 5,
   "spread_min_max": {
     "throughput_rps": [
-      524.98,
-      545.47
+      489.03,
+      536.69
     ],
     "slo_compliance": [
       1.0,
       1.0
     ],
     "latency_ms.p50": [
-      6.8,
-      6.9
+      6.9,
+      7.0
     ],
     "latency_ms.p99": [
-      11.8,
-      16.2
+      12.2,
+      17.4
     ],
     "cp_dynamic_share_pct": [
-      7.07,
-      7.25
+      7.08,
+      7.5
     ],
     "cp_share_pct": [
-      5.34,
-      5.44
+      5.33,
+      5.64
     ],
     "energy_J.dynamic": [
-      244.7,
-      246.1
+      244.2,
+      249.8
     ],
     "kpi_gco2_per_slo_compliant_inv": [
       0.0,
@@ -893,38 +901,38 @@
   },
   "bootstrap_ci": {
     "throughput_rps": [
-      524.98,
-      545.47
+      489.03,
+      536.69
     ],
     "slo_compliance": [
       1.0,
       1.0
     ],
     "latency_ms.p50": [
-      6.8,
-      6.9
+      6.9,
+      7.0
     ],
     "latency_ms.p99": [
-      11.8,
-      16.2
+      12.2,
+      17.4
     ],
     "cp_dynamic_share_pct": [
-      7.07,
-      7.25
+      7.08,
+      7.5
     ]
   },
   "cv_pct": {
-    "throughput_rps": 1.73,
+    "throughput_rps": 3.7,
     "slo_compliance": 0.0,
-    "latency_ms.p50": 0.65,
-    "latency_ms.p99": 14.96,
-    "cp_dynamic_share_pct": 0.93
+    "latency_ms.p50": 0.79,
+    "latency_ms.p99": 14.83,
+    "cp_dynamic_share_pct": 2.58
   },
   "iqr": {
-    "throughput_rps": 15.74,
+    "throughput_rps": 10.91,
     "slo_compliance": 0.0,
-    "latency_ms.p50": 0.0,
-    "latency_ms.p99": 3.5,
-    "cp_dynamic_share_pct": 0.05
+    "latency_ms.p50": 0.1,
+    "latency_ms.p99": 0.4,
+    "cp_dynamic_share_pct": 0.3
   }
 }

@@ -162,6 +162,35 @@ class Adapter:
         return ",".join(self.fn_containers)
 
     # ------------------------------------------------------------ isolation
+    # Remediation advice, keyed by the specific offender so a failure on one
+    # adapter never points at another adapter's fix. Fn/OpenFaaS/OpenWhisk all
+    # forbid Knative's per-replica pod containers now (not just Fn's own
+    # fnserver), so a single hardcoded message was wrong for 3 of 4 adapters
+    # -- it told the operator to remove fnserver when the actual offender was
+    # a leftover Knative ksvc, sending them down the wrong troubleshooting
+    # path. Matched by substring against the offending container/service name.
+    _CONTAINER_ADVICE = (
+        ("fnserver", "docker rm -f fnserver   (Fn's control plane)"),
+        ("user-container", "saqef teardown --platform knative   (leftover Knative 'hello' ksvc)"),
+        ("queue-proxy", "saqef teardown --platform knative   (leftover Knative 'hello' ksvc)"),
+        ("openwhisk", "saqef teardown --platform openwhisk"),
+        ("openfaas", "saqef teardown --platform openfaas"),
+    )
+
+    def _advice_for_container(self, name):
+        for sub, advice in self._CONTAINER_ADVICE:
+            if sub in name:
+                return advice
+        return "docker rm -f %s" % name
+
+    @staticmethod
+    def _advice_for_service(name):
+        if name == "hello":
+            return "docker service rm hello   (OpenFaaS function service, deployed OUTSIDE the stack)"
+        if name.startswith("openfaas"):
+            return "docker stack rm openfaas   (OpenFaaS control-plane stack)"
+        return "docker service rm %s" % name
+
     def check_isolation(self):
         """Data-driven isolation guard (the refactor's point). Returns (ok, message)."""
         offenders = []
@@ -172,12 +201,15 @@ class Adapter:
                 services = [l.strip() for l in out.stdout.splitlines() if l.strip()]
                 if "*" in self.isolation.forbidden_services:
                     bad = services
-                    advice.append("run: docker service rm hello   (OpenFaaS function service, "
-                                  "deployed OUTSIDE the stack)")
                 else:
                     bad = [s for s in services
                            if any(f in s for f in self.isolation.forbidden_services)]
-                offenders += ["swarm service(s): %s" % ", ".join(bad) for bad in [bad] if bad]
+                if bad:
+                    offenders.append("swarm service(s): %s" % ", ".join(bad))
+                    for s in bad:
+                        a = self._advice_for_service(s)
+                        if a not in advice:
+                            advice.append(a)
         if self.isolation.forbidden_containers:
             out = run("docker ps --format '{{.Names}}'")
             if out.returncode == 0:
@@ -186,10 +218,14 @@ class Adapter:
                        if any(f in n for f in self.isolation.forbidden_containers)]
                 if bad:
                     offenders.append("container(s): %s" % ", ".join(bad))
-                    advice.append("run: docker rm -f fnserver   (Fn's control plane)")
+                    for n in bad:
+                        a = self._advice_for_container(n)
+                        if a not in advice:
+                            advice.append(a)
         if offenders:
+            advice_str = "; ".join("run: %s" % a for a in advice)
             return False, ("platform isolation FAILED for %s (%s): %s. %s"
-                           % (self.name, self.label, "; ".join(offenders), " ".join(advice)))
+                           % (self.name, self.label, "; ".join(offenders), advice_str))
         if self.isolation.expected_containers:
             out = run("docker ps --format '{{.Names}}'")
             names = [l.strip() for l in out.stdout.splitlines()] if out.returncode == 0 else []
@@ -236,7 +272,7 @@ class Adapter:
         no_quiet_gate=True for its dirty leg.
         """
         if verify:
-            cmd = ["python3", "saqef_harness.py", "--verify", "--sampler", self.sampler,
+            cmd = ["python3", repo_script("saqef_harness.py"), "--verify", "--sampler", self.sampler,
                    "--url", self.url, "--platform", self.name,
                    "--cp-containers", self.cp_containers_arg()]
             if self.fn_images:
@@ -258,7 +294,7 @@ class Adapter:
                     str(metric.get("defaults", {}).get("verify_budget_ms", self.verify_budget_ms))]
             return cmd
 
-        cmd = ["python3", "saqef_harness.py",
+        cmd = ["python3", repo_script("saqef_harness.py"),
                "--url", self.url, "--platform", self.name,
                "--cp-containers", self.cp_containers_arg()]
         if self.fn_images:

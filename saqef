@@ -12,7 +12,7 @@ Subcommands:
   check                          environment sanity (docker, RAPL, cgroup map, hey)
   deploy  --platform X           deploy the platform (Fn: setup; OpenFaaS: stack)
   teardown --platform X          remove the platform (Fn: reset; OF: stack rm + service rm hello)
-  scale   --platform X --replicas N   static function replica scale (OpenFaaS; GIL parity)
+  scale   --platform X --replicas N   static function replica scale (OpenFaaS, Knative; GIL parity)
   verify  --platform X [--out D] confirm the deployed handler burns ~verify_budget_ms CPU/inv
   run     --platform X [flags]   full bench; gates printed automatically at the end
   gates   --out D                print the accept/reject table for an existing run dir
@@ -79,7 +79,16 @@ def run_sub(cmd, dry_run=False):
         print("DRY-RUN:", printable)
         return None
     print(">>>", printable)
-    return subprocess.run(cmd)
+    r = subprocess.run(cmd)
+    if r.returncode != 0:
+        # Do NOT let callers fall through to load_verify()/gates_for(): those
+        # just read whatever verify.json/summary.json already happen to be on
+        # disk, with no link to whether THIS subprocess wrote them. A silent
+        # failure here (e.g. saqef_harness.py not found because the CLI was
+        # invoked from a CWD other than the repo root) would otherwise get
+        # reported as a successful verify/bench using stale, unrelated data.
+        sys.exit("ERROR: subprocess failed (exit %d): %s" % (r.returncode, printable))
+    return r
 
 
 def _count_fn_containers(s):
@@ -359,7 +368,7 @@ def main(argv=None):
     p.add_argument("--platform", required=True, choices=["fn", "openfaas", "openwhisk", "knative"])
     p.set_defaults(func=cmd_teardown)
 
-    p = sub.add_parser("scale", help="static function replica scale (OpenFaaS)")
+    p = sub.add_parser("scale", help="static function replica scale (OpenFaaS, Knative)")
     p.add_argument("--platform", required=True, choices=["fn", "openfaas", "openwhisk", "knative"])
     p.add_argument("--replicas", type=int, default=None)
     p.set_defaults(func=cmd_scale)

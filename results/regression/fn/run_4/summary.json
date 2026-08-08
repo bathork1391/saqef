@@ -2,46 +2,48 @@
   "platform": "fn",
   "url": "http://localhost:8080/t/app1/hello",
   "mode": "load",
-  "wall_s": 16.93,
-  "wall_harness_s": 16.93,
-  "sampling_covered_s": 16.93,
+  "wall_s": 17.2,
+  "wall_harness_s": 17.2,
+  "sampling_covered_s": 17.2,
   "requests": 10000,
   "successes": 10000,
   "availability": 1.0,
-  "throughput_rps": 590.53,
+  "throughput_rps": 581.38,
   "latency_ms": {
     "p50": 6.5,
-    "p90": 7.2,
-    "p99": 9.4,
-    "max": 22.8
+    "p90": 7.4,
+    "p99": 9.9,
+    "max": 46.3
   },
   "slo_ms": 500.0,
   "slo_compliance": 1.0,
   "compliance_source": "hey_interp",
   "energy_J": {
-    "total": 293.2,
-    "dynamic": 220.4,
-    "control_plane": 23.7,
-    "function": 196.7
+    "total": 297.3,
+    "dynamic": 223.3,
+    "control_plane": 25.4,
+    "function": 198.0
   },
-  "cp_share_pct": 8.07,
-  "cp_dynamic_share_pct": 10.74,
+  "cp_share_pct": 8.53,
+  "cp_dynamic_share_pct": 11.36,
   "cpu_sec": {
-    "control_plane": 6.76,
-    "function": 56.21
+    "control_plane": 7.25,
+    "function": 56.56
   },
-  "cpu_sec_ceiling": 135.47,
+  "cpu_sec_ceiling": 137.6,
   "physical_plausible": true,
-  "unclassified_cpu_s": 0.23,
+  "unclassified_cpu_s": 0.26,
   "container_inventory": [
-    "01KZGRP9TFNG8G00GZJ0000005",
-    "01KZGRPAZFNG8G00GZJ000000F",
-    "01KZGRPAZFNG8G00GZJ000000J",
-    "01KZGRPAZJNG8G00GZJ000000M",
-    "01KZGRPAZKNG8G00GZJ000000P",
-    "01KZGRPAZMNG8G00GZJ000000R",
-    "01KZGRPAZPNG8G00GZJ000000T",
-    "01KZGRPB00NG8G00GZJ000000W",
+    "01KZHMQNWQNG8G00GZJ0000005",
+    "01KZHMQQ0TNG8G00GZJ000000D",
+    "01KZHMQQ0TNG8G00GZJ000000E",
+    "01KZHMQQ0TNG8G00GZJ000000G",
+    "01KZHMQQ0VNG8G00GZJ000000J",
+    "01KZHMQQ0YNG8G00GZJ000000M",
+    "01KZHMQQ0YNG8G00GZJ000000P",
+    "01KZHMQQ10NG8G00GZJ000000R",
+    "01KZHMQQ16NG8G00GZJ000000T",
+    "01KZHMQQ1NNG8G00GZJ000000W",
     "fnserver",
     "k8s_POD_3scale-kourier-gateway-d95dfffb6-z2zzz_kourier-system_69daf3cc-53df-449a-ba4e-12ca3f124bf1_1",
     "k8s_POD_activator-67cbcccdfb-t6cg7_knative-serving_af70f812-f578-45d9-aafe-c711ea35ebd4_1",
@@ -66,62 +68,62 @@
     "k8s_webhook_webhook-7d56465b69-khwt8_knative-serving_a7b84bd9-4373-4bbe-843a-0e2fb9c788d8_1"
   ],
   "container_labels": {
-    "01KZGRP9TFNG8G00GZJ0000005": {
-      "image": "hello:0.0.20",
+    "01KZHMQNWQNG8G00GZJ0000005": {
+      "image": "hello:0.0.27",
       "labels": [
         "io.buildah.version=1.43.1"
       ]
     },
-    "01KZGRPAZFNG8G00GZJ000000D": {
-      "image": "hello:0.0.20",
+    "01KZHMQQ0TNG8G00GZJ000000D": {
+      "image": "hello:0.0.27",
       "labels": [
         "io.buildah.version=1.43.1"
       ]
     },
-    "01KZGRPAZFNG8G00GZJ000000F": {
-      "image": "hello:0.0.20",
+    "01KZHMQQ0TNG8G00GZJ000000E": {
+      "image": "hello:0.0.27",
       "labels": [
         "io.buildah.version=1.43.1"
       ]
     },
-    "01KZGRPAZFNG8G00GZJ000000H": {
-      "image": "hello:0.0.20",
+    "01KZHMQQ0TNG8G00GZJ000000G": {
+      "image": "hello:0.0.27",
       "labels": [
         "io.buildah.version=1.43.1"
       ]
     },
-    "01KZGRPAZFNG8G00GZJ000000J": {
-      "image": "hello:0.0.20",
+    "01KZHMQQ0VNG8G00GZJ000000J": {
+      "image": "hello:0.0.27",
       "labels": [
         "io.buildah.version=1.43.1"
       ]
     },
-    "01KZGRPAZJNG8G00GZJ000000M": {
-      "image": "hello:0.0.20",
+    "01KZHMQQ0YNG8G00GZJ000000M": {
+      "image": "hello:0.0.27",
       "labels": [
         "io.buildah.version=1.43.1"
       ]
     },
-    "01KZGRPAZKNG8G00GZJ000000P": {
-      "image": "hello:0.0.20",
+    "01KZHMQQ0YNG8G00GZJ000000P": {
+      "image": "hello:0.0.27",
       "labels": [
         "io.buildah.version=1.43.1"
       ]
     },
-    "01KZGRPAZMNG8G00GZJ000000R": {
-      "image": "hello:0.0.20",
+    "01KZHMQQ10NG8G00GZJ000000R": {
+      "image": "hello:0.0.27",
       "labels": [
         "io.buildah.version=1.43.1"
       ]
     },
-    "01KZGRPAZPNG8G00GZJ000000T": {
-      "image": "hello:0.0.20",
+    "01KZHMQQ16NG8G00GZJ000000T": {
+      "image": "hello:0.0.27",
       "labels": [
         "io.buildah.version=1.43.1"
       ]
     },
-    "01KZGRPB00NG8G00GZJ000000W": {
-      "image": "hello:0.0.20",
+    "01KZHMQQ1NNG8G00GZJ000000W": {
+      "image": "hello:0.0.27",
       "labels": [
         "io.buildah.version=1.43.1"
       ]
@@ -578,14 +580,14 @@
       ]
     }
   },
-  "cp_peak_mem_mb": 34.5,
+  "cp_peak_mem_mb": 35.2,
   "carbon_gCO2": {
     "op_total": 0.014,
     "op_control_plane": 0.001,
     "idle_band": {
       "15": 0.023,
       "30": 0.035,
-      "45": 0.047
+      "45": 0.048
     }
   },
   "model": {
@@ -596,14 +598,14 @@
   },
   "sensitivity": {
     "cp_dynamic_share_pct_by_busy_w": {
-      "2.0": 10.74,
-      "3.5": 10.74,
-      "5.0": 10.74
+      "2.0": 11.36,
+      "3.5": 11.36,
+      "5.0": 11.36
     },
     "dynamic_energy_J_by_busy_w": {
-      "2.0": 126.0,
-      "3.5": 220.4,
-      "5.0": 314.9
+      "2.0": 127.6,
+      "3.5": 223.3,
+      "5.0": 319.0
     },
     "op_carbon_gCO2_by_busy_w": {
       "2.0": 0.01,
@@ -611,20 +613,20 @@
       "5.0": 0.019
     }
   },
-  "kpi_gco2_per_slo_compliant_inv": 1.41e-06,
-  "kpi_gco2_per_inv_dynamic": 1.06e-06,
+  "kpi_gco2_per_slo_compliant_inv": 1.42e-06,
+  "kpi_gco2_per_inv_dynamic": 1.07e-06,
   "embodied_dram_g_per_gb_h": 0.0317,
-  "host_cpu_sec": 97.73,
-  "host_window_s": 16.935,
-  "host_saturation_pct": 72.1,
+  "host_cpu_sec": 98.18,
+  "host_window_s": 17.201,
+  "host_saturation_pct": 71.3,
   "host_plausible": true,
   "host_saturated": false,
-  "host_overhead_cpu_sec": 34.75,
-  "orchestration_cpu_sec": 41.52,
-  "orchestration_share_pct": 42.48,
+  "host_overhead_cpu_sec": 34.37,
+  "orchestration_cpu_sec": 41.62,
+  "orchestration_share_pct": 42.39,
   "steal_sec": null,
   "steal_pct": null,
-  "cp_delta_sec": 6.763,
+  "cp_delta_sec": 7.246,
   "cp_sampler_vs_delta_pct": 0.0,
   "delta_check_map": {
     "fnserver": "ok"
@@ -632,20 +634,21 @@
   "env": {
     "cpu_count": 8,
     "governor": "powersave",
-    "freq_mhz_before": 1298.3,
-    "freq_mhz_after": 489.3,
+    "freq_mhz_before": 2616.4,
+    "freq_mhz_after": 400.0,
     "sampler": "cgroup",
     "loadgen": "hey",
     "loadgen_requested": "hey",
     "loadgen_fallback": false
   },
-  "rapl_validation_err_pct": 11.97,
+  "rapl_validation_err_pct": 1.5,
+  "rapl_wrap": "none",
   "rapl_available": true,
   "loadgen": {
     "source": "hey",
-    "rps": 601.8621615277668,
-    "avg_ms": 6.64,
+    "rps": 592.3784587497261,
+    "avg_ms": 6.74,
     "errors": 0,
-    "wall_s": 16.62
+    "wall_s": 16.88
   }
 }

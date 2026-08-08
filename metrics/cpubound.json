@@ -16,7 +16,7 @@
   },
   "regression": {
     "description": "c=4, 8-core bare metal, REPEAT=5, calibrated IDLE_W=4.3. Must reproduce the known-good medians (fn 11.60 / openfaas 7.67) within tolerance_pp, or the refactor is NOT trusted. OpenFaaS runs first, torn down (stack rm + service rm hello), then Fn.",
-    "reference_notes": "fn reference RECALIBRATED 2026-08-06: the 2026-08-05 value 10.46 is stale for this box. Same-day A/B on an identical fresh-setup Fn run: old runner (run_saqef.sh all) = 11.60, refactored CLI = 11.96 (flat ~11.6-12.1, all 5 runs; known-good ran 9.8-11.7 with the documented fnserver warm-up ramp). Deviation is entirely fnserver per-request CP cost (0.61 -> 0.75 ms) with fn_cpu_s identical (~56.7 s) - a bounded box-state drift, NOT a refactor change (harness argv is byte-identical; see tests/test_saqef_cli.py). openfaas reference unchanged (7.67; measured 7.55 today). PROVENANCE NOTE: these 11.60/7.67 references were established BEFORE the harness diverged from saqef-v2.0-frozen for the carbon unit fix (J/3600->J/3.6e6) and the data-driven isolation guard (--forbidden-services/--forbidden-containers). Those edits touch only the carbon formula and a precondition gate; they cannot move cp_dynamic_share_pct (unit-free cgroup CPU-time ratio; isolation is a check, not sampling math) - but per the trust-gate discipline this file's references are not byte-identical provenance to the current harness, so a REGRESSION RERUN is the gate for trusting the new harness, not this file alone.",
+    "reference_notes": "RE-ANCHORED 2026-08-09 (2026-08-08T19:46:49Z) from same-day old-runner A/B on the quiet box under the self-certifying ambient-load gate: fn=11.49 (outdir results/fn_cpubound_crosscheck_2026-08-09), openfaas=7.61 (outdir results/of_cpubound_crosscheck_2026-08-09). Supersedes the 2026-08-06 references. Box-state drift, not a refactor change (old-runner A/B per TROUBLESHOOTING_RUNBOOK.md \u00a72/\u00a73).",
     "concurrency": 4,
     "total": 10000,
     "duration": 60,
@@ -25,8 +25,8 @@
     "idle_w": 4.3,
     "replicas_openfaas": 16,
     "reference_share_pct": {
-      "fn": 11.6,
-      "openfaas": 7.67
+      "fn": 11.49,
+      "openfaas": 7.61
     },
     "tolerance_pp": 0.5
   }
