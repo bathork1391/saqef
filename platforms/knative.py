@@ -107,12 +107,15 @@ class KnativeAdapter(Adapter):
             if r.returncode != 0:
                 raise RuntimeError("knative deploy: apply service failed: %s"
                                    % (r.stderr or "").strip()[-300:])
-        r = k3s("rollout", "status", "deploy/hello-00002-deployment", "-n", "default",
-                "--timeout=180s")
-        if r.returncode != 0:
-            # the deployment name embeds the revision hash; fall back to polling pods
-            if not _pod_ready("serving.knative.dev/service=hello"):
-                raise RuntimeError("knative deploy: function pods not running")
+        # The Deployment name embeds the revision number (hello-NNNNN-deployment),
+        # which is NOT stable: deleting and recreating the ksvc (a full teardown
+        # + deploy, as opposed to reusing an existing one) resets Knative's
+        # revision counter back to 1, so a hardcoded '-00002' silently fails
+        # 'rollout status' after any fresh redeploy and relies entirely on the
+        # _pod_ready fallback below. Poll by the revision-agnostic label
+        # selector directly instead of guessing the Deployment name.
+        if not _pod_ready("serving.knative.dev/service=hello"):
+            raise RuntimeError("knative deploy: function pods not running")
         if not self._ping():
             raise RuntimeError("knative deploy: %s not serving" % URL)
         print("knative deploy OK: %s serving %s (k3s + knative v1.23 + kourier)" % (self.label, URL))

@@ -17,6 +17,92 @@ a contention-robust discriminator. Decision gate: platform gap in the share must
   `host_plausible` (must be true), `physical_plausible`, `host_sat%` (~100 on the codespace is
   the honest saturated-box flag, not a failure).
 
+## Current state (2026-08-08 quiet-box reruns + 2 bugs fixed — READ THIS FIRST)
+- **Two real bugs found and fixed** while investigating why OW/Kn looked "fishy":
+  1. **k3s dynamic serving cert can be issued with a `notBefore` in the future**
+     (operational, not a measurement-path bug, but it BLOCKS every Knative
+     session until fixed). Root cause: on this box, `k3s`/`docker` restart on
+     every reboot (systemd `Restart=always`); if the reboot's RTC/clock is off
+     before NTP finishes syncing, k3s's dynamiclistener regenerates
+     `serving-kube-apiserver.crt` stamped with that wrong (future) time, and
+     once NTP corrects the clock backward, the apiserver's own TLS handshake
+     rejects the cert as "not yet valid" — `k3s` sits in
+     `Active: activating (start)` forever, `kubectl` fails with
+     `x509: certificate has expired or is not yet valid`. The root CA
+     (`server-ca.crt`) is unaffected (long-lived, only regenerated at cluster
+     init); only the short-lived leaf cert is bad. **Fix:** `sudo systemctl
+     stop k3s`, move aside `/var/lib/rancher/k3s/server/tls/{serving-kube-apiserver.crt,.key,dynamic-cert.json}`,
+     `sudo systemctl start k3s` — it regenerates them from the (now-correct)
+     clock. Takes ~15s, no cluster data lost. **Add this as TROUBLESHOOTING
+     §10** if it recurs (it will, on every reboot with slow NTP).
+  2. **`platforms/knative.py` `deploy()` hardcoded `deploy/hello-00002-deployment`**
+     in its rollout-status check. The revision number is NOT stable: a full
+     `teardown` + fresh `deploy` (delete the ksvc, recreate it) resets
+     Knative's revision counter to 1, so the very first fresh redeploy lands
+     on `hello-00001-deployment` and the hardcoded check always fails
+     (silently papered over by the `_pod_ready()` label-selector fallback,
+     which IS revision-agnostic). Fixed: removed the hardcoded rollout-status
+     attempt entirely, deploy() now polls `_pod_ready()` directly. No
+     measurement was ever wrong from this (the fallback always worked), but
+     every fresh-redeploy session printed a confusing failed kubectl command.
+     38/38 tests still pass.
+- **OpenWhisk + Knative quiet-box reruns — DONE, supersede the 2026-08-07
+  agent-contaminated numbers** (box confirmed quiet: `uptime` load 0.5-0.7/8,
+  no other agent; this session's own tool calls are the only load, same as
+  every other citable run in this study).
+  - **OpenWhisk: median `cp_dynamic_share_pct` = 80.23** (CI 78.45-82.71,
+    CV 1.89%, IQR 0.49) — barely moved from the contaminated 82.54 (well
+    within the CI overlap), which is itself informative: **the "OW is
+    CP-heavy" finding was NOT a contamination artifact.** All gates green
+    (delta 0.0% every run, CPmapped 1/1, coverage 100%, host_plausible true).
+    **`host_saturation_pct` is now 42-56%** (was 64-87%) — **QoS is citable
+    for OpenWhisk for the first time**: p50 97.4 / p99 136.5 ms @ 40.83 rps,
+    slo_compliance 1.0. Energy/carbon **still NOT citable**
+    (`rapl_validation_err_pct` 45-58% across all 5 runs, stable — this is
+    the structural JVM/linear-busy-core-model mismatch, unrelated to box
+    noise, confirmed by being unchanged between contaminated and quiet runs).
+    idle_w recalibrated 3.889 W (was 5.294; box-state, not a citable delta).
+  - **Knative: median `cp_dynamic_share_pct` = 11.40** (CI 10.83-11.94,
+    CV 4.17%) — a REAL correction down from the contaminated 13.99 (outside
+    the old value's own CI). This changes the four-platform story: Knative is
+    no longer "tied with Fn at 12-14", it is now essentially tied with Fn's
+    same-day quiet number (11.01, see below) and both sit just above OpenFaaS
+    (7.62), clearly below OpenWhisk (80.23). All gates green (delta ≤0.05%,
+    CPmapped 15/15, coverage 100%, host_plausible true). `host_saturation_pct`
+    now 75-79% (was 84-87%) — **QoS citable**: p50 7.6 / p99 11.5 ms @ 503
+    rps. **Energy/carbon verdict REVERSED: now plausibly citable** —
+    `rapl_validation_err_pct` settles to 2.5-7% in steady state (runs 3-5;
+    run_1 20.1%, run_2 8.9% — the same warm-up transient pattern documented
+    elsewhere), a dramatic improvement on the contaminated run's 22-32%
+    (which was itself partly a box-noise artifact, not purely the
+    always-on-idle-baseline structural issue previously assumed — the k8s
+    stack's idle draw is real (7.0 W vs 4.3 W bare, recalibrated today, was
+    11.14 W under the contaminated session) but does NOT break the linear
+    model as badly as first thought once the box is quiet).
+  - **Same-day Fn/OpenFaaS regression re-anchor** (`saqef regression`, run
+    right after, same quiet box): OpenFaaS **7.62 PASS** (ref 7.67, dev
+    0.05 pp). Fn **11.01 FAIL** (ref 11.60, dev 0.59 pp > 0.5 pp tolerance) —
+    this is the ALREADY-DOCUMENTED day-to-day box-state drift (see "Fn share
+    drifts day-to-day" below and TROUBLESHOOTING_RUNBOOK.md §2), not a new
+    issue; 11.01 is in fact the LOWEST Fn value ever recorded on this box,
+    consistent with this being the quietest session yet. Do not re-tighten or
+    loosen the regression tolerance over this — it is doing its documented
+    job (flagging box noise, not refactor breaks).
+  - **Updated four-platform ordering (all figures/tables regenerated
+    2026-08-08):** OpenFaaS 7.62 < Knative 11.40 ≈ Fn 11.60 (3-session
+    aggregate incl. today's 11.01) < OpenWhisk 80.23. Per-inv CP cost:
+    OpenFaaS 0.54 ms < Fn 0.75 ms < Knative 0.86 ms < OpenWhisk 23.16 ms.
+  - **Confidence tiering update:** OpenWhisk and Knative move from "Fishy —
+    needs quiet rerun" to the solid tier for `cp_dynamic_share_pct` and QoS.
+    Knative's energy/carbon moves from "not citable by design" to
+    provisionally citable (cite the steady-state runs 3-5 range, flag run_1
+    as a transient, same discipline as every other multi-run metric in this
+    study). OpenWhisk's energy/carbon remains not citable (structural).
+  - Result dirs overwritten in place (git-tracked, prior contaminated numbers
+    recoverable via `git log -- results/openwhisk_cpubound_baremetal` /
+    `results/knative_cpubound_baremetal` if ever needed for an appendix note
+    on the contamination itself).
+
 ## Current state (2026-08-05 / 06)
 - **Paper/figure cleanup (2026-08-07, post-knative):** the paper and figures were refocused
   **bare-metal-only** per user direction. Codespace results (the 2-vCPU shared-VM origin
@@ -371,36 +457,37 @@ silently vanish. Existing pitfalls list above remains authoritative.
 next human/quiet session. Order matters; the two reruns below are the only new measurements the
 paper still needs.
 
-### Confidence tiering (honest, agreed 2026-08-07)
+### Confidence tiering (updated 2026-08-08 after the quiet-box OW/Kn reruns)
 - **Defensible as-is (measurement-path + multiple sessions):** OpenFaaS 8-core share ~7.5–7.7%
-  (three independent measurements within ~0.15 pp); the **2-core pinned gap ≈ 7.0 pp** (Fn 14.00
-  vs OF 7.00, two independent sessions, frequency-parity verified, invariant-TSC ratio → DVFS-safe);
-  Fn-vs-OF 8-core direction (Fn higher, magnitude ~2.8 pp, below the 5 pp gate); the fixed carbon
-  values (0.145 µg/inv etc., hand-recomputed with J/3.6e6); OF per-inv CP 0.56 ms / Fn 0.66–0.79 ms.
-- **Fishy — needs one quiet rerun each before citation:** OpenWhisk 82.54 and Knative 13.99
-  (single sessions, box contaminated, attribution caveats). **OW is the highest risk**: how much of
-  82.5% is "control plane" vs standalone-emulator `docker logs` artifact? Kn's queue-proxy-in-fn /
-  kourier-in-CP asymmetry + invisible k3s apiserver/etcd are what an expert will probe.
-- **NOT citable by design:** energy/carbon from 2-core, OW, Kn runs (RAPL error 22–60% — linear
-  busy-core model doesn't fit JVM/always-on-k8s stacks); QoS from OW/Kn (agent-contaminated). Only
-  Fn/OF quiet QoS (p50 6.5 vs 7.2 ms) is citable.
+  (four independent measurements now, incl. today's 7.62, within ~0.15 pp); the **2-core pinned
+  gap ≈ 7.0 pp** (Fn 14.00 vs OF 7.00, two independent sessions, frequency-parity verified,
+  invariant-TSC ratio → DVFS-safe); Fn-vs-OF 8-core direction (Fn higher, below the 5 pp gate);
+  the fixed carbon values (0.145 µg/inv etc., hand-recomputed with J/3.6e6); OF per-inv CP 0.54 ms
+  / Fn 0.66–0.79 ms. **NEW: OpenWhisk 80.23 and Knative 11.40 share + QoS**, quiet-box, all gates
+  green (see "Current state" above) — promoted out of "fishy" 2026-08-08.
+- **Still open:** how much of OpenWhisk's ~80% is "control plane" vs standalone-emulator
+  `docker logs` artifact is unchanged by quieting the box (the share barely moved, 82.54→80.23,
+  which argues AGAINST it being mostly a deployment artifact — a true `docker-logs`-per-activation
+  cost should scale with wall-clock/scheduling noise more than this did). Kn's queue-proxy-in-fn /
+  kourier-in-CP attribution asymmetry + invisible k3s apiserver/etcd remain real boundaries to
+  document, not defects to fix.
+- **NOT citable by design:** energy/carbon from 2-core runs and OpenWhisk (RAPL error 45–58%,
+  stable across contaminated AND quiet sessions — structural JVM/linear-busy-core-model mismatch,
+  confirmed NOT a noise artifact). **Knative energy/carbon is now provisionally citable** (rapl err
+  2.5–7% quiet steady-state, was thought structural but wasn't — see "Current state").
 - **Biggest scientific risk to pre-empt:** the 8-core result *failed* the 5 pp gate; the 2-core
   rescue came after. Framed honestly as regime-dependence, but the paper must lead with the
-  controlled same-instrument defense (and the ~25% Fn box drift 10.46→12.92 needs a stated cause or
-  an explicit box-state caveat, not a footnote).
+  controlled same-instrument defense (and the Fn box drift 10.46→12.92→11.01 needs a stated cause
+  or an explicit box-state caveat, not a footnote — today's 11.01 is the widest low end yet).
 
-### 1. Quiet-box rerun runbook for OW + Kn (do FIRST, before any other measurement)
-Both need a box quiet of agents/this shell, `SAQEF_REPEAT=5`, fresh deploy, and idle-w calibrated
-per platform with the stack up (OW 5.29 W, Kn 11.14 W — measured with stack up, zero traffic).
-- OpenWhisk: full `saqef run --platform openwhisk ... --idle-w 5.29` (deploy/verify/bench/gates).
-  Kill/never-run the previous standalones (host_load was rising 47→25 rps). `results/verify.json`
-  is a tracked artifact — revert before commit.
-- Knative: `saqef run --platform knative ... --idle-w 11.14`. Expect share ≈ 13–14 (confirm),
-  QoS now citable (was p50 8.3–8.7/p99 13.8–14.8 @ ~440 rps, agent-contaminated), energy STILL NOT
-  citable even quiet (idle 11.14 W breaks the linear model — rapl err 22–32% is structural).
-- After each: `gates` must show host_saturated=false, delta ~0, coverage 100%, CPmapped ok.
-- Outcome for the paper: OW energy/QoS either become citable (quiet) or get a permanent
-  "deployment-mode artifact" qualification; Kn energy/QoS get their clean provenance.
+### 1. Quiet-box rerun runbook for OW + Kn — DONE 2026-08-08, see "Current state" above.
+Findings: OW share barely moved (82.54→80.23, contamination was NOT the story), Kn share moved
+meaningfully (13.99→11.40, contamination partly WAS the story there), Kn energy/carbon verdict
+reversed to citable, OW energy/carbon confirmed still not citable. Two real bugs found+fixed along
+the way: a k3s TLS-cert clock-skew bug that blocks Knative after every reboot (see TROUBLESHOOTING
+runbook), and a hardcoded Knative revision name in `platforms/knative.py` `deploy()` (harmless —
+masked by an existing fallback — but fixed for robustness). `results/verify.json` was NOT clobbered
+this time (the earlier fix holds: verify now defaults to `results/<platform>_verify`).
 
 ### 2. Fn-drift investigation (mechanism; share values themselves are fine)
 The 11.60-vs-12.92 range is a *box-state* drift (RSS flat, fnserver per-request CP 0.61→0.75 ms),

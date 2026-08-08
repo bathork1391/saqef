@@ -140,6 +140,49 @@ branch never emits `--outdir`, so writes went to the harness's default.
 - The reviewer's "10" was Fn's *dynamic* ephemeral function-container count
   (`fn_replicas: 10,10,10,10,8`), not an OpenFaaS under-replication.
 
+## 10. k3s stuck "activating" forever after a reboot — TLS cert issued with a future notBefore
+
+**Symptom:** `sudo systemctl status k3s` shows `Active: activating (start)` indefinitely (never
+reaches `active (running)`); `kubectl`/`k3s kubectl` fails with `x509: certificate has expired or
+is not yet valid: current time ... is before <some time a few hours in the future>`;
+`platforms/knative.py deploy()` fails at the `k3s get node` precondition check.
+
+**Root cause:** `k3s`/`docker` are systemd services with `Restart=always`, so they restart on every
+reboot of this box. k3s's dynamiclistener auto-rotates its short-lived apiserver serving cert
+(`serving-kube-apiserver.crt` + `dynamic-cert.json`) on certain restarts. If the reboot's RTC/system
+clock is briefly wrong (ahead of real time) before NTP finishes syncing, the newly-issued cert gets
+stamped with a `notBefore` in that wrong future window. Once NTP corrects the clock backward, the
+apiserver's own TLS handshake to itself rejects the cert as "not yet valid" and the server process
+never completes startup — a self-inflicted deadlock. The root CA (`server-ca.crt`, long-lived, only
+generated at cluster init) is unaffected; only the short-lived leaf cert is bad. Confirm with:
+```bash
+sudo openssl x509 -in /var/lib/rancher/k3s/server/tls/serving-kube-apiserver.crt -noout -dates
+timedatectl   # confirm System clock synchronized: yes, i.e. current time is now trustworthy
+```
+
+**Fix (~15s, no cluster data lost):**
+```bash
+sudo systemctl stop k3s
+sudo mkdir -p /var/lib/rancher/k3s/server/tls/_badcert_backup
+sudo mv /var/lib/rancher/k3s/server/tls/{serving-kube-apiserver.crt,serving-kube-apiserver.key,dynamic-cert.json} \
+  /var/lib/rancher/k3s/server/tls/_badcert_backup/
+sudo systemctl start k3s
+sleep 15 && sudo systemctl status k3s --no-pager   # expect: active (running)
+```
+k3s regenerates the deleted files from the (now-correct) clock on next start.
+
+**Downstream gotcha:** after this fix, if a Knative `hello` ksvc predates the outage, kubelet may
+be stuck retrying `KillContainer` on stale pods with `DeadlineExceeded` (dockerd itself was also
+mid-restart) — `kubectl get pods` shows nothing but `docker ps` still shows the containers Up.
+These are orphaned (API objects already deleted); safe to force-remove directly:
+```bash
+docker ps -a --format '{{.Names}}' | grep 'hello-NNNNN-deployment' | xargs -r -n1 -P8 docker rm -f
+```
+Then `python3 saqef teardown --platform knative && python3 saqef deploy --platform knative` for a
+clean redeploy. Note the redeploy lands on a FRESH revision number (`hello-00001-...`, not
+`-00002`) since deleting+recreating the ksvc resets Knative's revision counter — this is normal,
+not a bug (fixed 2026-08-08: `deploy()` no longer hardcodes the old revision number).
+
 ## Quiet-box runbook (final citable numbers)
 
 From a bare bash shell, **with opencode/agent stopped and desktop apps idle**:

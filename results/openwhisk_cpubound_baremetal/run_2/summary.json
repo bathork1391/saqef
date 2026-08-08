@@ -2,47 +2,55 @@
   "platform": "openwhisk",
   "url": "http://127.0.0.1:3233/api/v1/web/guest/default/hello",
   "mode": "load",
-  "wall_s": 261.01,
-  "wall_harness_s": 261.01,
-  "sampling_covered_s": 261.01,
+  "wall_s": 244.9,
+  "wall_harness_s": 244.9,
+  "sampling_covered_s": 244.9,
   "requests": 10000,
   "successes": 10000,
   "availability": 1.0,
-  "throughput_rps": 38.31,
+  "throughput_rps": 40.83,
   "latency_ms": {
-    "p50": 109.5,
-    "p90": 136.2,
-    "p99": 155.6,
-    "max": 1311.4
+    "p50": 97.4,
+    "p90": 117.6,
+    "p99": 136.5,
+    "max": 195.9
   },
   "slo_ms": 500.0,
   "slo_compliance": 1.0,
   "compliance_source": "hey_interp",
   "energy_J": {
-    "total": 2500.2,
-    "dynamic": 1118.5,
-    "control_plane": 917.2,
-    "function": 201.3
+    "total": 1870.5,
+    "dynamic": 918.0,
+    "control_plane": 720.3,
+    "function": 197.8
   },
-  "cp_share_pct": 36.68,
-  "cp_dynamic_share_pct": 82.0,
+  "cp_share_pct": 38.51,
+  "cp_dynamic_share_pct": 78.45,
   "cpu_sec": {
-    "control_plane": 262.05,
-    "function": 57.51
+    "control_plane": 205.79,
+    "function": 56.51
   },
-  "cpu_sec_ceiling": 2088.07,
+  "cpu_sec_ceiling": 1959.21,
   "physical_plausible": true,
-  "unclassified_cpu_s": 0.04,
+  "unclassified_cpu_s": 0.0,
   "container_inventory": [
     "openwhisk",
+    "wsk0_1_prewarm_nodejs20",
+    "wsk0_2_prewarm_nodejs20",
     "wsk0_3_guest_hello",
-    "wsk0_4_guest_hello",
-    "wsk0_5_prewarm_nodejs20",
-    "wsk0_6_guest_hello"
+    "wsk0_4_guest_hello"
   ],
   "container_labels": {
     "openwhisk": {
       "image": "openwhisk/standalone:nightly",
+      "labels": []
+    },
+    "wsk0_1_prewarm_nodejs20": {
+      "image": "openwhisk/action-nodejs-v20:nightly",
+      "labels": []
+    },
+    "wsk0_2_prewarm_nodejs20": {
+      "image": "openwhisk/action-nodejs-v20:nightly",
       "labels": []
     },
     "wsk0_3_guest_hello": {
@@ -52,84 +60,76 @@
     "wsk0_4_guest_hello": {
       "image": "openwhisk/action-python-v3.11:nightly",
       "labels": []
-    },
-    "wsk0_5_prewarm_nodejs20": {
-      "image": "openwhisk/action-nodejs-v20:nightly",
-      "labels": []
-    },
-    "wsk0_6_guest_hello": {
-      "image": "openwhisk/action-python-v3.11:nightly",
-      "labels": []
     }
   },
-  "cp_peak_mem_mb": 538.9,
+  "cp_peak_mem_mb": 407.4,
   "carbon_gCO2": {
-    "op_total": 0.12,
-    "op_control_plane": 0.044,
+    "op_total": 0.09,
+    "op_control_plane": 0.035,
     "idle_band": {
-      "15": 0.241,
-      "30": 0.429,
-      "45": 0.616
+      "15": 0.22,
+      "30": 0.396,
+      "45": 0.572
     }
   },
   "model": {
-    "idle_w": 5.294,
+    "idle_w": 3.889,
     "busy_core_w": 3.5,
     "pue": 1.15,
     "ci": 150.0
   },
   "sensitivity": {
     "cp_dynamic_share_pct_by_busy_w": {
-      "2.0": 82.0,
-      "3.5": 82.0,
-      "5.0": 82.0
+      "2.0": 78.45,
+      "3.5": 78.45,
+      "5.0": 78.45
     },
     "dynamic_energy_J_by_busy_w": {
-      "2.0": 639.1,
-      "3.5": 1118.5,
-      "5.0": 1597.8
+      "2.0": 524.6,
+      "3.5": 918.0,
+      "5.0": 1311.5
     },
     "op_carbon_gCO2_by_busy_w": {
-      "2.0": 0.097,
-      "3.5": 0.12,
-      "5.0": 0.143
+      "2.0": 0.071,
+      "3.5": 0.09,
+      "5.0": 0.108
     }
   },
-  "kpi_gco2_per_slo_compliant_inv": 1.198e-05,
-  "kpi_gco2_per_inv_dynamic": 5.36e-06,
+  "kpi_gco2_per_slo_compliant_inv": 8.96e-06,
+  "kpi_gco2_per_inv_dynamic": 4.4e-06,
   "embodied_dram_g_per_gb_h": 0.0317,
-  "host_cpu_sec": 1329.76,
-  "host_window_s": 261.01,
-  "host_saturation_pct": 63.7,
+  "host_cpu_sec": 825.58,
+  "host_window_s": 244.902,
+  "host_saturation_pct": 42.1,
   "host_plausible": true,
   "host_saturated": false,
-  "host_overhead_cpu_sec": 1010.2,
-  "orchestration_cpu_sec": 1272.25,
-  "orchestration_share_pct": 95.68,
+  "host_overhead_cpu_sec": 563.28,
+  "orchestration_cpu_sec": 769.07,
+  "orchestration_share_pct": 93.15,
   "steal_sec": null,
   "steal_pct": null,
-  "cp_delta_sec": 262.049,
-  "cp_sampler_vs_delta_pct": -0.0,
+  "cp_delta_sec": 205.786,
+  "cp_sampler_vs_delta_pct": 0.0,
   "delta_check_map": {
     "openwhisk": "ok"
   },
   "env": {
     "cpu_count": 8,
     "governor": "powersave",
-    "freq_mhz_before": 4000.0,
-    "freq_mhz_after": 2527.9,
+    "freq_mhz_before": 4000.4,
+    "freq_mhz_after": 4000.0,
     "sampler": "cgroup",
     "loadgen": "hey",
     "loadgen_requested": "hey",
     "loadgen_fallback": false
   },
-  "rapl_validation_err_pct": 36.31,
+  "rapl_validation_err_pct": 57.29,
   "rapl_available": true,
   "loadgen": {
     "source": "hey",
-    "rps": 38.349484218612,
-    "avg_ms": 104.26,
+    "rps": 40.87760957549829,
+    "avg_ms": 97.86,
     "errors": 0,
-    "wall_s": 260.76
+    "wall_s": 244.63
   }
 }
