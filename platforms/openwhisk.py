@@ -95,7 +95,13 @@ class OpenWhiskAdapter(Adapter):
     default_replicas = None          # invoker scales action containers dynamically (no static scale)
     isolation = IsolationPolicy(
         forbidden_services=("*",),   # OpenWhisk never uses swarm; any service contaminates
-        forbidden_containers=("fnserver",),
+        # "user-container"/"queue-proxy" catch a leftover Knative 'hello' ksvc
+        # specifically -- NOT a bare "k8s_" prefix, which would also match
+        # k3s/Knative-serving's own control plane that is DESIGNED to stay
+        # resident on this box across every session (confirmed live
+        # 2026-08-08: a bare "k8s_" forbid permanently blocked this adapter
+        # even with 'hello' properly torn down).
+        forbidden_containers=("fnserver", "user-container", "queue-proxy"),
         expected_containers=("openwhisk",),
     )
 

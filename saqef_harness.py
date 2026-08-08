@@ -104,6 +104,29 @@ def rapl_energy():
         return None
 
 
+def rapl_max_range_j():
+    """Return the RAPL counter's wraparound range in J, or None if unavailable.
+
+    The kernel powercap `energy_uj` counter free-runs and wraps at
+    `max_energy_range_uj` (a documented Linux powercap hazard -- some older/
+    mobile Intel platforms wrap in as little as ~60-260 J, i.e. every few
+    seconds under load). This harness takes only two point-in-time reads
+    (before/after a run) with no periodic re-sampling, so a run whose window
+    is long relative to the wrap period (OpenWhisk stretches to 150-320s, the
+    longest windows in this study) would otherwise silently read back a
+    tiny/negative energy delta and produce a garbage rapl_validation_err_pct.
+    On THIS box max_energy_range_uj is ~262 kJ (confirmed 2026-08-08), so no
+    wraparound occurs even on the longest OW run at realistic power draw --
+    but the correction costs nothing and removes the silent-corruption risk
+    on any other machine this harness is run on."""
+    p = os.path.join(RAPL_DIR, "intel-rapl:0", "max_energy_range_uj")
+    try:
+        with open(p) as f:
+            return int(f.read().strip()) / 1e6  # uJ -> J
+    except Exception:
+        return None
+
+
 def env_frequency():
     """Return (freq_mhz, scaling_governor) or (None, None)."""
     mhz, gov = None, None
@@ -787,6 +810,16 @@ def assert_platform_isolation(platform, forbidden_services="", forbidden_contain
                 % (platform, "; ".join(offenders)))
         return True, ""
     # --- legacy fallback (pre-data-driven shell runners) -----------------------
+    # k3s/Knative stays resident on this box as "the substrate" across every
+    # platform's session (see platforms/knative.py) -- checking for ANY
+    # "k8s_"-prefixed container would permanently block Fn/OpenFaaS even with
+    # 'hello' properly torn down (confirmed live 2026-08-08). Check
+    # specifically for the 'hello' ksvc's two per-replica pod containers
+    # instead: that is the actual leftover that can misclassify (a bare
+    # "gateway" cp_containers substring matching "kourier-gateway"; Fn's
+    # "hello" fn_images substring matching Knative's "kn-hello" image).
+    knative_leftover = [n for n in docker_inventory()
+                        if "user-container" in n or "queue-proxy" in n]
     if platform == "fn":
         out = run("docker service ls --format '{{.Name}}'")
         if out.returncode == 0:
@@ -797,12 +830,22 @@ def assert_platform_isolation(platform, forbidden_services="", forbidden_contain
                     "session (Fn never uses swarm): %s. Likely offender: the OpenFaaS function "
                     "service 'hello' (outside the stack). Run: docker service rm hello"
                     % (len(services), ", ".join(services)))
+        if knative_leftover:
+            return False, (
+                "platform isolation check FAILED: %d leftover Knative/k3s container(s) running "
+                "during an Fn session: %s. Run: python3 saqef teardown --platform knative"
+                % (len(knative_leftover), ", ".join(knative_leftover[:5])))
     elif platform == "openfaas":
         inv = docker_inventory()
         if "fnserver" in inv:
             return False, (
                 "platform isolation check FAILED: Fn's 'fnserver' container is still running "
                 "during an OpenFaaS session. Tear Fn down first (docker rm -f fnserver).")
+        if knative_leftover:
+            return False, (
+                "platform isolation check FAILED: %d leftover Knative/k3s container(s) running "
+                "during an OpenFaaS session: %s. Run: python3 saqef teardown --platform knative"
+                % (len(knative_leftover), ", ".join(knative_leftover[:5])))
     return True, ""
 
 
@@ -823,6 +866,17 @@ def run_once(args, cp_sub):
                  headers=headers, interarrival_ms=args.interarrival_ms)
         time.sleep(2)  # let the hot function container register in docker stats
 
+    # Pre-run inventory snapshot, unioned with the post-run one below (fixes:
+    # image/label classification was previously derived from a SINGLE
+    # post-run docker_inventory() snapshot applied retroactively to the whole
+    # sampling window. Any container that started before the window but
+    # exited before that final snapshot (e.g. a recycled OpenWhisk action
+    # container) would silently drop into "unclassified" instead of "fn" for
+    # its entire CPU history, since fn_containers is empty for platforms with
+    # no stable name pattern -- classification then depends ENTIRELY on the
+    # image/label allowlist. Currently ~0 measured impact (containers persist
+    # for the whole window in every citable run), but structurally fragile.
+    inv_before = docker_inventory()
     rapl_start = rapl_energy()
     samples, stop, first_sample, th = start_sampler(args.sampler, args.rescan_s)
     if th is None:
@@ -882,7 +936,8 @@ def run_once(args, cp_sub):
     # (Fn = ULIDs) - otherwise unclassified_cpu_s is guaranteed 0.0 regardless
     # of what is running. Defaults preserve denylist behavior when no fn
     # allowlist is configured (back-compat, documented).
-    inv = docker_inventory()
+    inv_after = docker_inventory()
+    inv = {**inv_before, **inv_after}   # union: a container gone by run-end still classifies
     cp_members = {n for n, (img, lbls) in inv.items()
                   if _class_matches(n, img, lbls, (), args.cp_images, args.cp_labels)}
     fn_members = {n for n, (img, lbls) in inv.items()
@@ -1035,7 +1090,15 @@ def run_once(args, cp_sub):
     rapl_validation = None
     if rapl_start is not None and rapl_end is not None:
         e_rapl = rapl_end - rapl_start
-        rapl_validation = abs(e_total - e_rapl) / e_rapl * 100 if e_rapl > 0 else None
+        if e_rapl < 0:
+            # Counter wrapped (see rapl_max_range_j docstring). Correct for a
+            # single wrap if we know the range; otherwise the reading is
+            # untrustworthy -- report no validation rather than a garbage
+            # number, consistent with the fail-open discipline elsewhere.
+            rng = rapl_max_range_j()
+            e_rapl = e_rapl + rng if rng else None
+        rapl_validation = (abs(e_total - e_rapl) / e_rapl * 100
+                           if e_rapl is not None and e_rapl > 0 else None)
 
     summary = {
         "platform": args.platform,
@@ -1161,15 +1224,31 @@ def median_summary(summaries):
     def rec(items):
         if isinstance(items[0], dict):
             out = {}
-            for k in items[0]:
-                if not all(k in it for it in items):
+            # Union of keys across ALL runs, not just items[0]'s: container
+            # names (delta_check_map, container_labels) can differ run-to-run
+            # for platforms whose container pool grows over a session
+            # (OpenWhisk's wsk0_N action-container numbering), so restricting
+            # to items[0]'s keys silently dropped later runs' entries from
+            # the aggregate summary.json instead of merging them.
+            keys = []
+            seen = set()
+            for it in items:
+                if isinstance(it, dict):
+                    for k in it:
+                        if k not in seen:
+                            seen.add(k)
+                            keys.append(k)
+            for k in keys:
+                present = [it for it in items if isinstance(it, dict) and k in it]
+                if not present:
                     continue
-                if isinstance(items[0][k], dict):
-                    out[k] = rec([it[k] for it in items])
-                elif isinstance(items[0][k], (int, float)):
-                    out[k] = med([it[k] for it in items])
+                sample = present[0][k]
+                if isinstance(sample, dict):
+                    out[k] = rec([it[k] for it in present])
+                elif isinstance(sample, (int, float)):
+                    out[k] = med([it[k] for it in present])
                 else:
-                    out[k] = items[0][k]
+                    out[k] = sample
             return out
         return items[0]
     return rec(summaries)

@@ -31,7 +31,11 @@ from platforms import get_adapter
 
 METRIC = json.load(open(os.path.join(saqef.METRICS_DIR, "cpubound.json")))
 FN_CP = "fnserver"
-OF_CP = "gateway,faas-swarm,prometheus,nats,queue-worker,alertmanager"
+# Prefixed with the swarm stack name (fixed 2026-08-08): a bare "gateway"
+# substring collided with Knative's "kourier-gateway" pod containers, since
+# k3s/Knative stays resident on this box across every platform's session.
+OF_CP = ("openfaas_gateway,openfaas_faas-swarm,openfaas_prometheus,"
+        "openfaas_nats,openfaas_queue-worker,openfaas_alertmanager")
 
 
 class TestArgvByteIdentical(unittest.TestCase):
@@ -45,7 +49,7 @@ class TestArgvByteIdentical(unittest.TestCase):
             "--url", "http://localhost:8080/t/app1/hello",
             "--platform", "fn", "--cp-containers", FN_CP,
             "--fn-images", "hello",
-            "--forbidden-services", "*",
+            "--forbidden-services", "*", "--forbidden-containers", "user-container,queue-proxy",
             "--total", "3000", "--concurrency", "20", "--duration", "60",
             "--warmup", "20", "--repeat", "5",
             "--sampler", "cgroup", "--delta-check", "--loadgen", "hey",
@@ -61,7 +65,7 @@ class TestArgvByteIdentical(unittest.TestCase):
             "--url", "http://localhost:8080/t/app1/hello",
             "--platform", "fn", "--cp-containers", FN_CP,
             "--fn-images", "hello",
-            "--forbidden-services", "*",
+            "--forbidden-services", "*", "--forbidden-containers", "user-container,queue-proxy",
             "--idle-w", "4.3", "--cpu-count-override", "2", "--host-cpu-list", "0,1",
             "--total", "10000", "--concurrency", "4", "--duration", "60",
             "--warmup", "20", "--repeat", "5",
@@ -76,7 +80,7 @@ class TestArgvByteIdentical(unittest.TestCase):
             "--url", "http://127.0.0.1:8080/function/hello",
             "--platform", "openfaas", "--cp-containers", OF_CP,
             "--fn-images", "hello",
-            "--forbidden-containers", "fnserver",
+            "--forbidden-containers", "fnserver,user-container,queue-proxy",
             "--total", "3000", "--concurrency", "20", "--duration", "60",
             "--warmup", "20", "--repeat", "5",
             "--sampler", "cgroup", "--delta-check", "--loadgen", "hey",
@@ -91,7 +95,7 @@ class TestArgvByteIdentical(unittest.TestCase):
             "--url", "http://127.0.0.1:8080/function/hello",
             "--platform", "openfaas", "--cp-containers", OF_CP,
             "--fn-images", "hello",
-            "--forbidden-containers", "fnserver",
+            "--forbidden-containers", "fnserver,user-container,queue-proxy",
             "--verify-n", "100", "--verify-budget-ms", "5.0"])
 
     def test_fn_verify(self):
@@ -106,7 +110,7 @@ class TestArgvByteIdentical(unittest.TestCase):
             "--url", "http://localhost:8080/t/app1/hello",
             "--platform", "fn", "--cp-containers", FN_CP,
             "--fn-images", "hello",
-            "--forbidden-services", "*",
+            "--forbidden-services", "*", "--forbidden-containers", "user-container,queue-proxy",
             "--verify-n", "100", "--verify-budget-ms", "5.0"])
 
     def test_check_cmd(self):
@@ -123,7 +127,7 @@ class TestArgvByteIdentical(unittest.TestCase):
             "--url", "http://127.0.0.1:3233/api/v1/web/guest/default/hello",
             "--platform", "openwhisk", "--cp-containers", "openwhisk",
             "--fn-images", "action-python-v3.11",
-            "--forbidden-services", "*", "--forbidden-containers", "fnserver",
+            "--forbidden-services", "*", "--forbidden-containers", "fnserver,user-container,queue-proxy",
             "--total", "3000", "--concurrency", "20", "--duration", "60",
             "--warmup", "20", "--repeat", "5",
             "--sampler", "cgroup", "--delta-check", "--loadgen", "hey",
@@ -137,7 +141,7 @@ class TestArgvByteIdentical(unittest.TestCase):
             "--url", "http://127.0.0.1:3233/api/v1/web/guest/default/hello",
             "--platform", "openwhisk", "--cp-containers", "openwhisk",
             "--fn-images", "action-python-v3.11",
-            "--forbidden-services", "*", "--forbidden-containers", "fnserver",
+            "--forbidden-services", "*", "--forbidden-containers", "fnserver,user-container,queue-proxy",
             "--verify-n", "100", "--verify-budget-ms", "5.0"])
 
     def test_kn_bench_defaults(self):
