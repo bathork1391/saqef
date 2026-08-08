@@ -50,11 +50,17 @@ wording."** Disposition of each point:
   pending a quiet session — see finding #13 below).
 - **n=1 machine (blocking B) — AGREED + REWORDED.** Contribution #3 and T5V #8 now say explicitly:
   core-count effect demonstrated on **one physical host via cpuset restriction** (instrument held
-  fixed — that is the validity argument), a second physical machine is future work. A genuinely
-  distinct second box before submission remains the user's call. (§4.2 already carried the CANDID.)
+  fixed — that is the validity argument), a second physical machine is future work. **Reviewer's
+  lean (agreed):** machine-pair dependence is the paper's central contribution, so spend the
+  extra days on a genuinely distinct second box if the timeline has any give — "demonstrated X"
+  beats "demonstrated X, with one caveat, in our central claim"; shipping the honestly-scoped n=1
+  is a legitimate fallback, not the preferred path. (§4.2 already carried the CANDID.)
 - **Cold review pass #6 on the four newest code paths (Kn adapter, OW adapter, narrowed isolation
   policy, median_summary rewrite) — OPEN, recommended before submission.** Track record: every
-  prior pass found something real.
+  prior pass found something real. **Must be a GENUINELY fresh reviewer** — a different person or
+  at minimum a fresh model session with no prior context, NOT a continuation of this thread; a
+  reviewer who already knows the codebase pattern-matches instead of re-deriving, which defeats
+  the purpose (this session counts as "reviewer #5, continued" from here on).
 
 ## Current state (2026-08-09 — quiet-gate automation + contamination A/B, reviewer #5 follow-up)
 
@@ -71,20 +77,85 @@ assertion — a hope, not a gate. Addressed:
    contamination-AB only. Idle-probe (idle-w calibration) is exempt (the platform stack itself is
    the subject). 3 new tests (47/47 pass).
 2. **Contamination A/B tool** (`tools/contamination_ab.py`): runs the same bench clean (gate
-   active) vs an emulated 3-core + 1.1 GB agent signature (gate disabled) and reports the
-   measured delta on `cp_dynamic_share_pct` / `host_saturation_pct` / p50/p99 / throughput →
-   the honest "how much does an agent-style load move our numbers on THIS box" figure for §7.
-   **Must be run from a bare shell with agents quit** (the clean leg enforces it). REPEAT=3 →
-   `_quick` outdir; bump `--repeat 5` if it becomes a citable methodology figure.
+   active) vs an emulated agent signature (gate disabled) and reports the measured delta on
+   `cp_dynamic_share_pct` / `host_saturation_pct` / p50/p99 / throughput → the honest "how
+   much does an agent-style load move our numbers on THIS box" figure for §7. **Profile
+   matched to the documented 2026-08-07 incident** (per reviewer #5 follow-up — a generic
+   light stressor would understate the real bound): `--cores 3` spinners pinned to distinct
+   cores (≈300% ≈ the real 2.76-core load) + `--mem-gb 1.1` bytearray (the real 1.1 GB RSS);
+   the dirty leg prints the achieved aggregate host busy% (target = cores / cpu_count) and the
+   emulated load profile lands in `contamination_ab.json`. **N≥5 by default (`--repeat 5`) —
+   the same discipline as every citable number in this study; a single A/B pair is not a
+   bound.** **Must be run from a bare shell with agents quit** (the clean leg enforces it).
 3. **Flags threaded through the adapter layer** (`harness_argv` keyword args, default-preserving
    → byte-identical argv tests still pass) and `saqef run --no-quiet-gate/--ambient-window-s/
    --max-ambient-cpu-pct`.
 
-**Box task, next quiet session (bare shell, opencode quit):** (a) `tools/contamination_ab.py
---platform fn` and `--platform openfaas` → §7 contamination bound; (b) re-anchor the Fn/OF
-regression references (11.60/7.67) via same-day old-runner A/B under the now-self-certifying
-gate (runbook §2/§3); (c) Knative idle-w N≥3 recalibration (finding #13). All three now produce
-results whose quiet provenance is in the data, not the prose.
+**Box task, next quiet session (bare shell, opencode quit) — SEQUENCED, in this order:**
+(a) `tools/contamination_ab.py --platform fn` then `--platform openfaas` (REPEAT=5 defaults)
+→ §7 contamination bound; (b) **only after (a)**: re-anchor the Fn/OF regression references
+(11.60/7.67) via same-day old-runner A/B under the now-self-certifying gate (runbook §2/§3);
+(c) Knative idle-w N≥3 recalibration (finding #13). Do NOT run (b) concurrently with (a): the
+A/B first establishes what "quiet" actually means on this box (a measured bound, not a
+load-average check), otherwise the re-anchor is anchored against a session whose quietness is
+still being established — a subtle circularity. All three produce results whose quiet
+provenance is in the data, not the prose.
+
+**Reviewer #5 follow-up on execution quality (2026-08-09) — AGREED, incorporated above:**
+(1) the A/B synthetic load must reproduce the documented incident profile (2.76 cores + 1.1 GB
+RSS), not a generic light stressor — now the tool default; (2) sequence the A/B BEFORE the
+regression re-anchor to avoid circular quietness — now the box-task order above; (3) review
+pass #6 must be a genuinely fresh reviewer (different person, or at minimum a fresh model
+session with no prior context), NOT a continuation of this thread — a reviewer who already
+knows the codebase pattern-matches instead of re-deriving, defeating the whole point (four
+passes → four real bugs is the argument FOR independence); (4) n=1 machine — reviewer leans
+toward a genuinely distinct second box if the timeline has any give, since machine-pair
+dependence is the paper's central contribution; shipping the honestly-scoped n=1 is a
+legitimate fallback, not the preferred path. User's call.
+
+### Contamination A/B — BOTH LEGS DONE (2026-08-08 ~23:00 + rerun 2026-08-08, box quiet, N=5/leg)
+
+First real execution of the new tool (Fn leg), then a full rerun of Fn + the OpenFaaS leg in the
+same session (this one). **Verdict: the documented agent profile moves Fn's share ~+2.2 pp but
+OpenFaaS's only ~+0.3 pp** — a ~6× asymmetry. The ~0.3–1 pp drift estimate the paper previously
+inferred from the 2026-08-07 incident is superseded by these direct measurements; §7 wording must
+cite: Fn ~+2.2 pp, OpenFaaS ~+0.3 pp (both N=5/leg, profile-matched). Data in
+`results/{fn,openfaas}_contamination_ab/{clean,dirty}/summary.json` +
+`contamination_ab.json`.
+
+- **Fn rerun (confirms the +2.2 pp is stable):** clean **10.0** (CV 2.8%, CI 9.81–10.55),
+  host_sat 69.7, p50 6.4 / p99 9.3 ms @ 597.8 rps → dirty **12.16** (CV 4.2%, CI 12.07–13.3),
+  host_sat 93.6, p50 7.2 / p99 14.8 ms @ 503.0 rps. **delta +2.16 pp** (first run: 9.91 → 12.11,
+  +2.20 pp — the two sessions agree within ~0.05 pp).
+- **OpenFaaS leg (new):** clean **6.9** (CV 1.6%, CI 6.76–7.01), host_sat 71.6, p50 6.8 / p99 12.1 ms
+  @ 549.2 rps → dirty **7.24** (CV 0.6%, CI 7.22–7.33), host_sat 92.7, p50 7.9 / p99 17.5 ms @ 450.1
+  rps. **delta +0.34 pp.**
+- **Mechanism story (supports Design Principle C1):** the share is contaminated only where the
+  control plane is a *central orchestrator on the request path* (fnserver +2.2 pp); OpenFaaS's
+  per-replica of-watchdog model is nearly immune (+0.34 pp). Same direction as the core-scarcity
+  result (Fn +33% at 2 cores, OF flat-to-lower).
+- **QoS is the larger contamination effect on both platforms:** p99 +5.5/+5.4 ms, throughput
+  −16/−18%. Both dirty legs correctly flagged `host_saturated=true` → dirty-leg latency percentiles
+  NOT citable; the clean-vs-dirty latency CONTRAST is the citable output.
+- RAPL not citable this session (clean rapl_err 35–49% Fn, 38–54% OF; dirty 22–28%) — Fn/OF
+  energy/carbon flags stay quiet here. Share unaffected (cgroup CPU-time ratio).
+- Clean legs 10.0 (Fn) / 6.9 (OF) are the lowest values ever recorded on this box (previous lows
+  9.91 / 7.14) — the quietest session yet, consistent with the documented day-to-day drift; does
+  not affect the within-session A/B deltas.
+- Minor: `fn_replicas` grew 5→6 in Fn dirty runs 1–5 (autoscaler under contention); OF held 16/16
+  everywhere.
+- Box left clean: `docker service ls` empty, 21 containers = k3s/knative substrate only (the
+  openfaas teardown's "network in use by service xypwiyk…" warning resolved in the final cleanup
+  pass — `hello` WAS removed, no leftover to taint a future Fn session).
+
+**Bug found + fixed (2026-08-08):** `tools/contamination_ab.py` wrote benches via `cwd=REPO`
+(so results landed in the repo-root `results/…`) but read them back relative to the caller's
+cwd — run from `tools/` it crashed at `read_summary()` with `FileNotFoundError` and never wrote
+`contamination_ab.json`. Fixed: outdir is now resolved to absolute against `REPO`
+(`contamination_ab.py:140-144`). Verdict computation re-verified by reading the existing
+summary.jsons directly. **Box-task step (a) is now COMPLETE** — next (b): re-anchor the Fn/OF
+regression references (11.60/7.67) via same-day old-runner A/B under the self-certifying gate;
+then (c) Knative idle-w N≥3 recalibration.
 
 ## Current state (2026-08-08 independent reverification + 11 bugs found/fixed — READ THIS FIRST)
 

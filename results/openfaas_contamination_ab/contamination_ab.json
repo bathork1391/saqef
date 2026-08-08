@@ -1,0 +1,33 @@
+{
+  "cp_dynamic_share_pct": {
+    "clean": 6.9,
+    "dirty": 7.24,
+    "delta": 0.33999999999999986
+  },
+  "host_saturation_pct": {
+    "clean": 71.6,
+    "dirty": 92.7,
+    "delta": 21.10000000000001
+  },
+  "latency p50 ms": {
+    "clean": 6.8,
+    "dirty": 7.9,
+    "delta": 1.1000000000000005
+  },
+  "latency p99 ms": {
+    "clean": 12.1,
+    "dirty": 17.5,
+    "delta": 5.4
+  },
+  "throughput_rps": {
+    "clean": 549.21,
+    "dirty": 450.1,
+    "delta": -99.11000000000001
+  },
+  "emulated_load": {
+    "cores": 3,
+    "mem_gb": 1.1,
+    "repeat": 5
+  },
+  "results_dir": "/home/imran/faas-work/saqef/results/openfaas_contamination_ab"
+}
