@@ -17,6 +17,45 @@ a contention-robust discriminator. Decision gate: platform gap in the share must
   `host_plausible` (must be true), `physical_plausible`, `host_sat%` (~100 on the codespace is
   the honest saturated-box flag, not a failure).
 
+## Expert review #5 (2026-08-09) — disposition
+
+External expert (reviewer #5) ran the audit in `EXPERT_REVIEW_PROMPT.md`. Verdict: **not yet
+publishable as-is, but close — "close two self-identified loose ends and tighten one claim's
+wording."** Disposition of each point:
+
+- **Praise (confirmed, no action):** gates-in-measurement-path, self-critical changelog, the
+  three-session OW stability (82.54/80.23/82.36 in a ~2 pp band) as a reproducibility argument,
+  honesty about Kn's 13.99→11.40→12.44 swing.
+- **median_summary list-union gap — CONFIRMED + FIXED.** `container_inventory` (a list) fell
+  through to first-run-only while dict siblings were unioned; OpenWhisk's growing `wsk0_N` pool
+  was the exact case. `median_summary()` now unions lists (dedup, first-seen order) the same way
+  it unions dicts. Diagnostic impact only (no headline metric reads `container_inventory`), but
+  the inconsistency was real. 3 new tests.
+- **RAPL double-wrap indistinguishable from "unavailable" — CONFIRMED + FIXED.** Extracted
+  `rapl_correct_wrap()` (single-wrap exact correction; double/no-range → fail-open None) and added
+  a `rapl_wrap` summary field (`none|corrected_single|uncertain_double|uncertain_no_range`),
+  distinct from `rapl_available`. OW's 150–320 s runs are the platform most exposed. Defensive on
+  this box (~262 kJ counter range, no wrap at realistic power). 3 new tests.
+- **Convention-normalized comparison — CONFIRMED + ADDRESSED WITH DATA.** Re-derived Kn's
+  queue-proxy magnitude from `samples.csv` (integrated CPU-time reproduces the harness's 12.44 to
+  0.02 pp): queue-proxy ≈ 10.3 CPU-s/run vs fn 57.6 / CP 9.4, so classifying the sidecar as CP
+  raises Kn to **25.7%**. Added a §5.6 "convention-normalized view" table + abstract caveat:
+  Fn/OF/Kn already use the consistent co-located-proxy-in-fn convention; the Fn–Kn tie is
+  convention-sensitive (report as a cluster), but OF < {Fn,Kn} << OW survives every plausible
+  reclassification.
+- **Knative idle-premium "dangling" — PUSHED BACK.** The expert's own prescribed fix ("honestly
+  scoped absence") is already implemented: §5.6 labels it "OPEN, not citable at any specific W
+  figure" and the abstract cites the three readings only as "some premium, not yet pinned down"
+  (also §12). No paper edit needed; the remaining action is the N≥3 recalibration (box task,
+  pending a quiet session — see finding #13 below).
+- **n=1 machine (blocking B) — AGREED + REWORDED.** Contribution #3 and T5V #8 now say explicitly:
+  core-count effect demonstrated on **one physical host via cpuset restriction** (instrument held
+  fixed — that is the validity argument), a second physical machine is future work. A genuinely
+  distinct second box before submission remains the user's call. (§4.2 already carried the CANDID.)
+- **Cold review pass #6 on the four newest code paths (Kn adapter, OW adapter, narrowed isolation
+  policy, median_summary rewrite) — OPEN, recommended before submission.** Track record: every
+  prior pass found something real.
+
 ## Current state (2026-08-08 independent reverification + 11 bugs found/fixed — READ THIS FIRST)
 
 A follow-up audit (independent of the agent that did the quiet-box reruns below) re-derived every

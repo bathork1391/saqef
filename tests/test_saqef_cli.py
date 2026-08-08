@@ -460,5 +460,62 @@ class TestRegressionVerdict(unittest.TestCase):
         self.assertFalse(self._run({"fn": self._med(refs["fn"])}))
 
 
+class TestHarnessAggregation(unittest.TestCase):
+    """median_summary must union dict AND list leaves across runs (the
+    OpenWhisk wsk0_N pool grows over a session, so first-run-only silently
+    drops later runs' entries), and RAPL wraparound must be fail-open but
+    distinguishable from 'RAPL unavailable' (expert review #5, 2026-08-09)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.h = importlib.machinery.SourceFileLoader(
+            "saqef_harness", os.path.join(REPO, "saqef_harness.py")).load_module()
+
+    def test_median_summary_unions_container_inventory(self):
+        # Growing pool: run 2 has two action containers run 1 lacks.
+        s1 = {"platform": "openwhisk",
+              "container_inventory": ["openwhisk", "wsk0_1_prewarm_nodejs20"]}
+        s2 = {"platform": "openwhisk",
+              "container_inventory": ["openwhisk", "wsk0_1_prewarm_nodejs20",
+                                      "wsk0_3_guest_hello", "wsk0_4_guest_hello"]}
+        med = self.h.median_summary([s1, s2])
+        self.assertEqual(med["container_inventory"],
+                         ["openwhisk", "wsk0_1_prewarm_nodejs20",
+                          "wsk0_3_guest_hello", "wsk0_4_guest_hello"])
+
+    def test_median_summary_union_dedups_preserves_order(self):
+        s1 = {"container_inventory": ["a", "b"]}
+        s2 = {"container_inventory": ["b", "c", "a"]}
+        self.assertEqual(self.h.median_summary([s1, s2])["container_inventory"],
+                         ["a", "b", "c"])
+
+    def test_median_summary_dict_keys_still_union(self):
+        s1 = {"delta_check_map": {"fnserver": "ok"}}
+        s2 = {"delta_check_map": {"fnserver": "ok", "wsk0_3_guest_hello": "ok"}}
+        med = self.h.median_summary([s1, s2])
+        self.assertEqual(sorted(med["delta_check_map"]),
+                         ["fnserver", "wsk0_3_guest_hello"])
+
+    def test_rapl_correct_wrap_single(self):
+        rng = self.h.rapl_max_range_j()
+        self.assertTrue(rng)  # this box exposes the counter range
+        e, flag = self.h.rapl_correct_wrap(-rng + 1000.0)
+        self.assertEqual(flag, "corrected_single")
+        self.assertAlmostEqual(e, 1000.0)
+
+    def test_rapl_correct_wrap_double_is_uncertain(self):
+        e, flag = self.h.rapl_correct_wrap(-2.0 * 999999999999.0)
+        self.assertIsNone(e)
+        self.assertEqual(flag, "uncertain_double")
+
+    def test_rapl_correct_wrap_none_passthrough(self):
+        e, flag = self.h.rapl_correct_wrap(None)
+        self.assertIsNone(e)
+        self.assertEqual(flag, "none")
+        e, flag = self.h.rapl_correct_wrap(123.0)
+        self.assertEqual(e, 123.0)
+        self.assertEqual(flag, "none")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
