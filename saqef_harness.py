@@ -375,11 +375,26 @@ def docker_inventory():
     return inv
 
 
+def _image_repo_basename(image):
+    """Registry/path- and tag-stripped repository name, e.g.
+    'localhost:5000/saqef/kn-hello:0.0.1' -> 'kn-hello'. Used for EXACT
+    fn_images/cp_images allowlist matching so Fn/OpenFaaS's 'hello' allowlist
+    cannot substring-match inside Knative's 'kn-hello' image (manifest #1,
+    see AGENTS.md) -- raw substring containment made that collision reachable
+    the moment docker/containerd resolves a tag where it currently shows a
+    bare digest for k3s-managed containers; exact basename match closes it by
+    construction instead of relying on that quirk."""
+    repo = image.split("@", 1)[0]     # drop a digest suffix, if present
+    repo = repo.rsplit("/", 1)[-1]    # drop registry/path
+    repo = repo.split(":", 1)[0]      # drop tag
+    return repo.lower()
+
+
 def _class_matches(name, image, labels, subs, img_subs, lbl_keys):
     """True if a container matches ANY of the name/image/label signals."""
     if subs and any(s in name.lower() for s in subs):
         return True
-    if img_subs and image and any(s in image.lower() for s in img_subs):
+    if img_subs and image and _image_repo_basename(image) in {s.lower() for s in img_subs}:
         return True
     if lbl_keys:
         for k in lbl_keys:

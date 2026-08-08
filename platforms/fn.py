@@ -41,10 +41,14 @@ class FnAdapter(Adapter):
         # DESIGNED to stay resident on this box across every session (see
         # platforms/knative.py). Forbidding all "k8s_" would permanently block
         # Fn even with 'hello' torn down -- confirmed live 2026-08-08. Fn's
-        # fn_images=("hello",) substring-matches Knative's "kn-hello" image;
-        # today that's masked only by an incidental docker/containerd quirk
+        # fn_images=("hello",) used to substring-match Knative's "kn-hello"
+        # image, masked only by an incidental docker/containerd quirk
         # (k3s-managed containers show a bare image digest, not the resolved
-        # tag), not by design -- this check is the real defense.
+        # tag) rather than by design; saqef_harness._image_repo_basename()
+        # now does exact repo-basename matching for fn_images/cp_images, so
+        # this is closed by construction. This isolation check remains the
+        # primary defense either way -- it removes the leftover containers,
+        # not just their misclassification.
         forbidden_containers=("user-container", "queue-proxy"),
         expected_containers=("fnserver",),
     )

@@ -174,17 +174,21 @@ embodied_DRAM = 1390 gCO2/GB ÷ (5 yr × 8760 h)                # amortized, rep
 
 Constants: `P_BUSY_CORE_W = 3.5`, `PUE = 1.15`, `CI = 150 gCO2/kWh`, `SAMPLE_S = 1.0`. The idle
 baseline `P_IDLE_BASE_W` is **calibrated per platform, per session** (it is box-state, not a
-platform constant — see below) from a single 60 s RAPL read with the stack up, zero traffic: Fn/
+platform constant — see below) from a 60 s RAPL read with the stack up, zero traffic: Fn/
 OpenFaaS 4.3 W (2026-08-05/06 baseline session, still valid for their citable energy numbers);
 OpenWhisk 5.294 W → 3.889 W → 4.873 W across three sessions; Knative 11.138 W → 7.007 W → 4.906 W
-across three sessions (§5.6). The model default of 30 W is never used for the reported numbers.
+across three sessions, superseded on 2026-08-09 by the N=5 protocol (§5.6): 3.871 W bare /
+4.561 W with `hello` at 16 replicas (median, spreads 0.25/0.41 W). The model default of 30 W is
+never used for the reported numbers.
 **This box-state drift is itself a methodology finding, in two parts**: (1) `saqef regression`'s
 Fn/OpenFaaS idle-w is a static config value that is never re-measured session to session, so a
 session's RAPL validation can silently degrade if run long after the last calibration (§5.6
-energy-citability note); (2) the calibration itself is a *single* point-in-time sample, unlike
-every other metric in this study (N=5 with bootstrap CI) — Knative's three idle-w readings span
-11.1/7.0/4.9 W with no repeats to distinguish real drift from single-sample noise, so §5.6 treats
-the "always-on idle premium" claim as open rather than citing any one of them as final.
+energy-citability note); (2) the calibration was originally a *single* point-in-time sample,
+unlike every other metric in this study (N=5 with bootstrap CI) — and Knative's three
+single-sample idle-w readings (11.1/7.0/4.9 W) proved exactly how fragile that is, spanning more
+than 2× with no repeats to separate real drift from noise. The N≥3 repeated-read protocol
+(`rapl_w_series()`, wraparound-guarded, median + spread) that closed the Knative question in
+§5.6 is now the recommended calibration discipline for every platform.
 
 **This is estimation, not measurement** for absolute Joules (±50% typical on absolute energy). It
 is defensible as: (a) a transparent, reproducible model; (b) a *relative* cross-platform
@@ -366,17 +370,17 @@ presents both the machine-dependence and its asymmetry as findings.
 > at identical clocks there is no CP-on-faster-core channel either. **Mechanism remains future
 > work:** `perf stat -e context-switches,migrations` on fnserver at 2 vs 8 cores.
 
-### 5.6 Four-platform comparison (2026-08-08 evening rerun, same 8-core box, c=4, REPEAT=5)
+### 5.6 Four-platform comparison (same 8-core box, c=4, REPEAT=5; Fn/OF from the 2026-08-09 regression leg, Kn/OW from the 2026-08-08 evening rerun)
 
-**Figure 2 — Per-run shares, four platforms (8-core box; OF/Kn/OW from the 2026-08-08 evening rerun, Fn across 3 sessions — see the data-source note in Appendix A).** Every per-run value shown (n=5 per session; Fn has 3 sessions → 15 points; markers distinguish sessions), black tick = reported median. The platform ordering is the robust finding: OpenFaaS 7.14 < Fn ≈ Knative 10.65–12.44 (11.60 three-session median) < OpenWhisk 82.36 (attribution conventions differ — see the map below). OW's 82.4 uses the same y-axis; the scale is dominated by it, which is itself the point (an order-of-magnitude orchestration cost).
+**Figure 2 — Per-run shares, four platforms (8-core box; Fn/OF from the 2026-08-09 regression leg, Kn/OW from the 2026-08-08 evening rerun — see the data-source note in Appendix A).** Every per-run value shown (n=5 per session; Fn has 3 sessions → 15 points; markers distinguish sessions), black tick = reported median. The platform ordering is the robust finding: OpenFaaS 7.40 < Fn ≈ Knative 10.56–12.96 (11.60 three-session median) < OpenWhisk 82.36 (attribution conventions differ — see the map below). OW's 82.4 uses the same y-axis; the scale is dominated by it, which is itself the point (an order-of-magnitude orchestration cost).
 
 ![figure2](figures/figure2_four_platform_scatter.png)
 
-**Figure 3 — Attribution split (four platforms, 8-core box).** Per-run median dynamic CPU time decomposed into control-plane (solid), function (translucent), and unclassified (grey) bars, with the CP share labeled on top. Reading: the control plane is 7.1–12.4% of the marginal CPU time on all three lightweight platforms (OF/Fn/Kn) but ~82.4% on the standalone OpenWhisk emulator, whose single JVM orchestrator + per-activation docker-log store dominates (deployment-mode caveat, below).
+**Figure 3 — Attribution split (four platforms, 8-core box).** Per-run median dynamic CPU time decomposed into control-plane (solid), function (translucent), and unclassified (grey) bars, with the CP share labeled on top. Reading: the control plane is 7.4–12.4% of the marginal CPU time on all three lightweight platforms (OF/Fn/Kn) but ~82.4% on the standalone OpenWhisk emulator, whose single JVM orchestrator + per-activation docker-log store dominates (deployment-mode caveat, below).
 
 ![figure3](figures/figure3_attribution_split.png)
 
-**Figure 4 — Control-plane CPU per invocation (ms CPU / request), four platforms.** Median CP CPU per run ÷ 10,000 requests (per-platform aggregate across sessions). Reading: of-watchdog (per-replica proxy inside the function cgroup) 0.50 ms ≈ fnserver (dedicated broker process) 0.75 ms aggregate (session medians 0.67–0.82 ms) ≈ Knative 0.96 ms (knative-serving + kourier gateway + activator), while the standalone OpenWhisk JVM costs ~26.8 ms — a ~28–54× orchestration tax per request vs the lightweight platforms. Data: `results/{openfaas,fn,knative,openwhisk}_cpubound_baremetal` (2026-08-08 evening rerun).
+**Figure 4 — Control-plane CPU per invocation (ms CPU / request), four platforms.** Median CP CPU per run ÷ 10,000 requests (per-platform aggregate across sessions). Reading: of-watchdog (per-replica proxy inside the function cgroup) 0.53 ms ≈ fnserver (dedicated broker process) 0.75 ms aggregate (session medians 0.72–0.82 ms) ≈ Knative 0.96 ms (knative-serving + kourier gateway + activator), while the standalone OpenWhisk JVM costs ~26.8 ms — a ~28–54× orchestration tax per request vs the lightweight platforms. Data: `results/regression/{openfaas,fn}` (2026-08-09 leg) + `results/{knative,openwhisk}_cpubound_baremetal` (2026-08-08 evening rerun).
 
 ![figure4](figures/figure4_cp_cost_per_inv.png)
 
@@ -393,15 +397,18 @@ benchmark agent consumed ~2.8 cores. A 2026-08-08 morning quiet-box rerun (OpenF
 Knative 11.40, OpenWhisk 80.23) fixed that contamination but was itself collected before a same-day
 audit found and fixed a real classification bug (OpenFaaS's control-plane matcher was silently
 counting a small amount of leftover Knative CPU as its own — see the isolation note below). **The
-table below is the current one to cite**: a same-day 2026-08-08 evening rerun, same box, with the
-classification and isolation fixes applied and validated live. All three snapshots remain in git
+table below is the current one to cite**: Fn/OpenFaaS from the **2026-08-09 regression leg**
+(self-certifying quiet gate, ambient 9.9%/11.7% of a 15% ceiling, reproducing the same-day
+re-anchored references 11.49/7.61 within 0.25 pp — G6 GREEN, §8.1), Knative/OpenWhisk from the
+2026-08-08 evening rerun on the same box, with the classification and isolation fixes applied and
+validated live. All earlier snapshots remain in git
 history for an appendix note on how the numbers evolved as bugs were found, but only this table's
 numbers are current.
 
 | platform | median `cp_dynamic_share_pct` | spread (min–max) | per-inv CP CPU | fn CPU/inv | host_sat% | energy citable? |
 |---|---|---|---|---|---|---|
-| OpenFaaS | **7.14** | CI 7.07–7.25, CV 0.93% | 0.50 ms | 6.50 ms | 70–79 | not from this session — see note |
-| Fn | **11.60** (3-session median; today's session value 10.65, CI 10.51–10.74) | 10.51–12.96 across sessions | 0.75 ms (session medians 0.67–0.82) | 5.58–5.63 ms | 71–77 | not from this session — see note |
+| OpenFaaS | **7.40** (2026-08-09 leg; ref 7.61) | 7.08–7.50 | 0.53 ms | 6.59 ms | 70.1–73.6 | not from this session — see note |
+| Fn | **11.60** (3-session median; 2026-08-09 leg 11.27) | 10.56–12.96 across sessions | 0.75 ms (session medians 0.72–0.82) | 5.64 ms (5.53–5.69 across sessions) | 70.5–71.8 | not from this session — see note |
 | Knative | **12.44** | CI 12.12–12.97, CV 2.73% | 0.96 ms | 6.79 ms | 74–78 | **yes** (rapl err 1.3–4.7%, all 5 runs steady-state — no warm-up transient this session) |
 | OpenWhisk | **82.36** | CI 81.94–86.86, CV 2.44% | 26.82 ms | 5.75 ms | 57–70 | no (rapl err 31–50%, structural; run_1 an unexplained 0.19% outlier) |
 
@@ -412,11 +419,12 @@ session, by design). This silently folded a small amount of leftover Kourier CPU
 control-plane bucket in every prior OpenFaaS run on this box. Fixed by scoping the matcher to the
 swarm-stack-prefixed container names (`openfaas_gateway`, ...); confirmed live afterward — the
 fresh run's `delta_check_map` shows exactly the 6 real OpenFaaS containers, zero Kourier entries.
-The effect on the reported share was small (OpenFaaS's regression-session share moved 7.62 → 7.14,
-partly this fix and partly ordinary day-to-day box drift — the two are not separated here).
+The effect on the reported share was small (OpenFaaS's regression-session share moved 7.62 → 7.14
+in the 2026-08-08 evening leg, partly this fix and partly ordinary day-to-day box drift — the two
+are not separated here; the 2026-08-09 leg re-reads 7.40, ref 7.61).
 
 **Reading.** The container-visible control-plane share spans an order of magnitude: of-watchdog
-(per-replica, inside the function cgroup) 7.1 < fnserver (a dedicated broker process) ~10.7–11.6 <
+(per-replica, inside the function cgroup) 7.4 < fnserver (a dedicated broker process) ~10.6–11.6 <
 Knative's knative-serving + kourier gateway + activator ~12.4 < the standalone's JVM
 orchestrator+log-store 82.4. Fn and Knative sit close together on this box; OpenWhisk still burns
 roughly a ~7× multiple of the function CPU in orchestration, consistent across three independent
@@ -428,13 +436,15 @@ artifact.
 **Energy-citability note (important — do not conflate sessions).** The "yes/no" flags above
 describe the SAME session that produced the share in that row. Fn/OpenFaaS's `idle-w=4.3` is a
 config-file constant from the 2026-08-05/06 calibration that `saqef regression` never re-measures;
-by today it was stale enough that this session's own RAPL validation is 14.8–18.9% (OpenFaaS) /
-11.5–17.9% (Fn) — still above the 4.2–8.2% / 4.2–5.5% figure historically (and correctly) cited for Fn/
+by 2026-08-09 it was stale enough that this session's own RAPL validation is 16.6% (Fn) / 18.9%
+(OpenFaaS) on run_1 — above the citable range, though runs 2–5 fit cleanly (≤12.1% / ≤14.8%) —
+still above the 4.2–8.2% / 4.2–5.5% figure historically (and correctly) cited for Fn/
 OpenFaaS energy, which comes from the separate, earlier `fn_cpubound_baremetal` /
 `openfaas_cpubound_baremetal` sessions (§5.1, still valid and still the citable energy numbers for
 these two platforms — just not from *this* share-comparison table's session). `saqef gates` now
-prints a loud "RAPL FIT DEGRADED" flag above 15% error, which fired correctly on 3 of Fn's 5 runs
-and 4 of OpenFaaS's 5 this session — a live confirmation the flag works, and a reminder that
+prints a loud "RAPL FIT DEGRADED" flag above 15% error, which fired correctly on run_1 of both
+platforms in the 2026-08-09 leg (and on 3 of Fn's 5 / 4 of OpenFaaS's 5 in the 2026-08-08 evening
+leg) — a live confirmation the flag works, and a reminder that
 Fn/OpenFaaS's `idle_w` needs recalibrating before it is trusted for energy again.
 
 **Attribution map (must be printed next to the table).** Knative's *fn* bucket includes the
@@ -463,7 +473,7 @@ instead of function — does not change the ordering:
 
 | platform | CP bucket | fn bucket | share (proxy co-located in fn — reported) | share (proxy→CP, worst case) |
 |---|---|---|---|---|
-| OpenFaaS | gateway, queue-worker, nats, prometheus, alertmanager, faas-swarm | hello replicas (of-watchdog co-located) | **7.14** | n/a — proxy inseparable from fn cgroup |
+| OpenFaaS | gateway, queue-worker, nats, prometheus, alertmanager, faas-swarm | hello replicas (of-watchdog co-located) | **7.40** | n/a — proxy inseparable from fn cgroup |
 | Fn | fnserver | function containers (in-process watchdog) | **11.60** (3-session) | n/a — no separable proxy |
 | Knative | kourier-gateway, svclb-kourier, activator, autoscaler, controller, webhook, net-kourier-controller | user-container **+ queue-proxy** | **12.44** | **25.7** (queue-proxy→CP) |
 | OpenWhisk | standalone JVM (controller+invoker+log-store) | action containers | **82.36** | n/a — no per-replica proxy |
@@ -476,32 +486,42 @@ separates from Fn (12.4 → 25.7) — so the honest statement is a tie *within t
 convention*, and the paper reports them as a cluster, not an ordering; (2) **OpenFaaS <
 {Fn, Knative} and both << OpenWhisk survive every plausible reclassification** (OW is an order
 of magnitude away no matter where the sidecar lands), which is what makes the four-platform
-ordering claim convention-robust. Per-invocation control-plane CPU (0.50 / 0.75 / 0.96 / 26.82 ms)
+ordering claim convention-robust. Per-invocation control-plane CPU (0.53 / 0.75 / 0.96 / 26.82 ms)
 has the same convention caveat and the same robustness properties.
 
-**Idle-baseline finding — OPEN, not yet citable at a specific number.** Three measurements of
-Knative's idle package power now exist, and they do not agree: 11.14 W (2026-08-07, contaminated
-box); 7.01 W (2026-08-08 morning, "quiet" box); 4.91 W (2026-08-08 evening, this session, `hello`
-deployed at 16 replicas). A same-day follow-up measured the BARE Knative substrate with `hello`
-*not* deployed — two repeated 60 s reads gave 4.15 W and 4.23 W, statistically indistinguishable
-from Fn/OpenFaaS's 4.3 W bare-metal baseline. That decomposes today's reading as ~4.2 W substrate +
-~0.7 W attributable to the 16 warm replicas — a real but much smaller premium than the ~2.7 W
-figure this section previously reported, and neither today's reading nor its decomposition matches
-the earlier 7.01 W or 11.14 W figures. **Root cause: `idle_w` calibration is a single 60-second
-point-in-time RAPL read, with no repeats and no median/CI — unlike every other metric in this
-study.** A single-digit-watt quantity is exactly the kind of measurement a one-shot sample is too
-noisy to pin down. **We are not replacing one unreliable number with another here.** Until idle-w
-calibration is upgraded to N≥3 repeated reads with a reported spread (recommended, not yet done),
-the "Knative carries an always-on idle premium" claim should be treated as directionally plausible
-(three separate readings all show Knative ≥ bare metal) but **not citable at any specific W
-figure**. The linear busy-core energy model fits Knative's dynamic (load) power well regardless
-(rapl err 1.3–4.7% this session, all 5 runs — even better than the 2.5–7.2% steady-state figure
-from two days ago, with no run_1 transient this time) — **Knative energy/carbon is citable for the
-dynamic/marginal figures**, independent of the unresolved idle-baseline question. OpenWhisk's fit
-remains poor (rapl err 31–50% this session, consistent with 45–58% two days ago and 36% on the
-original contaminated run) — a structural mismatch between the linear model and the standalone
-JVM's power draw, confirmed stable across three independent sessions, so **OpenWhisk energy/carbon
-stays NOT citable**.
+**Idle-baseline finding — CLOSED (2026-08-09, N=5 per condition).** Three single-sample readings
+of Knative's idle package power previously disagreed badly — 11.14 W (2026-08-07, contaminated
+box); 7.01 W (2026-08-08 morning, "quiet" box); 4.91 W (2026-08-08 evening, `hello` deployed at
+16 replicas) — and no repeats existed to separate real drift from single-sample noise. That
+fragility is exactly why the finding was kept open. On 2026-08-09 the calibration was repeated
+N=5 per condition (60 s RAPL reads, wraparound-guarded, median + spread):
+
+| condition | stack state | median (min–max) |
+|---|---|---|
+| A | bare k3s + knative-serving + kourier, **no `hello`** | **3.871 W** (3.692–3.946, spread 0.25 W) |
+| B | `hello` @ 16 replicas (exact bench-time state) | **4.561 W** (4.309–4.719, spread 0.41 W) |
+
+**Premium B − A = 0.690 W** — a real but small always-on premium over the ~4.2–4.3 W
+bare/Fn/OpenFaaS baseline, and consistent to within noise with the earlier back-of-envelope
+decomposition (~4.2 W substrate + ~0.7 W for the 16 warm replicas + 32 proxies). The condition-B
+median (≈4.56 W) is the recommended `--idle-w` for a Knative bench. **Use these N=5 medians, not
+any single-sample reading, as the citable Knative idle baseline and its ~0.7 W always-on idle
+premium** (design-principle C3, §11). Both conditions were statistically well-behaved (spreads
+0.25/0.41 W vs the >2× scatter of the old one-shots). The linear busy-core energy model fits
+Knative's dynamic (load) power well regardless (rapl err 1.3–4.7% this session, all 5 runs) —
+**Knative energy/carbon is citable for the dynamic/marginal figures**, and its idle premium is
+now pinned by a properly repeated measurement. **Corroboration (direction only):** the
+idle-term-dominance hypothesis predicts that longer/heavier runs degrade less from a stale
+`idle_w` even without recalibration, and the 2026-08-09 regression runs (TOTAL=10000, ~17–19 s
+wall) show mostly clean RAPL fits — Fn 16.6/12.1/0.6/1.5/0.65, OF 18.9/14.8/2.3/0.6/5.8%, only
+run_1 crossing the 15% degraded flag on each — versus every run failing at 20–55% on the shorter
+contamination A/B legs (TOTAL=3000, ~5 s wall) under the same `idle_w=4.3`. A one-line observation,
+not proof (`idle_w` was not recalibrated in either case). OpenWhisk's fit remains poor (rapl err
+31–50% this session, consistent with 45–58% two days ago and 36% on the original contaminated
+run) — a structural mismatch between the linear model and the standalone JVM's power draw,
+confirmed stable across three independent sessions, so **OpenWhisk energy/carbon stays NOT
+citable**; that is a separate, larger open item (Future Work §10), not a calibration gap this
+protocol could close.
 
 **Reproducibility note (three sessions, three box-states).** OpenWhisk's share has now been
 measured three times under different conditions — 82.54 (contaminated), 80.23 (quiet), 82.36
@@ -583,7 +603,7 @@ The central methodological claim is not a number; it is that **every reported qu
 | G3 | sampling coverage | `sampling_covered_s / wall_s`; stop-time flush + clamp so it cannot exceed 100% | **100.0% on all 5** v9.7 runs |
 | G4 | function classification | allowlist (names + image + label keys) with a logged **unclassified bucket**; fail-open (a configured-but-matching-nothing allowlist warns instead of reverting to the denylist) | `unclassified_cpu_s = 0.0` with 12/12 fn containers matched by image; no warning fired |
 | G5 | load-generator identity | `env.loadgen` records the **actual** generator (`py`/`hey`), plus `loadgen_requested` and `loadgen_fallback` | v9.6+ truthful; a silent fallback is impossible |
-| G6 | cross-session repeatability | multi-session median discipline; `cv_pct`/`iqr`/`bootstrap_ci` within a session, session medians across sessions | Fn bare-metal: 10.46 (quiet 2026-08-05) / 11.60 / 12.27 / 12.92 (same-day 2026-08-07 sessions) — bounded ~2 pp drift; 2-core sessions 13.91/14.08 (0.2 pp); OF 7.53–7.72 across sessions; OpenWhisk CV 2.1% |
+| G6 | cross-session repeatability | multi-session median discipline; `cv_pct`/`iqr`/`bootstrap_ci` within a session, session medians across sessions | Fn bare-metal: 10.46 (quiet 2026-08-05) / 11.60 / 12.27 / 12.92 (same-day 2026-08-07 sessions) — bounded ~2 pp drift; 2-core sessions 13.91/14.08 (0.2 pp); OF 7.53–7.72 across sessions; OpenWhisk CV 2.1%. **2026-08-09:** refs re-anchored same-day under the self-certifying quiet gate (Fn 11.49 / OF 7.61, old-runner A/B) and `saqef regression` reproduces them (Fn 11.27, dev 0.22 pp; OF 7.40, dev 0.21 pp) — **PASS both**, G6 GREEN (§8.1) |
 | G7 | KPI wall-independence | marginal (idle-excluded) KPI vs operational KPI; busy-power sensitivity band (2/3.5/5 W) | dynamic KPI invariant to window; share invariant to busy power |
 | G8 | instrument/toolchain identity | `hey_smoke_ok()`: a candidate `hey` must emit a parseable `-o csv` report (`-n 2 -c 1 -o csv`: header + ≥1 data row) or it is wiped and reinstalled | **v9.9: passes** — first real `loadgen: "hey"` run; a stale/corrupted binary ≥1000 bytes can no longer be reused; python fallback still records truthfully |
 
@@ -625,12 +645,13 @@ Full command log and historical decisions: `SAQEF_TECHNICAL_REPORT.md` §§3, 4,
 ## 10. Future Work
 
 1. ~~**OpenFaaS** (same function image, same protocol)~~ — **done (2026-08-05)**: gap 2.8 pp on the 8-core box, 7.0 pp when the same box is pinned to 2 cores (per-machine-pair gate, §5.5).
-2. ~~**OpenWhisk + Knative — cross-platform comparison**~~ — **done, three sessions culminating 2026-08-08 evening**: four platforms on the same box (§5.6): OF 7.14 < Fn ≈ Knative 10.65–12.44 < OpenWhisk 82.36. QoS and (for Knative) energy/carbon are citable from the current session. Remaining for OW: decide how much of the standalone's per-activation log-store is "control plane" vs emulator artifact (unchanged across three sessions of varying box-state — see the reproducibility note in §5.6, which argues against it being mostly a deployment artifact). New open item: Knative's idle-w calibration needs a properly repeated (N≥3) protocol before the "always-on idle premium" claim can cite a specific number (§5.6).
+2. ~~**OpenWhisk + Knative — cross-platform comparison**~~ — **done, four sessions culminating 2026-08-09**: four platforms on the same box (§5.6): OF 7.40 < Fn ≈ Knative 10.56–12.96 < OpenWhisk 82.36. QoS and (for Knative) energy/carbon are citable from the current session. Remaining for OW: decide how much of the standalone's per-activation log-store is "control plane" vs emulator artifact (unchanged across three sessions of varying box-state — see the reproducibility note in §5.6, which argues against it being mostly a deployment artifact). ~~Knative's idle-w calibration~~ — **closed (2026-08-09)**: the N≥3 repeated-read protocol (wraparound-guarded `rapl_w_series()`) measured 3.871 W bare / 4.561 W with `hello` @ 16 replicas (N=5 medians, spreads 0.25/0.41 W) — the "always-on idle premium" is **0.690 W**, now citable (§5.6).
 3. ~~**Bare metal** (dual-boot Ubuntu) — RAPL ground truth~~ — **done (2026-08-05)**: RAPL-validated 4.2–8.2%, idle 4.3 W. Remaining: a *third* machine to bound the machine-dependence trend.
 4. **Control-plane decomposition** — which fnserver subcomponent (gateway, scheduler, freeze manager, watchers) costs what.
 5. **Cold-start vs warm** — `--interarrival-ms 1000` isolation experiment: the "carbon cost of elasticity."
 6. **Freeze-policy ablation** — `FN_FREEZE_IDLE_MSECS=0` vs default: quantify Fn's pause/unpause churn in energy terms.
 7. **Realistic mixed workloads** — CPU/IO mixture, not just pure spin.
+8. **OpenWhisk energy/carbon — a structurally separate open item.** The standalone JVM's power draw does not fit the linear busy-core model: `rapl_validation_err_pct` reads 31–50% (36% on the original run), stable across three independent sessions of varying box-state (contaminated 2026-08-07, quiet 2026-08-08, quiet 2026-08-08 evening) — the constant memory-touch load scales with neither cores nor concurrency. This is **not** the same class of gap as the idle-w calibration problem (§5.6 closed it for Knative); recalibrating idle-w would not close it. A JVM-aware energy model (or resolving the standalone's deployment-mode question, §5.6) is required before OW energy/carbon can be cited. It is deliberately out of `saqef regression`'s scope: that gate exists to prove the refactored CLI reproduces old-runner values for the two platforms with tight references (Fn/OpenFaaS), and OW has neither an old runner nor a calibration-gap diagnosis. `cp_dynamic_share_pct` remains citable for OW (pure cgroup CPU-time ratio, model-free).
 
 ---
 
@@ -639,12 +660,12 @@ Full command log and historical decisions: `SAQEF_TECHNICAL_REPORT.md` §§3, 4,
 - **Methodology reuse:** the harness + delta-check pattern is a drop-in instrument for anyone measuring FaaS energy on any platform (container-level, cgroup-validated, honest about estimation).
 - **Informing models:** Kepler-style CPU-time proportionality gains a real orchestration-overhead term (Fn-class platforms ≈10–30% of dynamic energy depending on machine capacity; OpenFaaS-class ≈8–16%), so serverless energy models stop treating orchestration as ~0.
 - **Carbon-aware scheduling:** a per-invocation orchestration cost (bare metal: Fn 0.66 ms CPU ≈ 2.3 mJ dynamic CP-only; OF 0.56 ms ≈ 2.0 mJ) makes it possible to route work to the cheapest control plane — and to price "green functions" correctly.
-- **Design guidance:** autoscaling/scale-to-zero economics quantified — the always-on baseline is a large, often dominant slice of operational carbon (bare-metal Fn/OF 4.3 W idle; Knative's k8s-native stack shows *some* idle premium over three measurements — 11.1/7.0/4.9 W — though the exact figure is not yet pinned down by a properly repeated calibration, §5.6), and the machine-dependence result says orchestration overhead is *capacity-bound*: it buys back fast when functions get more cores, so co-locating functions on fewer, larger boxes (or vice-versa) directly tunes the orchestration tax.
+- **Design guidance:** autoscaling/scale-to-zero economics quantified — the always-on baseline is a large, often dominant slice of operational carbon (bare-metal Fn/OF 4.3 W idle; Knative's k8s-native stack carries a measured always-on idle premium of **0.690 W** over that floor — 4.561 W vs 3.871 W bare with `hello` @ 16 replicas, N=5 medians, §5.6), and the machine-dependence result says orchestration overhead is *capacity-bound*: it buys back fast when functions get more cores, so co-locating functions on fewer, larger boxes (or vice-versa) directly tunes the orchestration tax.
 - **Framework portability (new):** the discriminator is a per-machine-pair quantity with a stable *ranking*; the paper provides the recipe (protocol + gates) so a third platform or machine can be ranked without re-deriving the methodology.
 
 ---
 
-## Appendix A — Consolidated results table (four platforms, bare-metal 8-core, 2026-08-08 evening rerun)
+## Appendix A — Consolidated results table (four platforms, bare-metal 8-core; Fn/OF from the 2026-08-09 regression leg, Kn/OW from the 2026-08-08 evening rerun)
 
 All rows are full REPEAT=5 runs on the same 8-core box with per-run gate tables (delta ~0,
 coverage 100%, host_plausible true). This is the third and current snapshot of this table: it
@@ -652,20 +673,25 @@ supersedes both the 2026-08-07 agent-contaminated snapshot (Fn 12.27, OpenFaaS 7
 OpenWhisk 82.54) and the 2026-08-08 morning "quiet-box" snapshot (Fn 11.01, OpenFaaS 7.62, Knative
 11.40, OpenWhisk 80.23), the latter collected before a same-day audit found and fixed a real
 OpenFaaS/Knative classification collision (§5.6 isolation note). Fn's row is the 3-session median
-(11.60, unchanged by today's leg; today's single-session value is 10.65). **Do not cite the two
-earlier snapshots**; they remain in git history for an appendix note on how the numbers evolved.
+(11.60, unchanged by today's leg; today's single-session value is 11.27). The Fn/OpenFaaS rows
+were refreshed again by the **2026-08-09 regression leg** (quiet gate self-certified, ambient
+9.9/11.7% of a 15% ceiling): Fn **11.27**, OpenFaaS **7.40** — reproducing the same-day
+re-anchored references (11.49/7.61) within 0.25 pp, G6 GREEN (§8.1); the 2026-08-08 evening Fn/OF
+values below (11.60/7.14) are the session snapshot, superseded for Fn/OF by the 2026-08-09 rows in
+the table. **Do not cite the 2026-08-07 agent-contaminated or 2026-08-08-morning snapshots**;
+they remain in git history for an appendix note on how the numbers evolved.
 
 | Metric (median of 5) | Fn | OpenFaaS | Knative | OpenWhisk |
 |---|---|---|---|---|
-| `cp_dynamic_share_pct` | **11.60** (today 10.65) | **7.14** | **12.44** | **82.36** |
-| spread (min–max) | 10.51–12.96 (3 sessions) | 7.07–7.25 | 12.12–12.97 | 81.94–86.86 |
-| per-request CP cost | 0.75 ms (session medians 0.67–0.82) | 0.50 ms | 0.96 ms | 26.82 ms |
-| per-request fn cost | 5.58–5.63 ms | 6.50 ms | 6.79 ms | 5.75 ms |
-| QoS p50 / p99 | 6.4 / 9.2 ms ✓citable | 6.9 / 12.8 ms ✓citable | 7.6 / 11.8 ms ✓citable | 113.6 / 182.0 ms ✓citable |
-| throughput | 593 rps | 537 rps | 494 rps | 34.2 rps |
+| `cp_dynamic_share_pct` | **11.60** (2026-08-09 leg **11.27**) | **7.40** (ref 7.61) | **12.44** | **82.36** |
+| spread (min–max) | 10.56–12.96 (sessions) | 7.08–7.50 (2026-08-09) | 12.12–12.97 | 81.94–86.86 |
+| per-request CP cost | 0.75 ms (session medians 0.72–0.82) | 0.53 ms | 0.96 ms | 26.82 ms |
+| per-request fn cost | 5.64 ms (5.53–5.69 across sessions) | 6.59 ms | 6.79 ms | 5.75 ms |
+| QoS p50 / p99 | 6.5 / 9.9 ms ✓citable | 7.0 / 13.1 ms ✓citable | 7.6 / 11.8 ms ✓citable | 113.6 / 182.0 ms ✓citable |
+| throughput | 581 rps | 525 rps | 494 rps | 34.2 rps |
 | SLO compliance | 1.0 | 1.0 | 1.0 | 1.0 |
-| host_sat | 71–77% | 70–79% | 74–78% | 57–70% |
-| RAPL validation err (this session) | 11.5–17.9% | 14.8–18.9% | 1.3–4.7% (all steady-state) | 31–50% (run_1 outlier 0.19%) |
+| host_sat | 70.5–71.8% | 70.1–73.6% | 74–78% | 57–70% |
+| RAPL validation err (this session) | 0.6–16.6% (run_1 degraded) | 0.6–18.9% (run_1 degraded) | 1.3–4.7% (all steady-state) | 31–50% (run_1 outlier 0.19%) |
 | energy/carbon citable? | not from this session† | not from this session† | **yes** | **no** |
 
 *Kn/OF fn cost includes the request-path sidecar/proxy inside the fn bucket (queue-proxy /
@@ -680,16 +706,17 @@ openwhisk_cpubound_baremetal,regression}`.*
 
 **†Energy-citability footnote (do not conflate with the share number above).** Fn/OpenFaaS's
 `cp_dynamic_share_pct` in this table comes from `saqef regression`, which reuses a config-file
-`idle_w=4.3` calibrated on 2026-08-05/06 and never re-measures it. By this session that value was
-stale enough that its own RAPL validation is 11.5–17.9% (Fn) / 14.8–18.9% (OpenFaaS) — still above
-the citable range. Fn and OpenFaaS's actual citable energy numbers (RAPL err 4.2–5.5% / 4.2–8.2%)
-come from the separate, dedicated `fn_cpubound_baremetal` / `openfaas_cpubound_baremetal` sessions
-in §5.1, which used a freshly-calibrated idle-w for their own session. The share and the energy
-citability of Fn/OpenFaaS are therefore reported from two different (but both fully-gated) sessions
-— a distinction that matters for any reader who wants to cite absolute Joules/gCO₂ alongside this
-table's share row. `saqef gates`'s "RAPL FIT DEGRADED" warning fired correctly on both platforms
-this session (3/5 Fn runs, 4/5 OpenFaaS runs) — confirmed working, and Fn/OpenFaaS's `idle_w`
-should be recalibrated before the next session that wants to cite their energy from this table.
+`idle_w=4.3` calibrated on 2026-08-05/06 and never re-measures it. In the 2026-08-09 leg that value
+was stale enough that run_1's RAPL validation is 16.6% (Fn) / 18.9% (OpenFaaS) — above the citable
+range; runs 2–5 fit cleanly (≤12.1% / ≤14.8%). Fn and OpenFaaS's actual citable energy numbers
+(RAPL err 4.2–5.5% / 4.2–8.2%) come from the separate, dedicated `fn_cpubound_baremetal` /
+`openfaas_cpubound_baremetal` sessions in §5.1, which used a freshly-calibrated idle-w for their
+own session. The share and the energy citability of Fn/OpenFaaS are therefore reported from two
+different (but both fully-gated) sessions — a distinction that matters for any reader who wants to
+cite absolute Joules/gCO₂ alongside this table's share row. `saqef gates`'s "RAPL FIT DEGRADED"
+warning fired on run_1 of both platforms in the 2026-08-09 leg (and on 3/5 Fn / 4/5 OpenFaaS runs
+in the 2026-08-08 evening leg) — confirmed working, and Fn/OpenFaaS's `idle_w` should be
+recalibrated before the next session that wants to cite their energy from this table.
 
 ### Appendix B — Consolidated cross-platform table (bare metal, all regimes)
 

@@ -2,48 +2,48 @@
   "platform": "fn",
   "url": "http://localhost:8080/t/app1/hello",
   "mode": "load",
-  "wall_s": 16.83,
-  "wall_harness_s": 16.83,
-  "sampling_covered_s": 16.83,
+  "wall_s": 16.81,
+  "wall_harness_s": 16.81,
+  "sampling_covered_s": 16.81,
   "requests": 10000,
   "successes": 10000,
   "availability": 1.0,
-  "throughput_rps": 594.25,
+  "throughput_rps": 594.74,
   "latency_ms": {
     "p50": 6.4,
-    "p90": 7.1,
-    "p99": 9.2,
-    "max": 33.0
+    "p90": 7.2,
+    "p99": 9.3,
+    "max": 17.5
   },
   "slo_ms": 500.0,
   "slo_compliance": 1.0,
   "compliance_source": "hey_interp",
   "energy_J": {
-    "total": 292.6,
-    "dynamic": 220.3,
-    "control_plane": 23.1,
-    "function": 197.1
+    "total": 291.6,
+    "dynamic": 219.3,
+    "control_plane": 23.2,
+    "function": 196.1
   },
-  "cp_share_pct": 7.91,
-  "cp_dynamic_share_pct": 10.51,
+  "cp_share_pct": 7.94,
+  "cp_dynamic_share_pct": 10.56,
   "cpu_sec": {
-    "control_plane": 6.61,
-    "function": 56.33
+    "control_plane": 6.62,
+    "function": 56.03
   },
-  "cpu_sec_ceiling": 134.62,
+  "cpu_sec_ceiling": 134.51,
   "physical_plausible": true,
   "unclassified_cpu_s": 0.23,
   "container_inventory": [
-    "01KZGRP9TFNG8G00GZJ0000005",
-    "01KZGRPAZFNG8G00GZJ000000D",
-    "01KZGRPAZFNG8G00GZJ000000F",
-    "01KZGRPAZFNG8G00GZJ000000H",
-    "01KZGRPAZFNG8G00GZJ000000J",
-    "01KZGRPAZJNG8G00GZJ000000M",
-    "01KZGRPAZKNG8G00GZJ000000P",
-    "01KZGRPAZMNG8G00GZJ000000R",
-    "01KZGRPAZPNG8G00GZJ000000T",
-    "01KZGRPB00NG8G00GZJ000000W",
+    "01KZHMQNWQNG8G00GZJ0000005",
+    "01KZHMQQ0TNG8G00GZJ000000D",
+    "01KZHMQQ0TNG8G00GZJ000000E",
+    "01KZHMQQ0TNG8G00GZJ000000G",
+    "01KZHMQQ0VNG8G00GZJ000000J",
+    "01KZHMQQ0YNG8G00GZJ000000M",
+    "01KZHMQQ0YNG8G00GZJ000000P",
+    "01KZHMQQ10NG8G00GZJ000000R",
+    "01KZHMQQ16NG8G00GZJ000000T",
+    "01KZHMQQ1NNG8G00GZJ000000W",
     "fnserver",
     "k8s_POD_3scale-kourier-gateway-d95dfffb6-z2zzz_kourier-system_69daf3cc-53df-449a-ba4e-12ca3f124bf1_1",
     "k8s_POD_activator-67cbcccdfb-t6cg7_knative-serving_af70f812-f578-45d9-aafe-c711ea35ebd4_1",
@@ -68,62 +68,62 @@
     "k8s_webhook_webhook-7d56465b69-khwt8_knative-serving_a7b84bd9-4373-4bbe-843a-0e2fb9c788d8_1"
   ],
   "container_labels": {
-    "01KZGRP9TFNG8G00GZJ0000005": {
-      "image": "hello:0.0.20",
+    "01KZHMQNWQNG8G00GZJ0000005": {
+      "image": "hello:0.0.27",
       "labels": [
         "io.buildah.version=1.43.1"
       ]
     },
-    "01KZGRPAZFNG8G00GZJ000000D": {
-      "image": "hello:0.0.20",
+    "01KZHMQQ0TNG8G00GZJ000000D": {
+      "image": "hello:0.0.27",
       "labels": [
         "io.buildah.version=1.43.1"
       ]
     },
-    "01KZGRPAZFNG8G00GZJ000000F": {
-      "image": "hello:0.0.20",
+    "01KZHMQQ0TNG8G00GZJ000000E": {
+      "image": "hello:0.0.27",
       "labels": [
         "io.buildah.version=1.43.1"
       ]
     },
-    "01KZGRPAZFNG8G00GZJ000000H": {
-      "image": "hello:0.0.20",
+    "01KZHMQQ0TNG8G00GZJ000000G": {
+      "image": "hello:0.0.27",
       "labels": [
         "io.buildah.version=1.43.1"
       ]
     },
-    "01KZGRPAZFNG8G00GZJ000000J": {
-      "image": "hello:0.0.20",
+    "01KZHMQQ0VNG8G00GZJ000000J": {
+      "image": "hello:0.0.27",
       "labels": [
         "io.buildah.version=1.43.1"
       ]
     },
-    "01KZGRPAZJNG8G00GZJ000000M": {
-      "image": "hello:0.0.20",
+    "01KZHMQQ0YNG8G00GZJ000000M": {
+      "image": "hello:0.0.27",
       "labels": [
         "io.buildah.version=1.43.1"
       ]
     },
-    "01KZGRPAZKNG8G00GZJ000000P": {
-      "image": "hello:0.0.20",
+    "01KZHMQQ0YNG8G00GZJ000000P": {
+      "image": "hello:0.0.27",
       "labels": [
         "io.buildah.version=1.43.1"
       ]
     },
-    "01KZGRPAZMNG8G00GZJ000000R": {
-      "image": "hello:0.0.20",
+    "01KZHMQQ10NG8G00GZJ000000R": {
+      "image": "hello:0.0.27",
       "labels": [
         "io.buildah.version=1.43.1"
       ]
     },
-    "01KZGRPAZPNG8G00GZJ000000T": {
-      "image": "hello:0.0.20",
+    "01KZHMQQ16NG8G00GZJ000000T": {
+      "image": "hello:0.0.27",
       "labels": [
         "io.buildah.version=1.43.1"
       ]
     },
-    "01KZGRPB00NG8G00GZJ000000W": {
-      "image": "hello:0.0.20",
+    "01KZHMQQ1NNG8G00GZJ000000W": {
+      "image": "hello:0.0.27",
       "labels": [
         "io.buildah.version=1.43.1"
       ]
@@ -580,7 +580,7 @@
       ]
     }
   },
-  "cp_peak_mem_mb": 114.6,
+  "cp_peak_mem_mb": 114.2,
   "carbon_gCO2": {
     "op_total": 0.014,
     "op_control_plane": 0.001,
@@ -598,56 +598,57 @@
   },
   "sensitivity": {
     "cp_dynamic_share_pct_by_busy_w": {
-      "2.0": 10.51,
-      "3.5": 10.51,
-      "5.0": 10.51
+      "2.0": 10.56,
+      "3.5": 10.56,
+      "5.0": 10.56
     },
     "dynamic_energy_J_by_busy_w": {
-      "2.0": 125.9,
-      "3.5": 220.3,
-      "5.0": 314.7
+      "2.0": 125.3,
+      "3.5": 219.3,
+      "5.0": 313.2
     },
     "op_carbon_gCO2_by_busy_w": {
       "2.0": 0.009,
       "3.5": 0.014,
-      "5.0": 0.019
+      "5.0": 0.018
     }
   },
   "kpi_gco2_per_slo_compliant_inv": 1.4e-06,
-  "kpi_gco2_per_inv_dynamic": 1.06e-06,
+  "kpi_gco2_per_inv_dynamic": 1.05e-06,
   "embodied_dram_g_per_gb_h": 0.0317,
-  "host_cpu_sec": 95.52,
-  "host_window_s": 16.829,
-  "host_saturation_pct": 71.0,
+  "host_cpu_sec": 94.82,
+  "host_window_s": 16.814,
+  "host_saturation_pct": 70.5,
   "host_plausible": true,
   "host_saturated": false,
-  "host_overhead_cpu_sec": 32.58,
-  "orchestration_cpu_sec": 39.19,
-  "orchestration_share_pct": 41.03,
+  "host_overhead_cpu_sec": 32.17,
+  "orchestration_cpu_sec": 38.79,
+  "orchestration_share_pct": 40.91,
   "steal_sec": null,
   "steal_pct": null,
-  "cp_delta_sec": 6.612,
-  "cp_sampler_vs_delta_pct": 0.0,
+  "cp_delta_sec": 6.618,
+  "cp_sampler_vs_delta_pct": 0.01,
   "delta_check_map": {
     "fnserver": "ok"
   },
   "env": {
     "cpu_count": 8,
     "governor": "powersave",
-    "freq_mhz_before": 934.9,
-    "freq_mhz_after": 400.0,
+    "freq_mhz_before": 2800.0,
+    "freq_mhz_after": 400.2,
     "sampler": "cgroup",
     "loadgen": "hey",
     "loadgen_requested": "hey",
     "loadgen_fallback": false
   },
-  "rapl_validation_err_pct": 17.91,
+  "rapl_validation_err_pct": 16.62,
+  "rapl_wrap": "none",
   "rapl_available": true,
   "loadgen": {
     "source": "hey",
-    "rps": 604.9167634533488,
-    "avg_ms": 6.61,
+    "rps": 605.6494985222153,
+    "avg_ms": 6.58,
     "errors": 0,
-    "wall_s": 16.53
+    "wall_s": 16.51
   }
 }

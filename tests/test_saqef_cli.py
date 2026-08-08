@@ -28,6 +28,7 @@ saqef = importlib.util.module_from_spec(_spec)
 _loader.exec_module(saqef)
 
 from platforms import get_adapter
+from platforms.base import repo_script
 
 METRIC = json.load(open(os.path.join(saqef.METRICS_DIR, "cpubound.json")))
 FN_CP = "fnserver"
@@ -39,13 +40,20 @@ OF_CP = ("openfaas_gateway,openfaas_faas-swarm,openfaas_prometheus,"
 
 
 class TestArgvByteIdentical(unittest.TestCase):
-    """The exact command strings the old scripts construct, re-derived by hand."""
+    """The exact command strings the old scripts construct, re-derived by hand.
+
+    The script prefix is repo-root-resolved (repo_script), NOT the bare filename
+    the shell runners use: the CLI can be invoked from any CWD (e.g. tools/), so
+    a relative 'saqef_harness.py' would fail to spawn there (fixed 2026-08-09).
+    Absolute-vs-relative resolves to the same file; every measurement-relevant
+    flag from --url onward stays byte-identical to the shell runners.
+    """
 
     def test_fn_bench_defaults(self):
         ad = get_adapter("fn")
         cmd = ad.harness_argv(METRIC, 3000, 20, 60, 20, 5, "results/fn_cpubound_v9")
         self.assertEqual(cmd, [
-            "python3", "saqef_harness.py",
+            "python3", repo_script("saqef_harness.py"),
             "--url", "http://localhost:8080/t/app1/hello",
             "--platform", "fn", "--cp-containers", FN_CP,
             "--fn-images", "hello",
@@ -61,7 +69,7 @@ class TestArgvByteIdentical(unittest.TestCase):
         cmd = ad.harness_argv(METRIC, 10000, 4, 60, 20, 5, "results/fn_cpubound_baremetal",
                               idle_w=4.3, cpu_count_override=2, host_cpu_list="0,1")
         self.assertEqual(cmd, [
-            "python3", "saqef_harness.py",
+            "python3", repo_script("saqef_harness.py"),
             "--url", "http://localhost:8080/t/app1/hello",
             "--platform", "fn", "--cp-containers", FN_CP,
             "--fn-images", "hello",
@@ -76,7 +84,7 @@ class TestArgvByteIdentical(unittest.TestCase):
         ad = get_adapter("openfaas")
         cmd = ad.harness_argv(METRIC, 3000, 20, 60, 20, 5, "results/openfaas_cpubound")
         self.assertEqual(cmd, [
-            "python3", "saqef_harness.py",
+            "python3", repo_script("saqef_harness.py"),
             "--url", "http://127.0.0.1:8080/function/hello",
             "--platform", "openfaas", "--cp-containers", OF_CP,
             "--fn-images", "hello",
@@ -91,7 +99,7 @@ class TestArgvByteIdentical(unittest.TestCase):
         ad = get_adapter("openfaas")
         cmd = ad.harness_argv(METRIC, 0, 0, 0, 0, 0, "results/x", verify=True)
         self.assertEqual(cmd, [
-            "python3", "saqef_harness.py", "--verify", "--sampler", "cgroup",
+            "python3", repo_script("saqef_harness.py"), "--verify", "--sampler", "cgroup",
             "--url", "http://127.0.0.1:8080/function/hello",
             "--platform", "openfaas", "--cp-containers", OF_CP,
             "--fn-images", "hello",
@@ -106,7 +114,7 @@ class TestArgvByteIdentical(unittest.TestCase):
         ad = get_adapter("fn")
         cmd = ad.harness_argv(METRIC, 0, 0, 0, 0, 0, "results/x", verify=True)
         self.assertEqual(cmd, [
-            "python3", "saqef_harness.py", "--verify", "--sampler", "cgroup",
+            "python3", repo_script("saqef_harness.py"), "--verify", "--sampler", "cgroup",
             "--url", "http://localhost:8080/t/app1/hello",
             "--platform", "fn", "--cp-containers", FN_CP,
             "--fn-images", "hello",
@@ -123,7 +131,7 @@ class TestArgvByteIdentical(unittest.TestCase):
         ad = get_adapter("openwhisk")
         cmd = ad.harness_argv(METRIC, 3000, 20, 60, 20, 5, "results/openwhisk_cpubound")
         self.assertEqual(cmd, [
-            "python3", "saqef_harness.py",
+            "python3", repo_script("saqef_harness.py"),
             "--url", "http://127.0.0.1:3233/api/v1/web/guest/default/hello",
             "--platform", "openwhisk", "--cp-containers", "openwhisk",
             "--fn-images", "action-python-v3.11",
@@ -137,7 +145,7 @@ class TestArgvByteIdentical(unittest.TestCase):
         ad = get_adapter("openwhisk")
         cmd = ad.harness_argv(METRIC, 0, 0, 0, 0, 0, "results/x", verify=True)
         self.assertEqual(cmd, [
-            "python3", "saqef_harness.py", "--verify", "--sampler", "cgroup",
+            "python3", repo_script("saqef_harness.py"), "--verify", "--sampler", "cgroup",
             "--url", "http://127.0.0.1:3233/api/v1/web/guest/default/hello",
             "--platform", "openwhisk", "--cp-containers", "openwhisk",
             "--fn-images", "action-python-v3.11",
@@ -149,7 +157,7 @@ class TestArgvByteIdentical(unittest.TestCase):
         ad = get_adapter("knative")
         cmd = ad.harness_argv(METRIC, 3000, 20, 60, 20, 5, "results/knative_cpubound")
         self.assertEqual(cmd, [
-            "python3", "saqef_harness.py",
+            "python3", repo_script("saqef_harness.py"),
             "--url", "http://hello.default.127.0.0.1.sslip.io",
             "--platform", "knative", "--cp-containers",
             "activator-,controller-,autoscaler-,webhook-,net-kourier-controller,"
@@ -167,7 +175,7 @@ class TestArgvByteIdentical(unittest.TestCase):
         ad = get_adapter("knative")
         cmd = ad.harness_argv(METRIC, 0, 0, 0, 0, 0, "results/x", verify=True)
         self.assertEqual(cmd, [
-            "python3", "saqef_harness.py", "--verify", "--sampler", "cgroup",
+            "python3", repo_script("saqef_harness.py"), "--verify", "--sampler", "cgroup",
             "--url", "http://hello.default.127.0.0.1.sslip.io",
             "--platform", "knative", "--cp-containers",
             "activator-,controller-,autoscaler-,webhook-,net-kourier-controller,"
