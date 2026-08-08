@@ -517,5 +517,48 @@ class TestHarnessAggregation(unittest.TestCase):
         self.assertEqual(flag, "none")
 
 
+class TestAmbientQuietGate(unittest.TestCase):
+    """The pre-run ambient-load quiet gate (runbook §1 automated): whole-host
+    busy CPU over a window before the bench, hard-fail above the threshold.
+    This is what makes a 'quiet box' a measured, self-certifying precondition
+    instead of a manual `uptime`/`ps` assertion."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.h = importlib.machinery.SourceFileLoader(
+            "saqef_harness", os.path.join(REPO, "saqef_harness.py")).load_module()
+
+    def test_quiet_gate_passes_below_threshold(self):
+        import unittest.mock as mock
+        h = self.h
+        with mock.patch.object(h, "host_cpu_busy_total",
+                               side_effect=[(100, 1000), (110, 1100)]), \
+             mock.patch.object(h, "ps_top_snapshot", return_value=["hdr"]), \
+             mock.patch.object(h.time, "sleep"):
+            busy, top = h.ambient_load_check(20.0, 15.0, quiet_gate=True)
+        self.assertEqual(busy, 10.0)
+        self.assertEqual(top, ["hdr"])
+
+    def test_quiet_gate_fails_above_threshold(self):
+        import unittest.mock as mock
+        h = self.h
+        with mock.patch.object(h, "host_cpu_busy_total",
+                               side_effect=[(100, 1000), (130, 1100)]), \
+             mock.patch.object(h, "ps_top_snapshot", return_value=None), \
+             mock.patch.object(h.time, "sleep"):
+            with self.assertRaises(SystemExit):
+                h.ambient_load_check(20.0, 15.0, quiet_gate=True)
+
+    def test_quiet_gate_disabled_allows_dirty_leg(self):
+        import unittest.mock as mock
+        h = self.h
+        with mock.patch.object(h, "host_cpu_busy_total",
+                               side_effect=[(100, 1000), (130, 1100)]), \
+             mock.patch.object(h, "ps_top_snapshot", return_value=None), \
+             mock.patch.object(h.time, "sleep"):
+            busy, _ = h.ambient_load_check(20.0, 15.0, quiet_gate=False)
+        self.assertEqual(busy, 30.0)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -213,10 +213,15 @@ class Adapter:
     # ------------------------------------------------------------ harness argv
     def harness_argv(self, metric, total, concurrency, duration, warmup, repeat,
                      outdir, idle_w=None, cpu_count_override=None, host_cpu_list=None,
-                     verify=False):
+                     verify=False, no_quiet_gate=False, ambient_window_s=None,
+                     max_ambient_cpu_pct=None):
         """Build the saqef_harness.py argv exactly as the proven shell runners do.
 
         verify=True emits the --verify variant (no total/concurrency/repeat).
+        The quiet-gate knobs default to None/False so existing callers emit
+        byte-identical argv (the quiet gate then runs with its harness-side
+        defaults: 20 s window, 15% ceiling); the contamination A/B tool passes
+        no_quiet_gate=True for its dirty leg.
         """
         if verify:
             cmd = ["python3", "saqef_harness.py", "--verify", "--sampler", self.sampler,
@@ -270,6 +275,12 @@ class Adapter:
             cmd += ["--cpu-count-override", str(cpu_count_override)]
         if host_cpu_list:
             cmd += ["--host-cpu-list", str(host_cpu_list)]
+        if no_quiet_gate:
+            cmd += ["--no-quiet-gate"]
+        if ambient_window_s is not None:
+            cmd += ["--ambient-window-s", str(ambient_window_s)]
+        if max_ambient_cpu_pct is not None:
+            cmd += ["--max-ambient-cpu-pct", str(max_ambient_cpu_pct)]
         cmd += ["--total", str(total), "--concurrency", str(concurrency),
                 "--duration", str(duration), "--warmup", str(warmup),
                 "--repeat", str(repeat)]
