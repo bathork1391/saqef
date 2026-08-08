@@ -918,13 +918,15 @@ table" note for §5.1–5.4 QoS/attribution tables and Appendix A/B self-suffici
 codespace-era protocol numbers anywhere in §4–§5 (grep clean as of this session: only the §4.2
 origin row). Then update this file's "Current state" block, commit, push.
 
-## Future-work proposals (2026-08-07, user + agent agreed; design-only, no measurements yet)
+## Future-work proposals (next experiments, prioritized; design-only, no measurements yet)
 
-**Ordering rule:** all of these need a QUIET box and come AFTER the OW/Kn quiet reruns (§1 of the
-handoff) and the Fn-drift `perf stat` check. Nothing here is a priority over finishing the paper's
-remaining prose/tables.
+**Ordering rule:** all of these need a QUIET box (the harness's ambient-load gate
+self-certifies it) and a bare shell with agents quit — same discipline as every citable number.
+The OW/Kn quiet reruns and the (b)/(c) box tasks that used to gate this list are DONE
+(2026-08-08/09). Nothing here is a priority over the cold review pass #6 and the second-machine
+decision. Cross-referenced with paper §10 Future Work (which carries the numbered items 4–8).
 
-### A. Workload variation (highest new-science value)
+### A. Workload variation (highest new-science value; paper §10 item 8 is a subset)
 **Question it answers:** is the share / platform ordering a property of the *platform*, or of the
 5 ms CPU-bound spin specifically? A reviewer's first "so what" is "does this generalize?"
 **Design:** same protocol (c=4, TOTAL=10000, REPEAT=5, 16 static replicas, idle-w per platform),
@@ -939,7 +941,16 @@ variants; if the share collapses at 1 ms the workload-anchoring claim in §4.3 n
 **Cost:** pure function-image swap + rerun; no harness changes (the adapter recipe takes the new
 image via config). Keep old `hello` variants under `functions/` or a `WORKLOADS` dict.
 
-### B. Minimal strawman control plane (the "floor")
+### B. Fn-drift mechanism (cheap, diagnostic, blocks a paper footnote; paper §10 item 5)
+**Question it answers:** why does fnserver's per-request CP cost rise from ~0.6 ms to ~0.75 ms
+(and Fn's share from ~10.5 to ~12.9) run-to-run and session-to-session, and why does Fn's share
+inflate +33% at 2 pinned cores while OF stays flat? Currently observed-not-explained (AGENTS.md
+"Fn-drift investigation" + handoff §2). **Design:** `perf stat -e context-switches,migrations`
+on the fnserver process (or `/proc/<pid>/status` voluntary_ctxt_switches) at 8 cores vs 2 pinned
+cores, same-day. **Deliverable:** a mechanism statement or an explicit "contention, magnitude
+unmeasured" footnote — either closes the Fn-drift narrative loop.
+
+### C. Minimal strawman control plane (the "floor"; paper §10 item 9)
 **Purpose:** anchor the platform shares to a lower bound. Fn ≈ 12%, OW ≈ 82% are meaningless
 until we know the *minimum possible* share for the same handler on the same box. OpenFaaS (7.5%,
 of-watchdog proxy inside the function cgroup) already approximates it, so expect the floor to sit
@@ -953,42 +964,56 @@ reference floor, and it must preserve GIL parity (16 replicas, same handler). If
 lands within noise of OF, that *strengthens* OF's honesty claim; if it lands far below, it shows
 how much headroom a "lean" serverless CP has.
 **Deliverable:** one `platforms/proxy.py` adapter (deploy nginx + static replicas) + a
-`strawman` metric recipe. This is the natural seed for the carbon-aware CP in §C.
+`strawman` metric recipe. This is the natural seed for the carbon-aware CP in §E.
 
-### C. Carbon-aware control plane — the future-paper direction (user's ask)
+### D. OpenWhisk deployment-mode resolution (unblocks OW's cleanest citation; paper §10 items 2, 10)
+**Question it answers:** how much of OW's ~26 ms/inv CP cost (share 82.4%) is the standalone's
+per-activation `docker logs` log-store (DockerCliLogStoreProvider) vs "real" control plane?
+The share survived four sessions of varying box-state (82.54 → 80.23 → 82.36 → ...) which argues
+it is structural, not noise, but the deployment-mode attribution is the one caveat keeping OW's
+CP figure from a fully clean citation. **Design:** a log-store A/B — same standalone, log
+collection redirected to a streaming/OTel-style sink or a no-op — measure the CP CPU delta.
+Also the gate to closing §10 item 8 (OW energy/carbon needs a JVM-aware model or the
+deployment-mode resolution; recalibrating idle-w does NOT close it).
+
+### E. Carbon-aware control plane — the future-paper direction (user's ask)
 **Yes — we found concrete, fixable things, all measurable with this framework:**
 1. **Central-orchestrator contention under core scarcity (Fn).** Fn's share rose 10.46 → 13.91
    (+33%) at 2 pinned cores while OF's per-replica model stayed flat (7.67 → 6.82). Mechanism
-   observed-not-explained (fnserver thread starvation), but the *design* lesson is concrete:
-   co-locating orchestration in per-replica proxies (of-watchdog style) is both cheaper
+   observed-not-explained (fnserver thread starvation — see item B), but the *design* lesson is
+   concrete: co-locating orchestration in per-replica proxies (of-watchdog style) is both cheaper
    (0.56 vs 0.79 ms/inv) AND immune to the core-scarcity amplification. → **Design principle 1:
    keep control-plane work per-replica/co-located, avoid a single central orchestrator on the
    request path.**
 2. **Per-activation log-store reads (OpenWhisk).** OW's CP burns ~26 ms CPU *per invocation* and
    the share is 82.5% — dominated by the standalone's `docker logs` read per activation
-   (DockerCliLogStoreProvider). Reading full logs per activation is O(container-spawn + log I/O)
-   per request — pure waste, zero QoS value. → **Design principle 2: structured/streaming log
-   collection (OTel-style), never per-activation `docker logs`; log volume is a first-class
-   carbon metric.**
-3. **Always-on idle baseline (Knative) — direction confirmed, magnitude now PINNED (2026-08-09).**
-   Kn's idle draw with 16 warm replicas up had read 11.14 W, 7.01 W, and 4.91 W across three
-   single-sample calibrations (vs 4.3 W / 4.15–4.23 W bare, the latter also single/double-sampled)
-   — direction was consistently "some premium over bare metal" but the size was not pinned down by
-   a properly repeated measurement. **Closed 2026-08-09:** the N=5 protocol (finding #13, §(c)
-   above) measured 3.871 W bare / 4.561 W with `hello` @ 16 replicas (medians, spreads 0.25/0.41 W)
-   → **premium = 0.690 W**, now the citable figure for this design principle (paper §5.6, §11). A
-   scale-to-zero / low-idle policy is still a real carbon lever in direction, but it trades against
-   cold-start energy+latency. → **Design principle 3: an autoscaler with an
+   (DockerCliLogStoreProvider — see item D). Reading full logs per activation is
+   O(container-spawn + log I/O) per request — pure waste, zero QoS value. → **Design principle 2:
+   structured/streaming log collection (OTel-style), never per-activation `docker logs`; log
+   volume is a first-class carbon metric.**
+3. **Always-on idle baseline (Knative) — magnitude PINNED (2026-08-09).** Kn's idle draw with 16
+   warm replicas up had read 11.14 W, 7.01 W, and 4.91 W across three single-sample calibrations
+   — direction was consistently "some premium over bare metal" but the size was not pinned down
+   by a properly repeated measurement. **Closed 2026-08-09:** the N=5 protocol (finding #13, box
+   task (c)) measured 3.871 W bare / 4.561 W with `hello` @ 16 replicas (medians, spreads
+   0.25/0.41 W) → **premium = 0.690 W**, the citable figure for this design principle (paper
+   §5.6, §11). A scale-to-zero / low-idle policy is still a real carbon lever in direction, but
+   it trades against cold-start energy+latency. → **Design principle 3: an autoscaler with an
    explicit idle-watts budget and a carbon-aware cold-start policy, evaluated with a properly
-   repeated version of the idle-w measurement methodology this
-   study built (§4.5).**
+   repeated version of the idle-w measurement methodology this study built (§4.5).**
 **Proposed future paper:** design + implement a minimal carbon-aware control plane embodying
 principles 1–3, then measure it against Fn/OF/Kn/OW with THIS harness (same box, same gates).
 The measurement framework — not the control plane — is the transferable artifact. It also gives
 the "improves QoS" angle: principle 1 removes contention-spike latency, principle 3 can be tuned
 to a QoS SLO budget.
 
-### D. Universal adapter — clarify the scope before starting
+### F. Elasticity & freeze policies (paper §10 items 6, 7)
+**Cold-start vs warm** — `--interarrival-ms 1000` isolation experiment: the "carbon cost of
+elasticity." **Freeze-policy ablation** — `FN_FREEZE_IDLE_MSECS=0` vs default: quantify Fn's
+pause/unpause churn in energy terms. Both are single-platform (Fn) targeted experiments that
+need no harness changes.
+
+### G. Universal adapter — clarify the scope before starting
 The **measurement** side is already universal (metric-as-config recipes in `metrics/` + the
 data-driven isolation contract); deployment/verify will always be platform-bespoke (swarm vs k8s
 vs standalone are structurally different). A "universal adapter" therefore means: *one* adapter
@@ -996,4 +1021,4 @@ that can measure *any containerized control plane* from a JSON recipe (CP/fn ima
 isolation fields) without new Python code. All four current platforms are containerized, so this
 is achievable and would make platform N a 30-minute config job instead of a coding task. Do NOT
 start until the paper is out; this is refactor-for-refactor's-sake otherwise. If the strawman
-(§B) is built as `platforms/proxy.py`, that's already a 5th test of the adapter contract.
+(§C) is built as `platforms/proxy.py`, that's already a 5th test of the adapter contract.
