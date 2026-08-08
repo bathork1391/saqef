@@ -84,7 +84,9 @@ a contention-robust discriminator. Decision gate: platform gap in the share must
     0.05 pp). Fn **11.01 FAIL** (ref 11.60, dev 0.59 pp > 0.5 pp tolerance) —
     this is the ALREADY-DOCUMENTED day-to-day box-state drift (see "Fn share
     drifts day-to-day" below and TROUBLESHOOTING_RUNBOOK.md §2), not a new
-    issue; 11.01 is in fact the LOWEST Fn value ever recorded on this box,
+    issue; 11.01 is the lowest Fn value since the 2026-08-06 reference
+    recalibration (11.60/11.96/12.27/12.92 era; the older 2026-08-05 value 10.46
+    is still the all-time low on this box, so "lowest ever" is not accurate),
     consistent with this being the quietest session yet. Do not re-tighten or
     loosen the regression tolerance over this — it is doing its documented
     job (flagging box noise, not refactor breaks).
