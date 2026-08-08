@@ -28,7 +28,12 @@ cd "$REPO"
 
 URL="http://127.0.0.1:8080/function/hello"
 PLATFORM="openfaas"
-CP="gateway,faas-swarm,prometheus,nats,queue-worker,alertmanager"
+# Prefixed with the swarm stack name: a bare "gateway" substring collides with
+# Knative's "kourier-gateway" pod containers (k3s/Knative stays resident on
+# this box across platforms) and silently folds its CPU into cp_cpu_s. Swarm
+# always names tasks "openfaas_<service>.<slot>.<id>" (stack name is
+# hardcoded below in setup_stack), so this prefix is exact, not a guess.
+CP="openfaas_gateway,openfaas_faas-swarm,openfaas_prometheus,openfaas_nats,openfaas_queue-worker,openfaas_alertmanager"
 FN_IMAGES="${SAQEF_FN_IMAGES:-hello}"
 FN_IMAGES_ARG=""
 [ -n "$FN_IMAGES" ] && FN_IMAGES_ARG="--fn-images $FN_IMAGES"

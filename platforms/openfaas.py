@@ -30,8 +30,19 @@ class OpenFaaSAdapter(Adapter):
     label = "OpenFaaS"
     url = "http://127.0.0.1:8080/function/hello"
     auth = ""                        # gateway 0.8.3 predates HTTP basic auth
-    cp_containers = ("gateway", "faas-swarm", "prometheus", "nats",
-                     "queue-worker", "alertmanager")
+    # Prefixed with the swarm stack name ("openfaas_"), NOT bare service names:
+    # a bare "gateway" substring collides with Knative's "kourier-gateway" /
+    # "3scale-kourier-gateway" pod containers. k3s stays resident on this box
+    # across every platform's session (it is "the substrate", see
+    # platforms/knative.py), so a bare "gateway" match silently folds leftover
+    # Kourier CPU into OpenFaaS's control-plane bucket whenever a Knative
+    # deployment happens to still be up -- confirmed happening in
+    # results/regression/openfaas/*/samples.csv (k8s_kourier-gateway_* present
+    # and CPU-mapped into cp_cpu_s every run). `docker stack deploy openfaas`
+    # always names swarm tasks "openfaas_<service>.<slot>.<id>" (hardcoded
+    # stack name in run_openfaas.sh), so this prefix is exact, not a guess.
+    cp_containers = ("openfaas_gateway", "openfaas_faas-swarm", "openfaas_prometheus",
+                     "openfaas_nats", "openfaas_queue-worker", "openfaas_alertmanager")
     fn_images = ("hello",)           # deployed function image: hello:latest
     fn_containers = ()
     cp_images = ()
@@ -45,9 +56,19 @@ class OpenFaaSAdapter(Adapter):
     default_replicas = 16            # static replica parity (GIL-bound handler; manifest #3)
     isolation = IsolationPolicy(
         forbidden_services=(),
-        forbidden_containers=("fnserver",),   # Fn's control plane must be down
-        expected_containers=("gateway", "faas-swarm", "prometheus", "nats",
-                             "queue-worker", "alertmanager"),
+        # "user-container"/"queue-proxy" catch a leftover Knative 'hello'
+        # ksvc specifically (its two per-replica pod containers) -- NOT a
+        # bare "k8s_" prefix, which would also match k3s/Knative-serving's
+        # own control plane (activator, kourier-gateway, coredns, ...) that
+        # is DESIGNED to stay resident on this box across every platform's
+        # session (see platforms/knative.py: "k3s stays up, it is the
+        # substrate"). Forbidding all "k8s_" would permanently block this
+        # adapter even with 'hello' properly torn down -- confirmed live
+        # 2026-08-08 while validating this fix. Fail loud on the actual
+        # function-serving leftover, not on the substrate's idle presence.
+        forbidden_containers=("fnserver", "user-container", "queue-proxy"),
+        expected_containers=("openfaas_gateway", "openfaas_faas-swarm", "openfaas_prometheus",
+                             "openfaas_nats", "openfaas_queue-worker", "openfaas_alertmanager"),
     )
 
     def _hello_service_exists(self):

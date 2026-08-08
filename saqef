@@ -137,14 +137,25 @@ def gates_for(out):
             if s.get("host_saturated") else ""
         covflag = "  <-- COVERAGE INVARIANT BROKEN (>100%): do not cite" if cov > 100 else ""
         hostflag = "  <-- HOST IMPLAUSIBLE: do not cite host metrics" if s.get("host_plausible") is False else ""
+        rapl_err = s.get("rapl_validation_err_pct")
+        # idle_w is a config-file constant (metrics/cpubound.json regression.idle_w)
+        # that nothing ever recalibrates -- confirmed 2026-08-08: the same-day
+        # regression re-anchor session's RAPL error was 14-32%/26-29% (stale
+        # idle_w=4.3 for that day's box state) despite the historical "citable"
+        # figure for Fn/OpenFaaS being 4.2-8.2%, from a DIFFERENT, older session.
+        # Flag loud instead of letting a fresh session silently inherit a stale
+        # citability claim from an unrelated run.
+        raplflag = ("  <-- RAPL FIT DEGRADED (>15%): recalibrate --idle-w for "
+                   "THIS box-state before citing energy/carbon from this run"
+                   ) if rapl_err is not None and rapl_err > 15.0 else ""
         print("  %-7s delta%%: %-7s delta_s: %-6s cp_cpu_s: %-6s fn_cpu_s: %-6s "
               "CPmapped: %s/%s fn_replicas: %s unclass: %s host_cpu_s: %-7s host_sat%%: %-6s "
-              "host_plausible: %-5s coverage%%: %s%s%s%s"
+              "host_plausible: %-5s coverage%%: %s rapl_err%%: %s%s%s%s%s"
               % (os.path.basename(p), s.get("cp_sampler_vs_delta_pct"), s.get("cp_delta_sec"),
                  s.get("cpu_sec", {}).get("control_plane"), s.get("cpu_sec", {}).get("function"),
                  okmap, len(m), nfn, s.get("unclassified_cpu_s"), s.get("host_cpu_sec"),
-                 s.get("host_saturation_pct"), s.get("host_plausible"), cov,
-                 satflag, covflag, hostflag))
+                 s.get("host_saturation_pct"), s.get("host_plausible"), cov, rapl_err,
+                 satflag, covflag, hostflag, raplflag))
     med = json.load(open(os.path.join(out, "summary.json")))
     print("median: cp_dynamic_share_pct=%s  slo_compliance=%s  throughput_rps=%s"
           % (med.get("cp_dynamic_share_pct"), med.get("slo_compliance"), med.get("throughput_rps")))

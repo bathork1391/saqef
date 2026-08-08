@@ -33,7 +33,18 @@ class FnAdapter(Adapter):
     default_replicas = None         # Fn function containers are ephemeral (no static scale)
     isolation = IsolationPolicy(
         forbidden_services=("*",),   # ANY swarm service contaminates an Fn session
-        forbidden_containers=(),
+        # "user-container"/"queue-proxy" catch a leftover Knative 'hello' ksvc
+        # specifically (its two per-replica pod containers) -- NOT a bare
+        # "k8s_" prefix, which would also match k3s/Knative-serving's own
+        # control plane (activator, kourier-gateway, coredns, ...) that is
+        # DESIGNED to stay resident on this box across every session (see
+        # platforms/knative.py). Forbidding all "k8s_" would permanently block
+        # Fn even with 'hello' torn down -- confirmed live 2026-08-08. Fn's
+        # fn_images=("hello",) substring-matches Knative's "kn-hello" image;
+        # today that's masked only by an incidental docker/containerd quirk
+        # (k3s-managed containers show a bare image digest, not the resolved
+        # tag), not by design -- this check is the real defense.
+        forbidden_containers=("user-container", "queue-proxy"),
         expected_containers=("fnserver",),
     )
 

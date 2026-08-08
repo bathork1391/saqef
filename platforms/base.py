@@ -258,9 +258,15 @@ class Adapter:
             cmd += ["--forbidden-services", ",".join(self.isolation.forbidden_services)]
         if self.isolation and self.isolation.forbidden_containers:
             cmd += ["--forbidden-containers", ",".join(self.isolation.forbidden_containers)]
-        if idle_w:
+        # `is not None`, NOT truthy: an explicitly-passed 0 (e.g. --idle-w 0
+        # for a machine that truly draws no idle package power, or a future
+        # 0-based override) must still be forwarded. A bare `if idle_w:`
+        # silently drops a real 0 and falls back to the harness's hardcoded
+        # (wrong) 30 W default with no warning -- the opposite of this
+        # project's fail-loud discipline.
+        if idle_w is not None:
             cmd += ["--idle-w", str(idle_w)]
-        if cpu_count_override:
+        if cpu_count_override is not None:
             cmd += ["--cpu-count-override", str(cpu_count_override)]
         if host_cpu_list:
             cmd += ["--host-cpu-list", str(host_cpu_list)]
