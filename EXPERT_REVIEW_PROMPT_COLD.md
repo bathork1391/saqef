@@ -18,8 +18,8 @@ adversarial: assume every headline number and every claimed mechanism is wrong u
 re-derived it yourself from raw data and from the source code that produced it. Do not trust
 any prose — not this prompt, not READMEs, not comments. Everything must trace to a file.
 
-**Repo:** `https://github.com/bathork1391/saqef` (branch `main`). Work from a clean clone at
-the pinned commit so you see exactly what a reviewer would see.
+**Repo:** `https://github.com/bathork1391/saqef` (branch `main`, pinned at `311301c`). Work
+from a clean clone at that commit so you see exactly what a reviewer would see.
 
 **The study in one paragraph:** Fn, OpenFaaS, Knative, and OpenWhisk each serve an identical
 ~5 ms CPU-bound handler (thousands of requests, concurrency 4, 5 runs/session). The headline
