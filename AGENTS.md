@@ -17,6 +17,45 @@ a contention-robust discriminator. Decision gate: platform gap in the share must
   `host_plausible` (must be true), `physical_plausible`, `host_sat%` (~100 on the codespace is
   the honest saturated-box flag, not a failure).
 
+## Current state (2026-08-14 — publication-lock session COMPLETE; read this first)
+
+**The paper's citable four-platform baseline is the publication-lock session (2026-08-13/14):
+OpenFaaS 7.29 < Fn ≈ Knative 11.16 / 11.82 < OpenWhisk 81.88 (`cp_dynamic_share_pct` medians).**
+Data in `results/{openfaas,fn,knative}_cpubound_lock_lock2` + `results/openwhisk_cpubound_lock_lock3`
+(OF/Fn/Kn from lock2 on 2026-08-13, OW from lock3 on 2026-08-14 — treated as ONE matched
+quiet-gated session set; **lock2's own OW leg is the corrupted 1993/10000 run, never cite it**).
+Per-inv CP cost 0.52 / 0.71 / 0.91 / 25.84 ms; QoS citable all four (host_sat 61–75%);
+energy/carbon citable OF/Fn/Kn (fresh per-leg idle_w 3.505 / 3.56 / 4.352 W, runs 3–5 RAPL
+3.6–9.8% / 0.5–3.7% / 4.2–4.8%) and NOT citable for OW (rapl err 33–53%, median 48%, structural
+JVM/linear-model mismatch). All committed in `f2d9a4e` (paper + figures 2–4 + data; figure1
+untouched — core-count experiment unchanged). `SAQEF_PAPER_DRAFT.md` + `figures/make_figures.py`
+REGIMES `fourplat` are synced to these dirs; robustness figures (KN queue-proxy→CP **24.9%**,
+flat-5ms-normalized shares **9.36/12.42/15.36/83.79%**) re-derived from raw data. The prior
+snapshots (2026-08-07 contaminated / 2026-08-08 morning / 2026-08-08/09 two-day stitch / first
+`lock_lock` attempt) are explicitly retired in the paper but retained in git for the appendix
+evolution note.
+
+**Regression refs still valid — no re-anchor needed.** `metrics/cpubound.json` (fn 11.49 / of
+7.61) holds: lock Fn 11.16 (dev 0.33 pp) / OF 7.29 (dev 0.32 pp) both ≤ 0.5 pp tolerance.
+`tools/reanchor_and_kn_idle.sh` does NOT need to run for this box-state.
+
+**What remains before submission (all documented in detail below):** (1) cold review pass #6 on
+the four newest code paths — **DONE 2026-08-13** (see its disposition section; 9 confirmed
+findings all fixed; deliberate scope: "safe fixes only", the fresh 4-platform rerun + Fn/OF
+idle-w recalibration deferred); (2) the **second physical machine** decision (preferred if
+timeline allows; honestly-scoped n=1 is the fallback — wording already in paper Contribution #3
++ T5V #8); (3) OpenWhisk's structural energy-model mismatch is named as a separate open item in
+Future Work, not a calibration gap. Idle-w: lock session recalibrated per-leg (above);
+the 2026-08-05/06 Fn/OF constant `4.3 W` remains the figure1/2-core-regime value and is
+fine there.
+
+**How this box got here (quick orientation):** full history below. Key anchors: quiet-gate
+(ambient-load) baked into the harness 2026-08-09; contamination A/B (Fn +2.2 pp / OF +0.3 pp
+under an emulated agent profile) and regression re-anchor (11.49/7.61) and Knative idle-w
+(0.690 W premium) all completed on the quiet box 2026-08-08/09; lock2/lock3 run via
+`tools/run_lock_session.sh` with the OW `--duration` bug fixed (`7f7bad5`, INCOMPLETE-RUN +
+LOADGEN-FALLBACK gate checks added). 55/55 tests pass.
+
 ## Expert review #5 (2026-08-09) — disposition
 
 External expert (reviewer #5) ran the audit in `EXPERT_REVIEW_PROMPT.md`. Verdict: **not yet
