@@ -11,9 +11,13 @@ these tests are the zero-cost first gate.
 Run: python3 tests/test_saqef_cli.py
 """
 
+import contextlib
+import io
 import json
 import os
+import re
 import sys
+import tempfile
 import unittest
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -596,6 +600,113 @@ class TestAmbientQuietGate(unittest.TestCase):
              mock.patch.object(h.time, "sleep"):
             busy, _ = h.ambient_load_check(20.0, 15.0, quiet_gate=False)
         self.assertEqual(busy, 30.0)
+
+
+class TestGatesFlagsIncompleteAndFallback(unittest.TestCase):
+    """gates_for must flag (a) a run that didn't complete its count-bound
+    protocol (requests != total_requested) and (b) a silent loadgen fallback
+    (env.loadgen != env.loadgen_requested) -- both fields already existed in
+    every run's summary.json, but nothing read them. This is exactly what let
+    the 2026-08-13 OpenWhisk --duration regression (TROUBLESHOOTING_RUNBOOK.md
+    #11) print 'gates OK' next to a run that only completed 1993/10000
+    requests on the wrong load generator: the existing coded gates (delta%,
+    CPmapped, host_plausible, coverage%) are all satisfied by a truncated,
+    fallback-loadgen run, since none of them look at request count or loadgen
+    identity."""
+
+    def _base_summary(self, **overrides):
+        s = {
+            "wall_s": 20.0, "sampling_covered_s": 20.0,
+            "delta_check_map": {"openwhisk": "ok"},
+            "platform": "openwhisk", "container_inventory": [], "container_labels": {},
+            "unclassified_cpu_s": 0.1, "host_cpu_sec": 10.0, "host_saturation_pct": 50.0,
+            "host_plausible": True, "host_saturated": False,
+            "rapl_validation_err_pct": 5.0,
+            "requests": 10000, "total_requested": 10000,
+            "env": {"loadgen": "hey", "loadgen_requested": "hey", "loadgen_fallback": False},
+            "cp_dynamic_share_pct": 82.0, "slo_compliance": 1.0, "throughput_rps": 65.0,
+            "cp_sampler_vs_delta_pct": 0.0, "cp_delta_sec": 1.0,
+            "cpu_sec": {"control_plane": 1.0, "function": 1.0},
+        }
+        s.update(overrides)
+        return s
+
+    def _gates_output(self, summary):
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = os.path.join(tmp, "run_1")
+            os.makedirs(run_dir)
+            with open(os.path.join(run_dir, "summary.json"), "w") as f:
+                json.dump(summary, f)
+            with open(os.path.join(tmp, "summary.json"), "w") as f:
+                json.dump(summary, f)
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                saqef.gates_for(tmp)
+            return buf.getvalue()
+
+    def test_incomplete_run_flagged(self):
+        out = self._gates_output(self._base_summary(requests=1993, total_requested=10000))
+        self.assertIn("INCOMPLETE RUN", out)
+
+    def test_loadgen_fallback_flagged(self):
+        fallback_env = {"loadgen": "py", "loadgen_requested": "hey", "loadgen_fallback": True}
+        out = self._gates_output(self._base_summary(env=fallback_env))
+        self.assertIn("LOADGEN FALLBACK", out)
+
+    def test_clean_run_not_flagged(self):
+        out = self._gates_output(self._base_summary())
+        self.assertNotIn("INCOMPLETE RUN", out)
+        self.assertNotIn("LOADGEN FALLBACK", out)
+
+    def test_legacy_summary_without_total_requested_does_not_crash(self):
+        # Pre-fix result dirs have no "total_requested" key at all -- must
+        # degrade to "no flag", not KeyError.
+        legacy = self._base_summary()
+        del legacy["total_requested"]
+        out = self._gates_output(legacy)
+        self.assertNotIn("INCOMPLETE RUN", out)
+
+
+class TestLockSessionDurationOverride(unittest.TestCase):
+    """run_lock_session.sh's run_leg() must pass OpenWhisk an explicit
+    --duration >= 300: OpenWhisk's own loadgen kill-switch is duration+120s,
+    and 10000 requests at its ~65-70 rps ceiling take ~150s, so the CLI's 60s
+    default leaves only ~30s margin and kills `hey` mid-run every time
+    (TROUBLESHOOTING_RUNBOOK.md #6, regressed and re-fixed as #11 after the
+    2026-08-13 lock session). This is a static check on the shipped script
+    text -- zero-cost, no docker/k3s/box dependency, matching this file's own
+    'the REAL proof is a rerun; these tests are the zero-cost first gate'
+    strategy (see module docstring) -- not a substitute for actually rerunning
+    the OpenWhisk leg."""
+
+    SCRIPT_PATH = os.path.join(REPO, "tools", "run_lock_session.sh")
+
+    def _run_leg_source(self):
+        text = open(self.SCRIPT_PATH).read()
+        m = re.search(r"^run_leg\(\)\s*\{.*?\n\}\n", text, re.S | re.M)
+        self.assertIsNotNone(m, "could not locate run_leg() in run_lock_session.sh")
+        return m.group(0)
+
+    def test_openwhisk_gets_a_long_duration_override(self):
+        body = self._run_leg_source()
+        m = re.search(r'"openwhisk"\s*\]\s*&&\s*duration=(\d+)', body)
+        self.assertIsNotNone(
+            m, "run_leg() has no OpenWhisk-specific --duration override; "
+               "OpenWhisk needs >=300s or hey's subprocess kill-switch "
+               "(duration+120s) fires mid-run and silently falls back to the "
+               "Python loadgen (see runbook #6/#11)")
+        self.assertGreaterEqual(int(m.group(1)), 300)
+
+    def test_duration_reaches_both_the_dry_run_echo_and_the_real_invocation(self):
+        body = self._run_leg_source()
+        # Both the DRY-RUN preview line and the real `$SAQEF run` call must
+        # carry --duration "$duration" -- a fix applied to only one of them
+        # would make --dry-run lie about what actually gets executed.
+        self.assertEqual(
+            body.count('--duration'), 2,
+            "expected exactly two --duration occurrences in run_leg() (the "
+            "DRY-RUN echo and the real $SAQEF run invocation); got a "
+            "different count -- check both call sites still pass it")
 
 
 if __name__ == "__main__":

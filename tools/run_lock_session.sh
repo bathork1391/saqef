@@ -236,14 +236,23 @@ run_leg() {
     # never the bare path -- gates must look in the same place run wrote to.
     local gate_out="$out"
     [ "$REPEAT" -lt 5 ] && gate_out="${out}_quick"
-    banner "$(echo $platform | tr a-z A-Z) leg (idle_w=$idle_w)"
+    # OpenWhisk is slow (~65-70 rps at c=4): 10000 requests take ~150s. The
+    # loadgen subprocess kill-switch is duration+120s, so the default 60s used
+    # for the other three platforms leaves only ~30s margin -- `hey` gets
+    # killed mid-run and falls back to the Python loadgen silently every time.
+    # This is TROUBLESHOOTING_RUNBOOK.md #6, already fixed once in the older
+    # per-platform manual protocol; it regressed here because this consolidated
+    # driver never carried the platform-specific override forward (see #11).
+    local duration=60
+    [ "$platform" = "openwhisk" ] && duration=300
+    banner "$(echo $platform | tr a-z A-Z) leg (idle_w=$idle_w, duration=${duration}s)"
     if [ "$DRY_RUN" = 1 ]; then
         echo "DRY-RUN: would run: deploy --platform $platform"
         case "$platform" in
             openfaas|knative) echo "DRY-RUN: scale --platform $platform --replicas 16" ;;
         esac
         echo "DRY-RUN: verify --platform $platform"
-        echo "DRY-RUN: run --platform $platform --total $TOTAL --concurrency $CONCURRENCY --repeat $REPEAT --idle-w $idle_w --out $out"
+        echo "DRY-RUN: run --platform $platform --total $TOTAL --concurrency $CONCURRENCY --duration $duration --repeat $REPEAT --idle-w $idle_w --out $out"
         echo "DRY-RUN: gates --out $gate_out ; teardown --platform $platform"
         return 0
     fi
@@ -259,9 +268,9 @@ run_leg() {
     esac
     echo ">>> verify"
     $SAQEF verify --platform "$platform"
-    echo ">>> run: total=$TOTAL concurrency=$CONCURRENCY repeat=$REPEAT out=$out"
+    echo ">>> run: total=$TOTAL concurrency=$CONCURRENCY duration=$duration repeat=$REPEAT out=$out"
     $SAQEF run --platform "$platform" --total "$TOTAL" --concurrency "$CONCURRENCY" \
-        --repeat "$REPEAT" --idle-w "$idle_w" --out "$out"
+        --duration "$duration" --repeat "$REPEAT" --idle-w "$idle_w" --out "$out"
     echo ">>> gates"
     $SAQEF gates --out "$gate_out"
     echo ">>> teardown"

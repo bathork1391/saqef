@@ -157,14 +157,33 @@ def gates_for(out):
         raplflag = ("  <-- RAPL FIT DEGRADED (>15%): recalibrate --idle-w for "
                    "THIS box-state before citing energy/carbon from this run"
                    ) if rapl_err is not None and rapl_err > 15.0 else ""
+        # Neither of the next two existed before the 2026-08-13 OpenWhisk
+        # --duration regression (TROUBLESHOOTING_RUNBOOK.md #11): a run whose
+        # loadgen subprocess hit its kill-switch mid-run and silently fell back
+        # still passed delta%/CPmapped/host_plausible/coverage% cleanly and
+        # printed no warning at all -- the incomplete request count and the
+        # wrong load generator were only visible by reading the run's raw JSON
+        # by hand. Both fields already existed in summary.json; this just
+        # surfaces them in the same table instead of requiring that manual read.
+        total_req = s.get("total_requested")
+        reqs = s.get("requests")
+        incompleteflag = ("  <-- INCOMPLETE RUN (requests %s != total_requested %s): "
+                          "count-bound protocol did not finish, do not cite "
+                          "throughput/latency from this run" % (reqs, total_req)
+                          ) if total_req is not None and reqs != total_req else ""
+        env = s.get("env") or {}
+        fallbackflag = ("  <-- LOADGEN FALLBACK (loadgen=%s != requested=%s): "
+                        "throughput/latency are not comparable across platforms, do not cite"
+                        % (env.get("loadgen"), env.get("loadgen_requested"))
+                        ) if env.get("loadgen_fallback") else ""
         print("  %-7s delta%%: %-7s delta_s: %-6s cp_cpu_s: %-6s fn_cpu_s: %-6s "
               "CPmapped: %s/%s fn_replicas: %s unclass: %s host_cpu_s: %-7s host_sat%%: %-6s "
-              "host_plausible: %-5s coverage%%: %s rapl_err%%: %s%s%s%s%s"
+              "host_plausible: %-5s coverage%%: %s rapl_err%%: %s%s%s%s%s%s%s"
               % (os.path.basename(p), s.get("cp_sampler_vs_delta_pct"), s.get("cp_delta_sec"),
                  s.get("cpu_sec", {}).get("control_plane"), s.get("cpu_sec", {}).get("function"),
                  okmap, len(m), nfn, s.get("unclassified_cpu_s"), s.get("host_cpu_sec"),
                  s.get("host_saturation_pct"), s.get("host_plausible"), cov, rapl_err,
-                 satflag, covflag, hostflag, raplflag))
+                 satflag, covflag, hostflag, raplflag, incompleteflag, fallbackflag))
     med = json.load(open(os.path.join(out, "summary.json")))
     print("median: cp_dynamic_share_pct=%s  slo_compliance=%s  throughput_rps=%s"
           % (med.get("cp_dynamic_share_pct"), med.get("slo_compliance"), med.get("throughput_rps")))

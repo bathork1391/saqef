@@ -1235,7 +1235,12 @@ def run_once(args, cp_sub):
         "wall_s": round(wall, 2),
         "wall_harness_s": round(wall_harness, 2),
         "sampling_covered_s": round(covered_s, 2),
-        "requests": n, "successes": ok,
+        # total_requested lets a gate check "did this run finish its count-bound
+        # protocol" after the fact (requests can fall short of it on a loadgen
+        # timeout/fallback, e.g. the 2026-08-13 OpenWhisk --duration regression,
+        # TROUBLESHOOTING_RUNBOOK.md #11) -- args.total wasn't previously
+        # recorded anywhere in the summary.
+        "requests": n, "successes": ok, "total_requested": args.total,
         "availability": round(availability, 4),
         "throughput_rps": round(ok / wall, 2),
         "latency_ms": {"p50": round(p50, 2) if p50 is not None else None,
