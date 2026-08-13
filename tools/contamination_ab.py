@@ -20,8 +20,13 @@ this). The synthetic load reproduces the DOCUMENTED 2026-08-07 incident
 profile: --cores spinners (default 3, pinned to distinct cores ~ 2.8-core
 opencode) + --mem-gb RSS (default 1.1, the real RSS). --repeat defaults to 5
 -- the same N>=5 discipline as every citable number in this study; a single
-A/B pair is NOT a bound. The dirty leg prints the achieved aggregate host
-busy% (target = cores / cpu_count) so a profile mismatch fails loud.
+A/B pair is NOT a bound. The dirty leg measures the achieved aggregate host
+busy% (target = cores / cpu_count) and ABORTS if it deviates from target by
+more than --profile-tolerance-pct (default 10 pp) -- a profile mismatch
+actually fails loud (raises SystemExit) rather than only printing a warning;
+pass --allow-profile-mismatch to record a mismatched run anyway (exploratory
+only, not the documented-incident bound). The achieved/target profile is
+saved into contamination_ab.json's "achieved_profile" key for every run.
 
 Usage:
   python3 tools/contamination_ab.py --platform fn
@@ -135,6 +140,12 @@ def main():
     ap.add_argument("--idle-w", type=float, default=4.3)
     ap.add_argument("--cores", type=int, default=3, help="busy spinners (default 3 ~ 2.8-core opencode)")
     ap.add_argument("--mem-gb", type=float, default=1.1, help="emulated agent RSS in GB")
+    ap.add_argument("--profile-tolerance-pct", type=float, default=10.0,
+                    help="abs percentage-point tolerance between achieved and target host-busy%% "
+                         "before the dirty leg is flagged as a bad profile (default 10.0 pp)")
+    ap.add_argument("--allow-profile-mismatch", action="store_true",
+                    help="record a mismatched profile in contamination_ab.json instead of aborting "
+                         "(exploratory only -- a mismatched dirty leg is not the documented-incident bound)")
     args = ap.parse_args()
 
     outdir = args.outdir or os.path.join("results", "%s_contamination_ab" % args.platform)
@@ -149,14 +160,34 @@ def main():
 
     print("=== DIRTY LEG (emulated agent load: %d cores busy + %.1f GB RSS) ===" % (args.cores, args.mem_gb))
     procs = spawn_agent_load(args.cores, args.mem_gb)
+    ncores = os.cpu_count() or 8
+    target_pct = args.cores * 100.0 / ncores
     try:
         achieved = measure_busy_pct(window_s=10)
-        ncores = os.cpu_count() or 8
         print("[ab] achieved aggregate host busy: %.1f%% (target: ~%.1f%% = %d/%d cores)"
-              % (achieved or 0.0, args.cores * 100.0 / ncores, args.cores, ncores))
+              % (achieved or 0.0, target_pct, args.cores, ncores))
         run_bench(args, dirty_dir, quiet_gate=False)
     finally:
         kill_procs(procs)
+
+    profile_mismatch = (
+        achieved is None or abs(achieved - target_pct) > args.profile_tolerance_pct
+    )
+    achieved_profile = {
+        "achieved_host_busy_pct": achieved, "target_host_busy_pct": round(target_pct, 1),
+        "cores": args.cores, "cpu_count": ncores, "mem_gb": args.mem_gb,
+        "tolerance_pct": args.profile_tolerance_pct, "mismatch": profile_mismatch,
+    }
+    if profile_mismatch and not args.allow_profile_mismatch:
+        raise SystemExit(
+            "ABORT: dirty-leg achieved host busy (%s%%) deviates from target (%.1f%%) by more than "
+            "%.1f pp -- this run does NOT reproduce the documented incident profile and would silently "
+            "understate/overstate the contamination bound. Rerun on a quieter box, or pass "
+            "--allow-profile-mismatch to record it anyway (exploratory only)."
+            % ("n/a" if achieved is None else "%.1f" % achieved, target_pct, args.profile_tolerance_pct))
+    elif profile_mismatch:
+        print("[ab] WARNING: profile mismatch recorded but --allow-profile-mismatch set -- "
+              "this dirty leg is NOT the documented-incident bound.")
 
     c = read_summary(os.path.join(clean_dir, "summary.json"))
     d = read_summary(os.path.join(dirty_dir, "summary.json"))
@@ -188,6 +219,7 @@ def main():
         print(fmt % (name, round(cv, 3), round(dv, 3), ("%+.3f" % delta)))
         report[name] = {"clean": cv, "dirty": dv, "delta": delta}
     report["emulated_load"] = {"cores": args.cores, "mem_gb": args.mem_gb, "repeat": args.repeat}
+    report["achieved_profile"] = achieved_profile
     report["results_dir"] = resolved
     with open(os.path.join(resolved, "contamination_ab.json"), "w") as f:
         json.dump(report, f, indent=2)

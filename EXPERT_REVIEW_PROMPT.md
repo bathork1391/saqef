@@ -166,9 +166,13 @@ OF 6.82/7.17, gap ~7 pp) from `results/{fn,openfaas}_cpubound_2core{,,_session2}
     missed figure-caption drift twice — grep aggressively for every literal number and check
     the session it belongs to. **Note:** figures were regenerated 2026-08-09
     (`python3 figures/make_figures.py`) after the regression rerun overwrote
-    `results/regression/*`; figure1 must be byte-identical to its pre-regeneration commit
-    (its sources were untouched), and figure2/3/4 must reflect the 2026-08-09 Fn/OF leg.
-    Remaining `7.14`/`10.65` mentions in the paper are intentional historical-snapshot notes.
+    `results/regression/*`; figure1 must be **content-identical** to its pre-regeneration commit
+    (its sources were untouched) — its PDF bytes are NOT expected to be byte-identical
+    (matplotlib/Ghostscript embed a regeneration timestamp in PDF metadata even when the
+    rendered content is unchanged; confirmed 2026-08-13 by a cold review that the visible
+    content matches and the diff is metadata-only). Figure2/3/4 must reflect the 2026-08-09
+    Fn/OF leg. Remaining `7.14`/`10.65` mentions in the paper are intentional
+    historical-snapshot notes.
 
 13. **The open items (already flagged, judge the framing).** (a) **Knative idle-w — CLOSED
     (2026-08-09):** N=5 repeated 60 s RAPL reads per condition give bare k3s+knative-serving+
