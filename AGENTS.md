@@ -1146,3 +1146,27 @@ rapl/intel-rapl:0/` all present), so the experiment is feasible here when the us
 schedule it — it is the single highest-value remaining action before submission. Until then, the
 paper's own existing disclosures (figure2 caption, §5.6 energy-citability note) remain the honest
 statement of what was and wasn't measured under matched conditions.
+
+**Lock-session driver (2026-08-13): `tools/run_lock_session.sh`.** One-file, zero-prompt driver
+for the deferred matched 4-platform rerun, written so a human can run it terminal-to-terminal
+from a bare shell with agents quit (the user explicitly asked for a script rather than a command
+list). What it does: (0) precondition checks — docker reachable, k3s substrate resident, no
+leftover swarm services / fnserver / knative hello (fails loud); (1) idle-w calibration per stack
+state (bare / OpenFaaS@16 / Fn / Knative hello@16 / OpenWhisk), N≥3 repeated 60 s
+wraparound-guarded RAPL reads, **medians + raw reads saved to
+`results/idle_w_calibration/lock_<stamp>/`** — this closes the cold reviewer's "idle-w raw
+artifacts are not committed" gap by construction; (2) the four benches back-to-back via the
+unified `saqef` CLI (same path for all four platforms — the "equally controlled" argument),
+fresh dated outdirs `results/<platform>_cpubound_lock_<stamp>` (refuses to clobber an existing
+same-stamp outdir), ambient quiet gate active by default (precondition only — keep the shell
+bare); (3) gate validation of all legs (runs==5, host_plausible, delta_check ok, rapl_wrap none,
+**ambient field present and under threshold** — the exact thing Kn/OW's 2026-08-08 baselines
+lack) + `results/lock_session_<stamp>/lock_summary.json`, exit non-zero if any chosen leg fails.
+Flags: `--dry-run`, `--idle-reps N` (default 3; 5 = finding-#13 discipline), `--skip-idle-calib`
+(reuses saved calib medians from the same stamp, or `--idle-w-*` overrides, else
+4.3/4.3/4.561/4.3), `--platforms of,fn,kn,ow` (recovery), `--stamp`, `--total/--concurrency/
+--repeat`. It does NOT touch `metrics/cpubound.json` — the regression re-anchor is a separate
+step afterwards (`tools/reanchor_and_kn_idle.sh`). Verified: `bash -n` clean, dry-run renders
+the full plan, calib-file recovery path tested. **Post-session agent work** (safe with agents
+up): update `figures/make_figures.py` REGIMES to the `*_lock_<stamp>` dirs, regenerate figures,
+sync the paper's cited numbers, re-anchor regression refs, commit.
