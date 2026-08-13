@@ -1,0 +1,12 @@
+{
+  "state": "knative",
+  "label": "Knative serving + hello@16",
+  "reads_w": [
+    5.763,
+    5.512,
+    5.774
+  ],
+  "median_w": 5.763,
+  "n": 3,
+  "ts_utc": "2026-08-13T11:14:09Z"
+}

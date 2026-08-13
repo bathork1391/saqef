@@ -1,0 +1,14 @@
+{
+  "state": "bare",
+  "label": "bare k3s+knative substrate",
+  "reads_w": [
+    3.517,
+    4.49,
+    3.941,
+    4.262,
+    3.976
+  ],
+  "median_w": 3.976,
+  "n": 5,
+  "ts_utc": "2026-08-13T15:55:47Z"
+}

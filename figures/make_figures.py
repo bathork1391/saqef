@@ -11,11 +11,11 @@ lives in the paper captions):
              experiment, 8 cores vs the same box cpuset-pinned to 2 cores.
              This is the machine-dependence contribution.
   Figure 2 — per-run shares, four platforms (8-core box, same instrument):
-             every per-run value shown honestly (n=5 per session; Fn = 3
-             sessions spanning 2026-08-06/07/09; OpenFaaS/Knative/OpenWhisk
-             are each a single session, collected on different dates -- see
-             the data-source note in the paper's Appendix A / figure caption,
-             NOT a same-day four-platform comparison).
+             every per-run value shown honestly (n=5 per platform, one
+             matched session set -- the publication-lock session 2026-08-13/14:
+             OF/Fn/Kn from lock2 (2026-08-13), OW from lock3 (2026-08-14),
+             back-to-back under the quiet gate; see the data-source note in
+             the paper's Appendix A / figure caption).
   Figure 3 — attribution split (CP / fn / unclassified CPU-time) for the
              same four platforms.
   Figure 4 — control-plane CPU per invocation (ms), all four platforms.
@@ -65,11 +65,10 @@ REGIMES = {
     "fourplat": {
         "label": "8 cores, four platforms",
         "dirs": {
-            "openfaas":  ["results/regression/openfaas"],
-            "fn":        ["results/fn_cpubound_crosscheck", "results/regression/fn",
-                          "results/fn_cpubound_crosscheck2"],
-            "knative":   ["results/knative_cpubound_baremetal"],
-            "openwhisk": ["results/openwhisk_cpubound_baremetal"],
+            "openfaas":  ["results/openfaas_cpubound_lock_lock2"],
+            "fn":        ["results/fn_cpubound_lock_lock2"],
+            "knative":   ["results/knative_cpubound_lock_lock2"],
+            "openwhisk": ["results/openwhisk_cpubound_lock_lock3"],
         },
     },
 }
@@ -77,9 +76,11 @@ REGIMES = {
 # Figure 1 (core-count): the controlled Fn-vs-OF experiment
 CORE_COUNT_REGS = ("8core_quiet", "2core")
 CORE_COUNT_PLAT = ("fn", "openfaas")
-# Figures 2-4 (four-platform, 8-core box, same instrument -- NOT same day;
-# Fn/OpenFaaS from 2026-08-09, Knative/OpenWhisk from 2026-08-08, Fn's three
-# sessions span 2026-08-06/07/09 -- see the paper's data-source note)
+# Figures 2-4 (four-platform, 8-core box, same instrument): the matched
+# publication-lock session -- OF/Fn/Kn from lock2 (2026-08-13), OW from lock3
+# (2026-08-14), all legs back-to-back under the quiet gate (see the paper's
+# data-source note in Appendix A). figure1's 8core_quiet/2core dirs are the
+# separate controlled core-count experiment and are intentionally unchanged.
 FOURPLAT_REGS = ("fourplat",)
 FOURPLAT_PLAT = ("openfaas", "fn", "knative", "openwhisk")
 
@@ -193,7 +194,8 @@ def figure1_core_count(agg):
 
 
 def figure2_four_platform_scatter(agg):
-    """Per-run shares, all four platforms (8-core box, same instrument -- sessions collected on different dates, see module docstring)."""
+    """Per-run shares, all four platforms (8-core box, same instrument; matched
+    publication-lock session 2026-08-13/14 -- see module docstring)."""
     fig, ax = plt.subplots(figsize=(7.2, 4.4), dpi=150)
     rng = __import__("random").Random(0)
     markers = ("o", "s", "^", "D")
@@ -267,7 +269,7 @@ def figure4_cp_cost_per_inv(agg):
     """Control-plane CPU cost per invocation (ms CPU / inv), all four platforms.
 
     cp_cpu_s median per run / 10000 inv * 1000. This is the per-request
-    orchestration tax (of-watchdog 0.54, fnserver 0.75, Kn 0.86, OW 23.2) and
+    orchestration tax (of-watchdog 0.52, fnserver 0.71, Kn 0.91, OW 25.84) and
     does not duplicate any other figure.
     """
     rows = []

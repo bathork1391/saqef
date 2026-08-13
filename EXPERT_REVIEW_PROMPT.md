@@ -30,10 +30,11 @@ artifact (survived four sessions with different box conditions).
 **Verify these headline numbers from raw data only.** For each of the four platform result
 dirs under `results/`, independently recompute the median `cp_dynamic_share_pct`, the CI/CV,
 and the per-invocation control-plane CPU cost directly from `runs.json` / `summary.json`
-(do NOT read any prose first). Current claimed values: OpenFaaS **7.40** (2026-08-09
-regression leg, ref 7.61), Fn **11.60** (3-session median; 2026-08-09 session value 11.27),
-Knative **12.44** (2026-08-08 quiet rerun), OpenWhisk **82.36** (2026-08-08 evening rerun);
-per-inv CP cost 0.53 / 0.75 / 0.96 / 26.82 ms. Also verify Fn's 2-core claim (13.91/14.08,
+(do NOT read any prose first). Current claimed values (publication-lock session 2026-08-13/14 —
+OF/Fn/Kn from `results/*_cpubound_lock_lock2`, OW from `results/openwhisk_cpubound_lock_lock3`):
+OpenFaaS **7.29** (CI 7.03–7.47, CV 2.69%), Fn **11.16** (CI 10.59–11.30, CV 3.28%),
+Knative **11.82** (CI 11.07–12.16, CV 3.97%), OpenWhisk **81.88** (CI 80.85–84.71, CV 1.75%);
+per-inv CP cost 0.52 / 0.71 / 0.91 / 25.84 ms. Also verify Fn's 2-core claim (13.91/14.08,
 OF 6.82/7.17, gap ~7 pp) from `results/{fn,openfaas}_cpubound_2core{,,_session2}`.
 
 **Specifically investigate — this is where previous review passes found bugs:**

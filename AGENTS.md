@@ -1170,3 +1170,45 @@ step afterwards (`tools/reanchor_and_kn_idle.sh`). Verified: `bash -n` clean, dr
 the full plan, calib-file recovery path tested. **Post-session agent work** (safe with agents
 up): update `figures/make_figures.py` REGIMES to the `*_lock_<stamp>` dirs, regenerate figures,
 sync the paper's cited numbers, re-anchor regression refs, commit.
+
+**lock2 bug + lock3 fix (2026-08-13/14) — publication-lock status: lock2 (OF/Fn/Kn) + lock3
+(OW) together are the citable baseline.** `run_leg()` in `run_lock_session.sh` never passed
+`--duration` to the harness, so every platform silently used the 60s default. OpenWhisk's
+~35 rps ceiling needs ~285s to complete a 10k-request run, so its loadgen kill-switch
+(duration+120s) fired mid-run on all 5 legs of the 2026-08-13 lock2 session: `hey` timed out,
+silently fell back to the slower Python loadgen, and the run completed only **1993/10000**
+requests — while the gate table still printed "OK" because nothing checked
+request-count-completed or loadgen-match. This is a regression of an already-fixed bug
+(runbook item 6) that didn't survive the move to the consolidated 4-platform driver. **Fixed**
+in `7f7bad5`: OpenWhisk now gets `--duration 300` (others keep 60), and `gates_for()` gained
+two new per-run checks — INCOMPLETE RUN (`requests != total_requested`) and LOADGEN FALLBACK —
+that would have caught this the first time. Canonical bug ledger is `TROUBLESHOOTING_RUNBOOK.md`
+(retrofitted in the same commit, items 12–18) — read it before assuming something is a new
+issue, `SAQEF_BUG_LEDGER.md` does not exist.
+
+lock2's OpenFaaS/Fn/Knative legs were NOT affected (their throughput is high enough that 60s
+duration + 10k requests never hit the kill-switch) and remain clean/citable as-is. **lock3**
+(`--platforms ow --skip-idle-calib --idle-w-ow 3.96`, reusing lock2's already-good OW idle-w
+calibration) is the corrected OpenWhisk-only rerun with the duration fix: 10000/10000
+requests, no loadgen fallback, all gates genuinely passing, `cp_dynamic_share_pct=81.88`
+(CV 1.57%) — consistent with OpenWhisk's prior-session band (82.54/80.23/82.36/82.27/82.36).
+**Citable publication-lock set = lock2's OF+Fn+Kn legs + lock3's OW leg, treated as one
+matched session for the paper**, not lock2 alone (its OW leg is the corrupted 1993/10000 run
+and must not be cited). `orchestration_share_pct` (new harness field, `host_cpu_sec − fn_cpu_s`)
+needs no new paper treatment — it's the same host-wide-residual field already defined and
+explicitly excluded from claims in `SAQEF_TECHNICAL_REPORT.md`/`SAQEF_PAPER_DRAFT.md`; only
+the cgroup-exact `cp_dynamic_share_pct` is presented as the citable share.
+
+**Remaining for this milestone — ALL COMPLETE (2026-08-14):** (1) ~~fold lock2's three clean
+legs + lock3's OW leg into `SAQEF_PAPER_DRAFT.md` and `figures/make_figures.py` REGIMES (as one
+combined session)~~ — **DONE:** REGIMES `fourplat` now points at lock2/lock3; figures 2–4
+regenerated (figure1 untouched); paper's abstract/§3/§4.1/§4.5/§5.6/§8.1/§10/Appendix A+B all
+re-anchored to the lock session (OF 7.29 / Fn 11.16 / Kn 11.82 / OW 81.88), with the three
+earlier snapshots explicitly retired and cross-checked number-for-number against
+`results/*_lock_lock{2,3}/runs.json` (CIs, CVs, per-inv CP/fn ms, RAPL ranges, QoS, idle_w all
+match; the KN queue-proxy→CP 24.9% and flat-5ms 9.36/12.42/15.36/83.79% robustness figures were
+re-derived from `samples.csv`/runs.json and fixed from the earlier rounded-value drift). (2)
+~~re-anchor regression refs~~ — **verified NOT needed:** the lock session's Fn 11.16 / OF 7.29
+sit within the 0.5 pp tolerance of the 2026-08-09 refs (11.49 / 7.61; dev 0.33 / 0.32 pp), so
+`metrics/cpubound.json` is still correct for this box-state. (3) ~~commit~~ — **DONE** (commit
+ties lock2+lock3 together as the publication-lock session).
