@@ -42,9 +42,10 @@ evolution note.
 **What remains before submission (all documented in detail below):** (1) cold review pass #6 on
 the four newest code paths — **DONE 2026-08-13** (see its disposition section; 9 confirmed
 findings all fixed; deliberate scope: "safe fixes only", the fresh 4-platform rerun + Fn/OF
-idle-w recalibration deferred); (2) the **second physical machine** decision (preferred if
-timeline allows; honestly-scoped n=1 is the fallback — wording already in paper Contribution #3
-+ T5V #8); (3) OpenWhisk's structural energy-model mismatch is named as a separate open item in
+idle-w recalibration deferred); (2) the **second physical machine** decision — **DECIDED
+2026-08-14: no second machine; ship the honestly-scoped n=1** (wording already in paper
+Contribution #3 + T5V #8; a future study may revisit, but it is no longer an open decision
+blocking submission); (3) OpenWhisk's structural energy-model mismatch is named as a separate open item in
 Future Work, not a calibration gap. Idle-w: lock session recalibrated per-leg (above);
 the 2026-08-05/06 Fn/OF constant `4.3 W` remains the figure1/2-core-regime value and is
 fine there.
