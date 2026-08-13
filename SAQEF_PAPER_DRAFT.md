@@ -3,7 +3,7 @@
 **Working title — Paper Draft (v0.1)**
 
 **Author:** [Name], Green Cloud Continuum project
-**Date:** 2026-08-08
+**Date:** 2026-08-14
 **Status:** Methodology validated on Fn + OpenFaaS and extended to OpenWhisk + Knative, all
 RAPL-validated on bare metal (4 platforms, 8-core box + controlled 2-core regime). Draft for
 refinement into the final research paper.
@@ -89,8 +89,8 @@ orchestration alone. We therefore report **per-invocation control-plane CPU time
 co-headline metric alongside the percentage throughout this paper — it is denominator-free and
 answers "how many CPU-ms does the control plane spend per request" directly. As a sensitivity
 check, normalizing every platform's function-side cost to a common flat 5 ms and recomputing the
-share from each platform's own measured CP-ms/invocation gives OpenFaaS 9.36%, Fn 12.42%,
-Knative 15.36%, OpenWhisk 83.79% (vs. the actual 7.29/11.16/11.82/81.88, publication-lock session
+share from each platform's own measured CP-ms/invocation gives OpenFaaS 9.35%, Fn 12.42%,
+Knative 15.35%, OpenWhisk 83.79% (vs. the actual 7.29/11.16/11.82/81.88, publication-lock session
 §5.6) — the absolute
 percentages shift by several points, but **the ordering OpenFaaS < Fn ≈ Knative << OpenWhisk is
 unchanged**, which is the strongest evidence available that the paper's central ordering claim is
@@ -550,9 +550,9 @@ a common flat 5 ms for every platform:
 
 | platform | CP ms/inv | measured fn ms/inv | actual share | share @ flat 5 ms fn |
 |---|---|---|---|---|
-| OpenFaaS | 0.52 | 6.56 | **7.29** | 9.36 |
+| OpenFaaS | 0.52 | 6.56 | **7.29** | 9.35 |
 | Fn | 0.71 | 5.65 | **11.16** | 12.42 |
-| Knative | 0.91 | 6.77 | **11.82** | 15.36 |
+| Knative | 0.91 | 6.77 | **11.82** | 15.35 |
 | OpenWhisk | 25.84 | 5.72 | **81.88** | 83.79 |
 
 The absolute percentages move by several points in both directions (OpenFaaS and Knative rise
