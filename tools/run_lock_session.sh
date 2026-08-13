@@ -148,6 +148,36 @@ PY
 }
 
 # ---------------------------------------------------------------------------
+# wait_knative_clean -- belt-and-suspenders drain wait after `teardown
+# --platform knative`. The adapter's own wait_containers() (platforms/
+# knative.py) only waits 120s and WARNS-BUT-CONTINUES on timeout; k3s
+# draining 16 replica pods under load has been observed to outlast that
+# budget and self-resolve, but the self-resolve time is NOT a fixed constant
+# -- ~60s past the WARNING in one observation (AGENTS.md 2026-08-09
+# "Follow-up" entry), >180s in another (2026-08-13, smoketest session: script
+# died at the 180s ceiling but a manual check moments later found the
+# cluster and docker both fully clean). Budget generously; a longer wait
+# here is cheap, a spurious hard-fail on a run that would have finished on
+# its own is not. Without this wait at all, the next platform's isolation
+# guard trips on leftover user-container/queue-proxy pods a few seconds
+# later.
+# ---------------------------------------------------------------------------
+wait_knative_clean() {
+    local timeout="${1:-360}" waited=0 left=""
+    while [ "$waited" -lt "$timeout" ]; do
+        left=$($SUDO docker ps --format '{{.Names}}' | grep -E 'user-container|queue-proxy|hello-0000' || true)
+        if [ -z "$left" ]; then
+            [ "$waited" -gt 0 ] && echo "  knative teardown fully drained after ${waited}s"
+            return 0
+        fi
+        sleep 5
+        waited=$((waited + 5))
+        echo "  waiting for knative teardown to drain (${waited}/${timeout}s)..."
+    done
+    die "knative teardown did not fully drain after ${timeout}s; leftover: $left -- clear manually (see TROUBLESHOOTING_RUNBOOK.md) before continuing"
+}
+
+# ---------------------------------------------------------------------------
 # rapl_series STATE LABEL  -- N repeated 60 s RAPL reads for the CURRENT stack
 # state; prints each read + median, and saves them under $CALIB_DIR. Reuses
 # saqef_harness.py's wraparound-guarded read (same guard as the harness itself).
@@ -155,12 +185,12 @@ PY
 # ---------------------------------------------------------------------------
 rapl_series() {
     local state="$1" label="$2"
-    echo "  -- [$label] $IDLE_REPS x 60 s RAPL reads (zero traffic)..."
+    echo "  -- [$label] $IDLE_REPS x 60 s RAPL reads (zero traffic)..." >&2
     local out="$CALIB_DIR/idle_w_$state.txt"
     local med
-    med=$(python3 - "$REPO" "$IDLE_REPS" "$out" "$label" <<'PY'
+    med=$(python3 - "$REPO" "$IDLE_REPS" "$out" "$label" "$state" <<'PY'
 import json, os, sys, time, statistics
-repo, n, out, label = sys.argv[1:]
+repo, n, out, label, state = sys.argv[1:]
 sys.path.insert(0, repo)
 import saqef_harness as h
 reads, i, attempts = [], 0, 0
@@ -202,6 +232,10 @@ PY
 run_leg() {
     local platform="$1" idle_w="$2"
     local out="$REPO/results/${platform}_cpubound_lock_$STAMP"
+    # mirrors resolve_outdir() in `saqef`: repeat < 5 writes to <out>_quick,
+    # never the bare path -- gates must look in the same place run wrote to.
+    local gate_out="$out"
+    [ "$REPEAT" -lt 5 ] && gate_out="${out}_quick"
     banner "$(echo $platform | tr a-z A-Z) leg (idle_w=$idle_w)"
     if [ "$DRY_RUN" = 1 ]; then
         echo "DRY-RUN: would run: deploy --platform $platform"
@@ -210,7 +244,7 @@ run_leg() {
         esac
         echo "DRY-RUN: verify --platform $platform"
         echo "DRY-RUN: run --platform $platform --total $TOTAL --concurrency $CONCURRENCY --repeat $REPEAT --idle-w $idle_w --out $out"
-        echo "DRY-RUN: gates --out $out ; teardown --platform $platform"
+        echo "DRY-RUN: gates --out $gate_out ; teardown --platform $platform"
         return 0
     fi
     if [ -e "$out" ]; then
@@ -229,9 +263,10 @@ run_leg() {
     $SAQEF run --platform "$platform" --total "$TOTAL" --concurrency "$CONCURRENCY" \
         --repeat "$REPEAT" --idle-w "$idle_w" --out "$out"
     echo ">>> gates"
-    $SAQEF gates --out "$out"
+    $SAQEF gates --out "$gate_out"
     echo ">>> teardown"
     $SAQEF teardown --platform "$platform"
+    [ "$platform" = "knative" ] && wait_knative_clean
     sleep 5
 }
 
@@ -266,6 +301,7 @@ calibrate_all() {
     sleep 10
     IDLE_KN=$(rapl_series knative "Knative serving + hello@16")
     $SAQEF teardown --platform knative
+    wait_knative_clean
     sleep 5
 
     echo ">>> state: OpenWhisk standalone up, zero traffic"
@@ -341,16 +377,19 @@ if [ "$DRY_RUN" = 1 ]; then
     exit 0
 fi
 banner "gate validation + lock summary"
-python3 - "$REPO" "$STAMP" "$PLATFORMS" "$IDLE_OF" "$IDLE_FN" "$IDLE_KN" "$IDLE_OW" <<'PY'
+python3 - "$REPO" "$STAMP" "$PLATFORMS" "$REPEAT" "$IDLE_OF" "$IDLE_FN" "$IDLE_KN" "$IDLE_OW" <<'PY'
 import glob, json, os, statistics, sys
-repo, stamp, platforms, w_of, w_fn, w_kn, w_ow = sys.argv[1:]
+repo, stamp, platforms, repeat, w_of, w_fn, w_kn, w_ow = sys.argv[1:]
 w = {"openfaas": w_of, "fn": w_fn, "knative": w_kn, "openwhisk": w_ow}
 order = {"openfaas": "OpenFaaS", "fn": "Fn", "knative": "Knative", "openwhisk": "OpenWhisk"}
+# short codes used by --platforms (of,fn,kn,ow), matching run_lock_session.sh's own case-statement matching
+short = {"openfaas": "of", "fn": "fn", "knative": "kn", "openwhisk": "ow"}
+quick_suffix = "_quick" if int(repeat) < 5 else ""
 summary, all_ok = {}, True
 print("%-10s %8s %6s %6s %7s %8s %7s %s" % (
     "platform", "share%", "CV%", "p50ms", "p99ms", "rps", "host_sat", "gates"))
-for plat in [p for p in ("openfaas", "fn", "knative", "openwhisk") if p in platforms.split(",")]:
-    out = os.path.join(repo, "results", "%s_cpubound_lock_%s" % (plat, stamp))
+for plat in [p for p in ("openfaas", "fn", "knative", "openwhisk") if short[p] in platforms.split(",")]:
+    out = os.path.join(repo, "results", "%s_cpubound_lock_%s%s" % (plat, stamp, quick_suffix))
     try:
         s = json.load(open(os.path.join(out, "summary.json")))
         runs = sorted(glob.glob(os.path.join(out, "run_*")))
@@ -372,11 +411,14 @@ for plat in [p for p in ("openfaas", "fn", "knative", "openwhisk") if p in platf
             problems.append("%s delta_check" % os.path.basename(p))
         if r.get("rapl_wrap") not in (None, "none"):
             problems.append("%s rapl_wrap=%s" % (os.path.basename(p), r.get("rapl_wrap")))
-        amb = r.get("ambient") or {}
-        if amb.get("load_pct") is not None and amb.get("load_pct") > amb.get("threshold_pct", 15):
-            problems.append("%s ambient %.1f%%" % (os.path.basename(p), amb["load_pct"]))
-        elif not amb:
-            problems.append("%s NO ambient field (quiet gate not in measurement path)" % os.path.basename(p))
+    # ambient/quiet-gate is measured once per leg, before the whole --repeat
+    # batch starts (saqef_harness.py main(), not run_once()), so it only ever
+    # lands on the leg-level merged summary.json -- never on run_N/summary.json.
+    amb = s.get("ambient") or {}
+    if amb.get("load_pct") is not None and amb.get("load_pct") > amb.get("threshold_pct", 15):
+        problems.append("leg ambient %.1f%%" % amb["load_pct"])
+    elif not amb:
+        problems.append("NO ambient field on leg summary.json (quiet gate not in measurement path)")
     shares = [r["cp_dynamic_share_pct"] for r in json.load(open(os.path.join(out, "runs.json")))]
     cv = (statistics.pstdev(shares) / statistics.mean(shares) * 100.0) if shares else float("nan")
     sat = s.get("host_saturation_pct")
@@ -393,7 +435,7 @@ for plat in [p for p in ("openfaas", "fn", "knative", "openwhisk") if p in platf
     summary[plat] = {"label": order[plat], "cp_dynamic_share_pct": share,
                      "outdir": os.path.relpath(out, repo), "idle_w_used": w.get(plat),
                      "cv_pct": round(cv, 2), "host_saturation_pct": sat,
-                     "ambient_present": all("ambient" in json.load(open(p + "/summary.json")) for p in runs),
+                     "ambient_present": "ambient" in s,
                      "gates_ok": (ok == "OK")}
 meta = {"stamp": stamp, "platforms": order, "idle_w_by_platform": w,
         "notes": ["single box state, back-to-back legs, quiet gate active (precondition only)",
