@@ -57,6 +57,75 @@ under an emulated agent profile) and regression re-anchor (11.49/7.61) and Knati
 `tools/run_lock_session.sh` with the OW `--duration` bug fixed (`7f7bad5`, INCOMPLETE-RUN +
 LOADGEN-FALLBACK gate checks added). 55/55 tests pass.
 
+## Two adversarial cold reviews (2026-08-14 evening) — disposition + handoff for tomorrow
+
+Two consecutive cold reviews of the paper were pasted in by the user and triaged claim-by-claim
+against code/data/paper. **A third fresh reviewer is scheduled for tomorrow (2026-08-15) — this
+block is the handoff so that session starts with our position already verified.**
+
+**Review 1 (10 issues) — mostly misreads.** Our verified position: (a) classification is NOT
+name-only — `_class_matches()` matches container name OR image (`--fn-images`/`--cp-images`, exact
+repo-basename) OR labels; adapters require `fn_images` non-empty. (b) RAPL wraparound already
+closed in cold pass #6 (docstring limit + 2 tests; 262 kJ counter range here makes multi-wrap
+physically unreachable). (c) `host_saturation_pct`/`host_saturated` are measured during every run
+(`saqef_harness.py` ~1143/1287), stored in summary.json — not a reviewer-visible-only gate.
+(d) `saqef verify` is the pre-flight smoke test (100/100); citable QoS comes from the bench run's
+`slo_compliance` + `host_saturated=false`. (e) Knative replicas empirically 16 user-container + 16
+queue-proxy in every lock2 run (verified from `samples.csv`). (f) lock3 ran ONLY OpenWhisk
+(idle_w 3.96 W); the review's "4.3 W (lock3)" comparison conflated old constants. (g) the
+reviewer's verification table compared stale pre-lock prose numbers (7.4/11.6/12.4/82.4) against
+lock data (7.29/11.16/11.82/81.88) and called mismatches "deltas". (h) RAPL error IS reported in
+the paper (4 occurrences of `rapl_validation_err`; abstract median 18.7/8.2 Fn/OF; §5.5 full
+5-run ranges + caveat). Genuinely legit small items from review 1: `fn_replicas` is `None` in
+lock2 runs.json (AGENTS.md's "gate display shows 32" no longer matches harness behavior — replica
+evidence lives in samples.csv only); unclassified 0.5 s threshold could tighten to 0.1 s (KN
+unclassified was ~0.15 s; impact ~0.06 pp, not the reviewer's 0.5–1 pp); RAPL periodic sampling =
+legit future work.
+
+**Review 2 (12 issues) — verification result + the six REAL fixes now applied (UNCOMMITTED).**
+Verified: the Status line overclaimed (fixed); the abstract's "18.7% Fn / 8.2% OpenFaaS" is
+CORRECT (8.2% IS the OpenFaaS median; reviewer misread); OW standalone-only + not-citable are
+already disclosed in §5.6 + abstract ("we make no claim about OpenWhisk's distributed/production
+deployment mode"); lock-session idle-w was N≥3 (default) or N=5 per state with raw reads
+committed (`results/idle_w_calibration/lock_lock2/*.txt`, 13 lines each), NOT single-sample
+(reviewer's claim false for citable numbers). **The six fixes applied to `SAQEF_PAPER_DRAFT.md`
+(see `git diff`, NOT yet committed — wait for user):** (1) Status line now: CPU-time shares
+RAPL-validated for Fn/OpenFaaS/Knative; OW energy "model-estimated only, not RAPL-validated".
+(2) §5.5 cross-core "independent sessions" → "repeated sessions on the same instrument"
+(abstract, Contribution 3, figure1 caption, table row, prose). (3) §5.5 adds the a-priori 5 pp
+gate justification (fixed before data; several CVs above N=5 spread). (4) §4.5 "Scope of the
+carbon numbers" note — operational-only, embodied DRAM for context only (the old single line was
+dangling). (5) §5.5 mechanism rewritten as a *testable* hypothesis (fnserver scheduler starvation
+vs co-located of-watchdog; `perf stat -e context-switches,migrations` probe = future work, not a
+claim). (6) §5.6 now states plainly WHY OW was rerun on 2026-08-14 (loadgen-timeout bug, only
+1993/10000 completed, runbook items 12–18) and that the cross-day stitch is reported, not
+concealed.
+
+**ETHICS BOUNDARY — DO NOT CROSS (user asked 2026-08-14, declined):** the user proposed
+"aggregating" lock2 (2026-08-13) + lock3 (2026-08-14, OW-only) into a single file and presenting
+them as if they ran the same day, so a reviewer "wouldn't know" they're different days. **Refused**
+— that is fabricating the experimental condition, and it is the one attack a hostile reviewer CAN
+land via file mtimes / git history / the committed idle-w raw reads. The paper already has the
+honest equivalent: lock2+lock3 treated as ONE matched quiet-gated session set with OW's leg
+explicitly sourced to lock3 (§5.6 + figure2 caption + Appendix A; OW share is idle-w-invariant and
+count-complete). If a true single-session claim is needed, the legitimate route is **lock4**: all
+four platforms back-to-back in one day (~90 min, driver exists). The new §5.6 "Why OpenWhisk was
+rerun" sentence (fix 6 above) is the honest version of exactly what the user wanted.
+
+**OW energy "not RAPL-validated" — user pushed back (2026-08-14 evening), position to hold:**
+RAPL readings EXIST for OW; that's precisely the problem — `rapl_validation_err_pct` 33–53%
+(median 48%) is model-vs-RAPL error, i.e. the linear `J = idle_w×wall + 3.5 W×busy_core_s` model
+disagrees with RAPL by ~half. The standalone JVM burns on memory-touch + per-activation `docker
+logs` orchestration that scales with neither cores nor concurrency. Not a recalibration gap (idle-w
+is already fresh per session); closing it needs (a) a JVM-aware energy model (per-container RAPL or
+nonlinear fit) or (b) the deployment-mode resolution (§5.6/§10 open item — how much of the 26 ms/inv
+is log-store artifact vs real CP). Wording stays until one of those lands.
+
+**Tomorrow's session should:** (1) start from this block; (2) commit or revert the six uncommitted
+paper fixes per user direction; (3) run review 3 as a GENUINELY fresh reviewer (no context from
+this session — per reviewer-#5's discipline, a reviewer who knows the codebase pattern-matches and
+defeats the purpose); (4) hand the reviewer the honest lock2/lock3 framing, NOT the concealment.
+
 ## Expert review #5 (2026-08-09) — disposition
 
 External expert (reviewer #5) ran the audit in `EXPERT_REVIEW_PROMPT.md`. Verdict: **not yet
