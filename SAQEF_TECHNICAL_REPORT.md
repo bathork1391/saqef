@@ -5,6 +5,12 @@
 **Repo:** `github.com/bathork1391/saqef` (Codespaces-backed)
 **Date range:** 2026-08-03 (Day 1 of the 20-day sprint)
 
+> **Status (2026-08-14): this file is a chronological session log — the CURRENT authoritative
+> state, the citable four-platform publication-lock session (2026-08-13/14: OF 7.29 / Fn 11.16 /
+> Kn 11.82 / OW 81.88) and what remains before submission live in `AGENTS.md` (read it first),
+> `SAQEF_PAPER_DRAFT.md`, and `results/*_cpubound_lock_lock{2,3}`. Sections below are historical
+> and may be superseded by those sources.
+
 ---
 
 ## 1. Executive summary (candid)
