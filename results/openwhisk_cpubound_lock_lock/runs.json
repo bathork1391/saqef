@@ -1,0 +1,2989 @@
+[
+  {
+    "platform": "openwhisk",
+    "url": "http://127.0.0.1:3233/api/v1/web/guest/default/hello",
+    "mode": "load",
+    "wall_s": 240.21,
+    "wall_harness_s": 240.21,
+    "sampling_covered_s": 240.21,
+    "requests": 2358,
+    "successes": 2358,
+    "availability": 1.0,
+    "throughput_rps": 9.82,
+    "latency_ms": {
+      "p50": 98.26,
+      "p90": 116.89,
+      "p99": 153.15,
+      "max": 204.4
+    },
+    "slo_ms": 500.0,
+    "slo_compliance": 1.0,
+    "compliance_source": "measured",
+    "energy_J": {
+      "total": 2764.9,
+      "dynamic": 1604.2,
+      "control_plane": 1359.4,
+      "function": 244.7
+    },
+    "cp_share_pct": 49.17,
+    "cp_dynamic_share_pct": 84.74,
+    "cpu_sec": {
+      "control_plane": 388.41,
+      "function": 69.92
+    },
+    "cpu_sec_ceiling": 1921.7,
+    "physical_plausible": true,
+    "unclassified_cpu_s": 3.32,
+    "container_inventory": [
+      "k8s_POD_3scale-kourier-gateway-d95dfffb6-z2zzz_kourier-system_69daf3cc-53df-449a-ba4e-12ca3f124bf1_3",
+      "k8s_POD_activator-67cbcccdfb-t6cg7_knative-serving_af70f812-f578-45d9-aafe-c711ea35ebd4_3",
+      "k8s_POD_autoscaler-847d45f498-rkvpp_knative-serving_ec82673b-6dc8-472a-9e8a-04e02f65f117_3",
+      "k8s_POD_controller-c9767f9c-h8zvb_knative-serving_9a5a04d4-1393-48b2-b655-088fcff5b337_3",
+      "k8s_POD_coredns-54996dc9b4-94zpj_kube-system_86f4a07b-00d4-46a7-a1a6-6f878fb26856_6",
+      "k8s_POD_local-path-provisioner-58d557dc48-p9j96_kube-system_7fd6cb3b-fa1b-4cf6-91b8-2dc48f5ebd0f_5",
+      "k8s_POD_metrics-server-6dc596dfb8-46tvx_kube-system_b8abf359-78cf-46b7-afb3-a3cf654e93c0_7",
+      "k8s_POD_net-kourier-controller-769cd4d84c-mpvj4_knative-serving_a859182b-3989-44e1-8ad7-068a1efe2192_3",
+      "k8s_POD_svclb-kourier-32c17a7b-g99k6_kube-system_12a61aac-14f5-4323-985c-bfa66cd375ba_3",
+      "k8s_POD_webhook-7d56465b69-khwt8_knative-serving_a7b84bd9-4373-4bbe-843a-0e2fb9c788d8_4",
+      "k8s_activator_activator-67cbcccdfb-t6cg7_knative-serving_af70f812-f578-45d9-aafe-c711ea35ebd4_3",
+      "k8s_autoscaler_autoscaler-847d45f498-rkvpp_knative-serving_ec82673b-6dc8-472a-9e8a-04e02f65f117_3",
+      "k8s_controller_controller-c9767f9c-h8zvb_knative-serving_9a5a04d4-1393-48b2-b655-088fcff5b337_5",
+      "k8s_controller_net-kourier-controller-769cd4d84c-mpvj4_knative-serving_a859182b-3989-44e1-8ad7-068a1efe2192_5",
+      "k8s_coredns_coredns-54996dc9b4-94zpj_kube-system_86f4a07b-00d4-46a7-a1a6-6f878fb26856_3",
+      "k8s_kourier-gateway_3scale-kourier-gateway-d95dfffb6-z2zzz_kourier-system_69daf3cc-53df-449a-ba4e-12ca3f124bf1_3",
+      "k8s_lb-tcp-443_svclb-kourier-32c17a7b-g99k6_kube-system_12a61aac-14f5-4323-985c-bfa66cd375ba_3",
+      "k8s_lb-tcp-80_svclb-kourier-32c17a7b-g99k6_kube-system_12a61aac-14f5-4323-985c-bfa66cd375ba_3",
+      "k8s_local-path-provisioner_local-path-provisioner-58d557dc48-p9j96_kube-system_7fd6cb3b-fa1b-4cf6-91b8-2dc48f5ebd0f_3",
+      "k8s_metrics-server_metrics-server-6dc596dfb8-46tvx_kube-system_b8abf359-78cf-46b7-afb3-a3cf654e93c0_3",
+      "k8s_webhook_webhook-7d56465b69-khwt8_knative-serving_a7b84bd9-4373-4bbe-843a-0e2fb9c788d8_3",
+      "openwhisk",
+      "wsk0_1_prewarm_nodejs20",
+      "wsk0_2_prewarm_nodejs20",
+      "wsk0_3_guest_hello",
+      "wsk0_4_guest_hello"
+    ],
+    "container_labels": {
+      "k8s_POD_3scale-kourier-gateway-d95dfffb6-z2zzz_kourier-system_69daf3cc-53df-449a-ba4e-12ca3f124bf1_3": {
+        "image": "rancher/mirrored-pause:3.10.2",
+        "labels": [
+          "annotation.kubernetes.io/config.seen=2026-08-13T14:35:47.041069792+05:00",
+          "annotation.kubernetes.io/config.source=api",
+          "annotation.networking.knative.dev/poke=v0.26",
+          "annotation.prometheus.io/path=/stats/prometheus",
+          "annotation.prometheus.io/port=9000",
+          "annotation.prometheus.io/scrape=true",
+          "app=3scale-kourier-gateway",
+          "io.kubernetes.container.name=POD",
+          "io.kubernetes.docker.type=podsandbox",
+          "io.kubernetes.pod.name=3scale-kourier-gateway-d95dfffb6-z2zzz",
+          "io.kubernetes.pod.namespace=kourier-system",
+          "io.kubernetes.pod.uid=69daf3cc-53df-449a-ba4e-12ca3f124bf1",
+          "pod-template-hash=d95dfffb6"
+        ]
+      },
+      "k8s_POD_activator-67cbcccdfb-t6cg7_knative-serving_af70f812-f578-45d9-aafe-c711ea35ebd4_3": {
+        "image": "rancher/mirrored-pause:3.10.2",
+        "labels": [
+          "annotation.kubernetes.io/config.seen=2026-08-13T14:35:33.331904160+05:00",
+          "annotation.kubernetes.io/config.source=api",
+          "app.kubernetes.io/component=activator",
+          "app.kubernetes.io/name=knative-serving",
+          "app.kubernetes.io/version=1.23.0",
+          "app=activator",
+          "io.kubernetes.container.name=POD",
+          "io.kubernetes.docker.type=podsandbox",
+          "io.kubernetes.pod.name=activator-67cbcccdfb-t6cg7",
+          "io.kubernetes.pod.namespace=knative-serving",
+          "io.kubernetes.pod.uid=af70f812-f578-45d9-aafe-c711ea35ebd4",
+          "pod-template-hash=67cbcccdfb",
+          "role=activator"
+        ]
+      },
+      "k8s_POD_autoscaler-847d45f498-rkvpp_knative-serving_ec82673b-6dc8-472a-9e8a-04e02f65f117_3": {
+        "image": "rancher/mirrored-pause:3.10.2",
+        "labels": [
+          "annotation.kubernetes.io/config.seen=2026-08-13T14:35:33.331890481+05:00",
+          "annotation.kubernetes.io/config.source=api",
+          "app.kubernetes.io/component=autoscaler",
+          "app.kubernetes.io/name=knative-serving",
+          "app.kubernetes.io/version=1.23.0",
+          "app=autoscaler",
+          "io.kubernetes.container.name=POD",
+          "io.kubernetes.docker.type=podsandbox",
+          "io.kubernetes.pod.name=autoscaler-847d45f498-rkvpp",
+          "io.kubernetes.pod.namespace=knative-serving",
+          "io.kubernetes.pod.uid=ec82673b-6dc8-472a-9e8a-04e02f65f117",
+          "pod-template-hash=847d45f498"
+        ]
+      },
+      "k8s_POD_controller-c9767f9c-h8zvb_knative-serving_9a5a04d4-1393-48b2-b655-088fcff5b337_3": {
+        "image": "rancher/mirrored-pause:3.10.2",
+        "labels": [
+          "annotation.kubernetes.io/config.seen=2026-08-13T14:35:33.331896145+05:00",
+          "annotation.kubernetes.io/config.source=api",
+          "app.kubernetes.io/component=controller",
+          "app.kubernetes.io/name=knative-serving",
+          "app.kubernetes.io/version=1.23.0",
+          "app=controller",
+          "io.kubernetes.container.name=POD",
+          "io.kubernetes.docker.type=podsandbox",
+          "io.kubernetes.pod.name=controller-c9767f9c-h8zvb",
+          "io.kubernetes.pod.namespace=knative-serving",
+          "io.kubernetes.pod.uid=9a5a04d4-1393-48b2-b655-088fcff5b337",
+          "pod-template-hash=c9767f9c"
+        ]
+      },
+      "k8s_POD_coredns-54996dc9b4-94zpj_kube-system_86f4a07b-00d4-46a7-a1a6-6f878fb26856_6": {
+        "image": "rancher/mirrored-pause:3.10.2",
+        "labels": [
+          "annotation.kubernetes.io/config.seen=2026-08-13T14:35:33.331900877+05:00",
+          "annotation.kubernetes.io/config.source=api",
+          "io.kubernetes.container.name=POD",
+          "io.kubernetes.docker.type=podsandbox",
+          "io.kubernetes.pod.name=coredns-54996dc9b4-94zpj",
+          "io.kubernetes.pod.namespace=kube-system",
+          "io.kubernetes.pod.uid=86f4a07b-00d4-46a7-a1a6-6f878fb26856",
+          "k8s-app=kube-dns",
+          "pod-template-hash=54996dc9b4"
+        ]
+      },
+      "k8s_POD_local-path-provisioner-58d557dc48-p9j96_kube-system_7fd6cb3b-fa1b-4cf6-91b8-2dc48f5ebd0f_5": {
+        "image": "rancher/mirrored-pause:3.10.2",
+        "labels": [
+          "annotation.kubernetes.io/config.seen=2026-08-13T14:35:47.041037422+05:00",
+          "annotation.kubernetes.io/config.source=api",
+          "app=local-path-provisioner",
+          "io.kubernetes.container.name=POD",
+          "io.kubernetes.docker.type=podsandbox",
+          "io.kubernetes.pod.name=local-path-provisioner-58d557dc48-p9j96",
+          "io.kubernetes.pod.namespace=kube-system",
+          "io.kubernetes.pod.uid=7fd6cb3b-fa1b-4cf6-91b8-2dc48f5ebd0f",
+          "pod-template-hash=58d557dc48"
+        ]
+      },
+      "k8s_POD_metrics-server-6dc596dfb8-46tvx_kube-system_b8abf359-78cf-46b7-afb3-a3cf654e93c0_7": {
+        "image": "rancher/mirrored-pause:3.10.2",
+        "labels": [
+          "annotation.kubernetes.io/config.seen=2026-08-13T14:35:47.041053960+05:00",
+          "annotation.kubernetes.io/config.source=api",
+          "io.kubernetes.container.name=POD",
+          "io.kubernetes.docker.type=podsandbox",
+          "io.kubernetes.pod.name=metrics-server-6dc596dfb8-46tvx",
+          "io.kubernetes.pod.namespace=kube-system",
+          "io.kubernetes.pod.uid=b8abf359-78cf-46b7-afb3-a3cf654e93c0",
+          "k8s-app=metrics-server",
+          "pod-template-hash=6dc596dfb8"
+        ]
+      },
+      "k8s_POD_net-kourier-controller-769cd4d84c-mpvj4_knative-serving_a859182b-3989-44e1-8ad7-068a1efe2192_3": {
+        "image": "rancher/mirrored-pause:3.10.2",
+        "labels": [
+          "annotation.kubernetes.io/config.seen=2026-08-13T14:35:33.331860970+05:00",
+          "annotation.kubernetes.io/config.source=api",
+          "annotation.prometheus.io/path=/metrics",
+          "annotation.prometheus.io/port=9090",
+          "annotation.prometheus.io/scrape=true",
+          "app=net-kourier-controller",
+          "io.kubernetes.container.name=POD",
+          "io.kubernetes.docker.type=podsandbox",
+          "io.kubernetes.pod.name=net-kourier-controller-769cd4d84c-mpvj4",
+          "io.kubernetes.pod.namespace=knative-serving",
+          "io.kubernetes.pod.uid=a859182b-3989-44e1-8ad7-068a1efe2192",
+          "pod-template-hash=769cd4d84c"
+        ]
+      },
+      "k8s_POD_svclb-kourier-32c17a7b-g99k6_kube-system_12a61aac-14f5-4323-985c-bfa66cd375ba_3": {
+        "image": "rancher/mirrored-pause:3.10.2",
+        "labels": [
+          "annotation.kubernetes.io/config.seen=2026-08-13T14:35:47.041061609+05:00",
+          "annotation.kubernetes.io/config.source=api",
+          "app=svclb-kourier-32c17a7b",
+          "controller-revision-hash=84c484b947",
+          "io.kubernetes.container.name=POD",
+          "io.kubernetes.docker.type=podsandbox",
+          "io.kubernetes.pod.name=svclb-kourier-32c17a7b-g99k6",
+          "io.kubernetes.pod.namespace=kube-system",
+          "io.kubernetes.pod.uid=12a61aac-14f5-4323-985c-bfa66cd375ba",
+          "pod-template-generation=1",
+          "svccontroller.k3s.cattle.io/svcname=kourier",
+          "svccontroller.k3s.cattle.io/svcnamespace=kourier-system"
+        ]
+      },
+      "k8s_POD_webhook-7d56465b69-khwt8_knative-serving_a7b84bd9-4373-4bbe-843a-0e2fb9c788d8_4": {
+        "image": "rancher/mirrored-pause:3.10.2",
+        "labels": [
+          "annotation.kubernetes.io/config.seen=2026-08-13T14:35:47.041034364+05:00",
+          "annotation.kubernetes.io/config.source=api",
+          "app.kubernetes.io/component=webhook",
+          "app.kubernetes.io/name=knative-serving",
+          "app.kubernetes.io/version=1.23.0",
+          "app=webhook",
+          "io.kubernetes.container.name=POD",
+          "io.kubernetes.docker.type=podsandbox",
+          "io.kubernetes.pod.name=webhook-7d56465b69-khwt8",
+          "io.kubernetes.pod.namespace=knative-serving",
+          "io.kubernetes.pod.uid=a7b84bd9-4373-4bbe-843a-0e2fb9c788d8",
+          "pod-template-hash=7d56465b69",
+          "role=webhook"
+        ]
+      },
+      "k8s_activator_activator-67cbcccdfb-t6cg7_knative-serving_af70f812-f578-45d9-aafe-c711ea35ebd4_3": {
+        "image": "e5ab46f3b73f",
+        "labels": [
+          "annotation.io.kubernetes.container.hash=37c0c95d",
+          "annotation.io.kubernetes.container.ports=[{\"name\":\"metrics\"",
+          "\"containerPort\":9090",
+          "\"protocol\":\"TCP\"}",
+          "{\"name\":\"profiling\"",
+          "\"containerPort\":8008",
+          "\"protocol\":\"TCP\"}",
+          "{\"name\":\"http1\"",
+          "\"containerPort\":8012",
+          "\"protocol\":\"TCP\"}",
+          "{\"name\":\"h2c\"",
+          "\"containerPort\":8013",
+          "\"protocol\":\"TCP\"}]",
+          "annotation.io.kubernetes.container.restartCount=3",
+          "annotation.io.kubernetes.container.terminationMessagePath=/dev/termination-log",
+          "annotation.io.kubernetes.container.terminationMessagePolicy=File",
+          "annotation.io.kubernetes.pod.terminationGracePeriod=600",
+          "io.kubernetes.container.logpath=/var/log/pods/knative-serving_activator-67cbcccdfb-t6cg7_af70f812-f578-45d9-aafe-c711ea35ebd4/activator/3.log",
+          "io.kubernetes.container.name=activator",
+          "io.kubernetes.docker.type=container",
+          "io.kubernetes.pod.name=activator-67cbcccdfb-t6cg7",
+          "io.kubernetes.pod.namespace=knative-serving",
+          "io.kubernetes.pod.uid=af70f812-f578-45d9-aafe-c711ea35ebd4",
+          "io.kubernetes.sandbox.id=9cc68a1b0c619354924941286c55d0a6f39934cbcb097e5499c9a40949d88758",
+          "org.opencontainers.image.created=2026-07-13T21:26:57Z"
+        ]
+      },
+      "k8s_autoscaler_autoscaler-847d45f498-rkvpp_knative-serving_ec82673b-6dc8-472a-9e8a-04e02f65f117_3": {
+        "image": "879da127b23d",
+        "labels": [
+          "annotation.io.kubernetes.container.hash=4597bac7",
+          "annotation.io.kubernetes.container.ports=[{\"name\":\"metrics\"",
+          "\"containerPort\":9090",
+          "\"protocol\":\"TCP\"}",
+          "{\"name\":\"profiling\"",
+          "\"containerPort\":8008",
+          "\"protocol\":\"TCP\"}",
+          "{\"name\":\"websocket\"",
+          "\"containerPort\":8080",
+          "\"protocol\":\"TCP\"}]",
+          "annotation.io.kubernetes.container.restartCount=3",
+          "annotation.io.kubernetes.container.terminationMessagePath=/dev/termination-log",
+          "annotation.io.kubernetes.container.terminationMessagePolicy=File",
+          "annotation.io.kubernetes.pod.terminationGracePeriod=30",
+          "io.kubernetes.container.logpath=/var/log/pods/knative-serving_autoscaler-847d45f498-rkvpp_ec82673b-6dc8-472a-9e8a-04e02f65f117/autoscaler/3.log",
+          "io.kubernetes.container.name=autoscaler",
+          "io.kubernetes.docker.type=container",
+          "io.kubernetes.pod.name=autoscaler-847d45f498-rkvpp",
+          "io.kubernetes.pod.namespace=knative-serving",
+          "io.kubernetes.pod.uid=ec82673b-6dc8-472a-9e8a-04e02f65f117",
+          "io.kubernetes.sandbox.id=7917cd04b90801d0040b2044d5d71440242f709fa978e1889b129ac773def064",
+          "org.opencontainers.image.created=2026-07-13T21:26:57Z"
+        ]
+      },
+      "k8s_controller_controller-c9767f9c-h8zvb_knative-serving_9a5a04d4-1393-48b2-b655-088fcff5b337_5": {
+        "image": "ca5062ece032",
+        "labels": [
+          "annotation.io.kubernetes.container.hash=dc4bd0df",
+          "annotation.io.kubernetes.container.ports=[{\"name\":\"metrics\"",
+          "\"containerPort\":9090",
+          "\"protocol\":\"TCP\"}",
+          "{\"name\":\"profiling\"",
+          "\"containerPort\":8008",
+          "\"protocol\":\"TCP\"}",
+          "{\"name\":\"probes\"",
+          "\"containerPort\":8080",
+          "\"protocol\":\"TCP\"}]",
+          "annotation.io.kubernetes.container.restartCount=5",
+          "annotation.io.kubernetes.container.terminationMessagePath=/dev/termination-log",
+          "annotation.io.kubernetes.container.terminationMessagePolicy=File",
+          "annotation.io.kubernetes.pod.terminationGracePeriod=30",
+          "io.kubernetes.container.logpath=/var/log/pods/knative-serving_controller-c9767f9c-h8zvb_9a5a04d4-1393-48b2-b655-088fcff5b337/controller/5.log",
+          "io.kubernetes.container.name=controller",
+          "io.kubernetes.docker.type=container",
+          "io.kubernetes.pod.name=controller-c9767f9c-h8zvb",
+          "io.kubernetes.pod.namespace=knative-serving",
+          "io.kubernetes.pod.uid=9a5a04d4-1393-48b2-b655-088fcff5b337",
+          "io.kubernetes.sandbox.id=885f140c670ee0003af02207774fcaa1b8ea962dac973d7ed4633ab65261476a",
+          "org.opencontainers.image.created=2026-07-13T21:26:57Z"
+        ]
+      },
+      "k8s_controller_net-kourier-controller-769cd4d84c-mpvj4_knative-serving_a859182b-3989-44e1-8ad7-068a1efe2192_5": {
+        "image": "eedfe3938f1e",
+        "labels": [
+          "annotation.io.kubernetes.container.hash=128736a5",
+          "annotation.io.kubernetes.container.ports=[{\"name\":\"http2-xds\"",
+          "\"containerPort\":18000",
+          "\"protocol\":\"TCP\"}",
+          "{\"name\":\"metrics\"",
+          "\"containerPort\":9090",
+          "\"protocol\":\"TCP\"}]",
+          "annotation.io.kubernetes.container.restartCount=5",
+          "annotation.io.kubernetes.container.terminationMessagePath=/dev/termination-log",
+          "annotation.io.kubernetes.container.terminationMessagePolicy=File",
+          "annotation.io.kubernetes.pod.terminationGracePeriod=30",
+          "io.kubernetes.container.logpath=/var/log/pods/knative-serving_net-kourier-controller-769cd4d84c-mpvj4_a859182b-3989-44e1-8ad7-068a1efe2192/controller/5.log",
+          "io.kubernetes.container.name=controller",
+          "io.kubernetes.docker.type=container",
+          "io.kubernetes.pod.name=net-kourier-controller-769cd4d84c-mpvj4",
+          "io.kubernetes.pod.namespace=knative-serving",
+          "io.kubernetes.pod.uid=a859182b-3989-44e1-8ad7-068a1efe2192",
+          "io.kubernetes.sandbox.id=61d8e23a4a6acede7bb8bdb2d4f5eb86ac4096c33e983ebe52de024daa73fda2",
+          "org.opencontainers.image.created=2026-07-13T21:26:57Z"
+        ]
+      },
+      "k8s_coredns_coredns-54996dc9b4-94zpj_kube-system_86f4a07b-00d4-46a7-a1a6-6f878fb26856_3": {
+        "image": "900f9c109f7a",
+        "labels": [
+          "annotation.io.kubernetes.container.hash=1735ce2a",
+          "annotation.io.kubernetes.container.ports=[{\"name\":\"dns\"",
+          "\"containerPort\":53",
+          "\"protocol\":\"UDP\"}",
+          "{\"name\":\"dns-tcp\"",
+          "\"containerPort\":53",
+          "\"protocol\":\"TCP\"}",
+          "{\"name\":\"metrics\"",
+          "\"containerPort\":9153",
+          "\"protocol\":\"TCP\"}]",
+          "annotation.io.kubernetes.container.restartCount=3",
+          "annotation.io.kubernetes.container.terminationMessagePath=/dev/termination-log",
+          "annotation.io.kubernetes.container.terminationMessagePolicy=File",
+          "annotation.io.kubernetes.pod.terminationGracePeriod=30",
+          "io.kubernetes.container.logpath=/var/log/pods/kube-system_coredns-54996dc9b4-94zpj_86f4a07b-00d4-46a7-a1a6-6f878fb26856/coredns/3.log",
+          "io.kubernetes.container.name=coredns",
+          "io.kubernetes.docker.type=container",
+          "io.kubernetes.pod.name=coredns-54996dc9b4-94zpj",
+          "io.kubernetes.pod.namespace=kube-system",
+          "io.kubernetes.pod.uid=86f4a07b-00d4-46a7-a1a6-6f878fb26856",
+          "io.kubernetes.sandbox.id=dc618bf779c15e2d199962a1a0fdc04f7e92e82af260a74a124feaaf762027f6"
+        ]
+      },
+      "k8s_kourier-gateway_3scale-kourier-gateway-d95dfffb6-z2zzz_kourier-system_69daf3cc-53df-449a-ba4e-12ca3f124bf1_3": {
+        "image": "1c2b79776c6e",
+        "labels": [
+          "annotation.io.kubernetes.container.hash=241835de",
+          "annotation.io.kubernetes.container.ports=[{\"name\":\"http2-external\"",
+          "\"containerPort\":8080",
+          "\"protocol\":\"TCP\"}",
+          "{\"name\":\"http2-internal\"",
+          "\"containerPort\":8081",
+          "\"protocol\":\"TCP\"}",
+          "{\"name\":\"https-external\"",
+          "\"containerPort\":8443",
+          "\"protocol\":\"TCP\"}",
+          "{\"name\":\"http-probe\"",
+          "\"containerPort\":8090",
+          "\"protocol\":\"TCP\"}",
+          "{\"name\":\"https-probe\"",
+          "\"containerPort\":9443",
+          "\"protocol\":\"TCP\"}",
+          "{\"name\":\"metrics\"",
+          "\"containerPort\":9000",
+          "\"protocol\":\"TCP\"}]",
+          "annotation.io.kubernetes.container.preStopHandler={\"exec\":{\"command\":[\"/bin/sh\"",
+          "\"-c\"",
+          "\"curl -X POST http://localhost:9901/drain_listeners?graceful; sleep $DRAIN_TIME_SECONDS\"]}}",
+          "annotation.io.kubernetes.container.restartCount=3",
+          "annotation.io.kubernetes.container.terminationMessagePath=/dev/termination-log",
+          "annotation.io.kubernetes.container.terminationMessagePolicy=File",
+          "annotation.io.kubernetes.pod.terminationGracePeriod=30",
+          "io.kubernetes.container.logpath=/var/log/pods/kourier-system_3scale-kourier-gateway-d95dfffb6-z2zzz_69daf3cc-53df-449a-ba4e-12ca3f124bf1/kourier-gateway/3.log",
+          "io.kubernetes.container.name=kourier-gateway",
+          "io.kubernetes.docker.type=container",
+          "io.kubernetes.pod.name=3scale-kourier-gateway-d95dfffb6-z2zzz",
+          "io.kubernetes.pod.namespace=kourier-system",
+          "io.kubernetes.pod.uid=69daf3cc-53df-449a-ba4e-12ca3f124bf1",
+          "io.kubernetes.sandbox.id=de7ff32127342c9f0bf0cf757eb639c4fcade4b5fc43f808737a00c2b3756aec",
+          "org.opencontainers.image.version=22.04"
+        ]
+      },
+      "k8s_lb-tcp-443_svclb-kourier-32c17a7b-g99k6_kube-system_12a61aac-14f5-4323-985c-bfa66cd375ba_3": {
+        "image": "910944bb0bd9",
+        "labels": [
+          "annotation.io.kubernetes.container.hash=93cfbcd9",
+          "annotation.io.kubernetes.container.ports=[{\"name\":\"lb-tcp-443\"",
+          "\"hostPort\":443",
+          "\"containerPort\":443",
+          "\"protocol\":\"TCP\"}]",
+          "annotation.io.kubernetes.container.restartCount=3",
+          "annotation.io.kubernetes.container.terminationMessagePath=/dev/termination-log",
+          "annotation.io.kubernetes.container.terminationMessagePolicy=File",
+          "annotation.io.kubernetes.pod.terminationGracePeriod=30",
+          "buildDate=",
+          "io.kubernetes.container.logpath=/var/log/pods/kube-system_svclb-kourier-32c17a7b-g99k6_12a61aac-14f5-4323-985c-bfa66cd375ba/lb-tcp-443/3.log",
+          "io.kubernetes.container.name=lb-tcp-443",
+          "io.kubernetes.docker.type=container",
+          "io.kubernetes.pod.name=svclb-kourier-32c17a7b-g99k6",
+          "io.kubernetes.pod.namespace=kube-system",
+          "io.kubernetes.pod.uid=12a61aac-14f5-4323-985c-bfa66cd375ba",
+          "io.kubernetes.sandbox.id=c46a4762b564c9afb91beabb610e293a61a7ac34564312babc43bb651865cdf2"
+        ]
+      },
+      "k8s_lb-tcp-80_svclb-kourier-32c17a7b-g99k6_kube-system_12a61aac-14f5-4323-985c-bfa66cd375ba_3": {
+        "image": "910944bb0bd9",
+        "labels": [
+          "annotation.io.kubernetes.container.hash=5e234596",
+          "annotation.io.kubernetes.container.ports=[{\"name\":\"lb-tcp-80\"",
+          "\"hostPort\":80",
+          "\"containerPort\":80",
+          "\"protocol\":\"TCP\"}]",
+          "annotation.io.kubernetes.container.restartCount=3",
+          "annotation.io.kubernetes.container.terminationMessagePath=/dev/termination-log",
+          "annotation.io.kubernetes.container.terminationMessagePolicy=File",
+          "annotation.io.kubernetes.pod.terminationGracePeriod=30",
+          "buildDate=",
+          "io.kubernetes.container.logpath=/var/log/pods/kube-system_svclb-kourier-32c17a7b-g99k6_12a61aac-14f5-4323-985c-bfa66cd375ba/lb-tcp-80/3.log",
+          "io.kubernetes.container.name=lb-tcp-80",
+          "io.kubernetes.docker.type=container",
+          "io.kubernetes.pod.name=svclb-kourier-32c17a7b-g99k6",
+          "io.kubernetes.pod.namespace=kube-system",
+          "io.kubernetes.pod.uid=12a61aac-14f5-4323-985c-bfa66cd375ba",
+          "io.kubernetes.sandbox.id=c46a4762b564c9afb91beabb610e293a61a7ac34564312babc43bb651865cdf2"
+        ]
+      },
+      "k8s_local-path-provisioner_local-path-provisioner-58d557dc48-p9j96_kube-system_7fd6cb3b-fa1b-4cf6-91b8-2dc48f5ebd0f_3": {
+        "image": "1eba82e9c386",
+        "labels": [
+          "annotation.io.kubernetes.container.hash=6649ab14",
+          "annotation.io.kubernetes.container.restartCount=3",
+          "annotation.io.kubernetes.container.terminationMessagePath=/dev/termination-log",
+          "annotation.io.kubernetes.container.terminationMessagePolicy=File",
+          "annotation.io.kubernetes.pod.terminationGracePeriod=30",
+          "io.kubernetes.container.logpath=/var/log/pods/kube-system_local-path-provisioner-58d557dc48-p9j96_7fd6cb3b-fa1b-4cf6-91b8-2dc48f5ebd0f/local-path-provisioner/3.log",
+          "io.kubernetes.container.name=local-path-provisioner",
+          "io.kubernetes.docker.type=container",
+          "io.kubernetes.pod.name=local-path-provisioner-58d557dc48-p9j96",
+          "io.kubernetes.pod.namespace=kube-system",
+          "io.kubernetes.pod.uid=7fd6cb3b-fa1b-4cf6-91b8-2dc48f5ebd0f",
+          "io.kubernetes.sandbox.id=50e6e26c2e8c3cd77fb34e8b4e3190cfc17e39035fe797a791d4618d754776f5"
+        ]
+      },
+      "k8s_metrics-server_metrics-server-6dc596dfb8-46tvx_kube-system_b8abf359-78cf-46b7-afb3-a3cf654e93c0_3": {
+        "image": "d9862115e7c7",
+        "labels": [
+          "annotation.io.kubernetes.container.hash=8538ee20",
+          "annotation.io.kubernetes.container.ports=[{\"name\":\"https\"",
+          "\"containerPort\":10250",
+          "\"protocol\":\"TCP\"}]",
+          "annotation.io.kubernetes.container.restartCount=3",
+          "annotation.io.kubernetes.container.terminationMessagePath=/dev/termination-log",
+          "annotation.io.kubernetes.container.terminationMessagePolicy=File",
+          "annotation.io.kubernetes.pod.terminationGracePeriod=30",
+          "io.kubernetes.container.logpath=/var/log/pods/kube-system_metrics-server-6dc596dfb8-46tvx_b8abf359-78cf-46b7-afb3-a3cf654e93c0/metrics-server/3.log",
+          "io.kubernetes.container.name=metrics-server",
+          "io.kubernetes.docker.type=container",
+          "io.kubernetes.pod.name=metrics-server-6dc596dfb8-46tvx",
+          "io.kubernetes.pod.namespace=kube-system",
+          "io.kubernetes.pod.uid=b8abf359-78cf-46b7-afb3-a3cf654e93c0",
+          "io.kubernetes.sandbox.id=bd4aa9e09b4d5d21aac2edee5968ce478cce9c2b99f92af16163d3357bd268aa"
+        ]
+      },
+      "k8s_webhook_webhook-7d56465b69-khwt8_knative-serving_a7b84bd9-4373-4bbe-843a-0e2fb9c788d8_3": {
+        "image": "3846e9a41666",
+        "labels": [
+          "annotation.io.kubernetes.container.hash=ae2dd1bc",
+          "annotation.io.kubernetes.container.ports=[{\"name\":\"metrics\"",
+          "\"containerPort\":9090",
+          "\"protocol\":\"TCP\"}",
+          "{\"name\":\"profiling\"",
+          "\"containerPort\":8008",
+          "\"protocol\":\"TCP\"}",
+          "{\"name\":\"https-webhook\"",
+          "\"containerPort\":8443",
+          "\"protocol\":\"TCP\"}]",
+          "annotation.io.kubernetes.container.restartCount=3",
+          "annotation.io.kubernetes.container.terminationMessagePath=/dev/termination-log",
+          "annotation.io.kubernetes.container.terminationMessagePolicy=File",
+          "annotation.io.kubernetes.pod.terminationGracePeriod=300",
+          "io.kubernetes.container.logpath=/var/log/pods/knative-serving_webhook-7d56465b69-khwt8_a7b84bd9-4373-4bbe-843a-0e2fb9c788d8/webhook/3.log",
+          "io.kubernetes.container.name=webhook",
+          "io.kubernetes.docker.type=container",
+          "io.kubernetes.pod.name=webhook-7d56465b69-khwt8",
+          "io.kubernetes.pod.namespace=knative-serving",
+          "io.kubernetes.pod.uid=a7b84bd9-4373-4bbe-843a-0e2fb9c788d8",
+          "io.kubernetes.sandbox.id=aa854c7d3ba1022fe62838beabcaa7521505f25e99ef747f223490d1cde61244",
+          "org.opencontainers.image.created=2026-07-13T21:26:57Z"
+        ]
+      },
+      "openwhisk": {
+        "image": "openwhisk/standalone:nightly",
+        "labels": []
+      },
+      "wsk0_1_prewarm_nodejs20": {
+        "image": "openwhisk/action-nodejs-v20:nightly",
+        "labels": []
+      },
+      "wsk0_2_prewarm_nodejs20": {
+        "image": "openwhisk/action-nodejs-v20:nightly",
+        "labels": []
+      },
+      "wsk0_3_guest_hello": {
+        "image": "openwhisk/action-python-v3.11:nightly",
+        "labels": []
+      },
+      "wsk0_4_guest_hello": {
+        "image": "openwhisk/action-python-v3.11:nightly",
+        "labels": []
+      }
+    },
+    "cp_peak_mem_mb": 364.0,
+    "carbon_gCO2": {
+      "op_total": 0.132,
+      "op_control_plane": 0.065,
+      "idle_band": {
+        "15": 0.25,
+        "30": 0.422,
+        "45": 0.595
+      }
+    },
+    "model": {
+      "idle_w": 4.832,
+      "busy_core_w": 3.5,
+      "pue": 1.15,
+      "ci": 150.0
+    },
+    "sensitivity": {
+      "cp_dynamic_share_pct_by_busy_w": {
+        "2.0": 84.74,
+        "3.5": 84.74,
+        "5.0": 84.74
+      },
+      "dynamic_energy_J_by_busy_w": {
+        "2.0": 916.7,
+        "3.5": 1604.2,
+        "5.0": 2291.7
+      },
+      "op_carbon_gCO2_by_busy_w": {
+        "2.0": 0.1,
+        "3.5": 0.132,
+        "5.0": 0.165
+      }
+    },
+    "kpi_gco2_per_slo_compliant_inv": 5.618e-05,
+    "kpi_gco2_per_inv_dynamic": 3.26e-05,
+    "embodied_dram_g_per_gb_h": 0.0317,
+    "host_cpu_sec": 1119.47,
+    "host_window_s": 240.213,
+    "host_saturation_pct": 58.3,
+    "host_plausible": true,
+    "host_saturated": false,
+    "host_overhead_cpu_sec": 661.14,
+    "orchestration_cpu_sec": 1049.55,
+    "orchestration_share_pct": 93.75,
+    "steal_sec": null,
+    "steal_pct": null,
+    "cp_delta_sec": 388.41,
+    "cp_sampler_vs_delta_pct": 0.0,
+    "delta_check_map": {
+      "openwhisk": "ok"
+    },
+    "env": {
+      "cpu_count": 8,
+      "governor": "powersave",
+      "freq_mhz_before": 846.1,
+      "freq_mhz_after": 1430.2,
+      "sampler": "cgroup",
+      "loadgen": "py",
+      "loadgen_requested": "hey",
+      "loadgen_fallback": true
+    },
+    "rapl_validation_err_pct": 28.15,
+    "rapl_wrap": "none",
+    "rapl_available": true
+  },
+  {
+    "platform": "openwhisk",
+    "url": "http://127.0.0.1:3233/api/v1/web/guest/default/hello",
+    "mode": "load",
+    "wall_s": 240.24,
+    "wall_harness_s": 240.24,
+    "sampling_covered_s": 240.24,
+    "requests": 1710,
+    "successes": 1710,
+    "availability": 1.0,
+    "throughput_rps": 7.12,
+    "latency_ms": {
+      "p50": 134.95,
+      "p90": 162.73,
+      "p99": 210.69,
+      "max": 370.59
+    },
+    "slo_ms": 500.0,
+    "slo_compliance": 1.0,
+    "compliance_source": "measured",
+    "energy_J": {
+      "total": 2001.8,
+      "dynamic": 841.0,
+      "control_plane": 684.8,
+      "function": 156.2
+    },
+    "cp_share_pct": 34.21,
+    "cp_dynamic_share_pct": 81.43,
+    "cpu_sec": {
+      "control_plane": 195.66,
+      "function": 44.62
+    },
+    "cpu_sec_ceiling": 1921.93,
+    "physical_plausible": true,
+    "unclassified_cpu_s": 3.35,
+    "container_inventory": [
+      "k8s_POD_3scale-kourier-gateway-d95dfffb6-z2zzz_kourier-system_69daf3cc-53df-449a-ba4e-12ca3f124bf1_3",
+      "k8s_POD_activator-67cbcccdfb-t6cg7_knative-serving_af70f812-f578-45d9-aafe-c711ea35ebd4_3",
+      "k8s_POD_autoscaler-847d45f498-rkvpp_knative-serving_ec82673b-6dc8-472a-9e8a-04e02f65f117_3",
+      "k8s_POD_controller-c9767f9c-h8zvb_knative-serving_9a5a04d4-1393-48b2-b655-088fcff5b337_3",
+      "k8s_POD_coredns-54996dc9b4-94zpj_kube-system_86f4a07b-00d4-46a7-a1a6-6f878fb26856_6",
+      "k8s_POD_local-path-provisioner-58d557dc48-p9j96_kube-system_7fd6cb3b-fa1b-4cf6-91b8-2dc48f5ebd0f_5",
+      "k8s_POD_metrics-server-6dc596dfb8-46tvx_kube-system_b8abf359-78cf-46b7-afb3-a3cf654e93c0_7",
+      "k8s_POD_net-kourier-controller-769cd4d84c-mpvj4_knative-serving_a859182b-3989-44e1-8ad7-068a1efe2192_3",
+      "k8s_POD_svclb-kourier-32c17a7b-g99k6_kube-system_12a61aac-14f5-4323-985c-bfa66cd375ba_3",
+      "k8s_POD_webhook-7d56465b69-khwt8_knative-serving_a7b84bd9-4373-4bbe-843a-0e2fb9c788d8_4",
+      "k8s_activator_activator-67cbcccdfb-t6cg7_knative-serving_af70f812-f578-45d9-aafe-c711ea35ebd4_3",
+      "k8s_autoscaler_autoscaler-847d45f498-rkvpp_knative-serving_ec82673b-6dc8-472a-9e8a-04e02f65f117_3",
+      "k8s_controller_controller-c9767f9c-h8zvb_knative-serving_9a5a04d4-1393-48b2-b655-088fcff5b337_5",
+      "k8s_controller_net-kourier-controller-769cd4d84c-mpvj4_knative-serving_a859182b-3989-44e1-8ad7-068a1efe2192_5",
+      "k8s_coredns_coredns-54996dc9b4-94zpj_kube-system_86f4a07b-00d4-46a7-a1a6-6f878fb26856_3",
+      "k8s_kourier-gateway_3scale-kourier-gateway-d95dfffb6-z2zzz_kourier-system_69daf3cc-53df-449a-ba4e-12ca3f124bf1_3",
+      "k8s_lb-tcp-443_svclb-kourier-32c17a7b-g99k6_kube-system_12a61aac-14f5-4323-985c-bfa66cd375ba_3",
+      "k8s_lb-tcp-80_svclb-kourier-32c17a7b-g99k6_kube-system_12a61aac-14f5-4323-985c-bfa66cd375ba_3",
+      "k8s_local-path-provisioner_local-path-provisioner-58d557dc48-p9j96_kube-system_7fd6cb3b-fa1b-4cf6-91b8-2dc48f5ebd0f_3",
+      "k8s_metrics-server_metrics-server-6dc596dfb8-46tvx_kube-system_b8abf359-78cf-46b7-afb3-a3cf654e93c0_3",
+      "k8s_webhook_webhook-7d56465b69-khwt8_knative-serving_a7b84bd9-4373-4bbe-843a-0e2fb9c788d8_3",
+      "openwhisk",
+      "wsk0_1_prewarm_nodejs20",
+      "wsk0_2_prewarm_nodejs20",
+      "wsk0_3_guest_hello",
+      "wsk0_4_guest_hello"
+    ],
+    "container_labels": {
+      "k8s_POD_3scale-kourier-gateway-d95dfffb6-z2zzz_kourier-system_69daf3cc-53df-449a-ba4e-12ca3f124bf1_3": {
+        "image": "rancher/mirrored-pause:3.10.2",
+        "labels": [
+          "annotation.kubernetes.io/config.seen=2026-08-13T14:35:47.041069792+05:00",
+          "annotation.kubernetes.io/config.source=api",
+          "annotation.networking.knative.dev/poke=v0.26",
+          "annotation.prometheus.io/path=/stats/prometheus",
+          "annotation.prometheus.io/port=9000",
+          "annotation.prometheus.io/scrape=true",
+          "app=3scale-kourier-gateway",
+          "io.kubernetes.container.name=POD",
+          "io.kubernetes.docker.type=podsandbox",
+          "io.kubernetes.pod.name=3scale-kourier-gateway-d95dfffb6-z2zzz",
+          "io.kubernetes.pod.namespace=kourier-system",
+          "io.kubernetes.pod.uid=69daf3cc-53df-449a-ba4e-12ca3f124bf1",
+          "pod-template-hash=d95dfffb6"
+        ]
+      },
+      "k8s_POD_activator-67cbcccdfb-t6cg7_knative-serving_af70f812-f578-45d9-aafe-c711ea35ebd4_3": {
+        "image": "rancher/mirrored-pause:3.10.2",
+        "labels": [
+          "annotation.kubernetes.io/config.seen=2026-08-13T14:35:33.331904160+05:00",
+          "annotation.kubernetes.io/config.source=api",
+          "app.kubernetes.io/component=activator",
+          "app.kubernetes.io/name=knative-serving",
+          "app.kubernetes.io/version=1.23.0",
+          "app=activator",
+          "io.kubernetes.container.name=POD",
+          "io.kubernetes.docker.type=podsandbox",
+          "io.kubernetes.pod.name=activator-67cbcccdfb-t6cg7",
+          "io.kubernetes.pod.namespace=knative-serving",
+          "io.kubernetes.pod.uid=af70f812-f578-45d9-aafe-c711ea35ebd4",
+          "pod-template-hash=67cbcccdfb",
+          "role=activator"
+        ]
+      },
+      "k8s_POD_autoscaler-847d45f498-rkvpp_knative-serving_ec82673b-6dc8-472a-9e8a-04e02f65f117_3": {
+        "image": "rancher/mirrored-pause:3.10.2",
+        "labels": [
+          "annotation.kubernetes.io/config.seen=2026-08-13T14:35:33.331890481+05:00",
+          "annotation.kubernetes.io/config.source=api",
+          "app.kubernetes.io/component=autoscaler",
+          "app.kubernetes.io/name=knative-serving",
+          "app.kubernetes.io/version=1.23.0",
+          "app=autoscaler",
+          "io.kubernetes.container.name=POD",
+          "io.kubernetes.docker.type=podsandbox",
+          "io.kubernetes.pod.name=autoscaler-847d45f498-rkvpp",
+          "io.kubernetes.pod.namespace=knative-serving",
+          "io.kubernetes.pod.uid=ec82673b-6dc8-472a-9e8a-04e02f65f117",
+          "pod-template-hash=847d45f498"
+        ]
+      },
+      "k8s_POD_controller-c9767f9c-h8zvb_knative-serving_9a5a04d4-1393-48b2-b655-088fcff5b337_3": {
+        "image": "rancher/mirrored-pause:3.10.2",
+        "labels": [
+          "annotation.kubernetes.io/config.seen=2026-08-13T14:35:33.331896145+05:00",
+          "annotation.kubernetes.io/config.source=api",
+          "app.kubernetes.io/component=controller",
+          "app.kubernetes.io/name=knative-serving",
+          "app.kubernetes.io/version=1.23.0",
+          "app=controller",
+          "io.kubernetes.container.name=POD",
+          "io.kubernetes.docker.type=podsandbox",
+          "io.kubernetes.pod.name=controller-c9767f9c-h8zvb",
+          "io.kubernetes.pod.namespace=knative-serving",
+          "io.kubernetes.pod.uid=9a5a04d4-1393-48b2-b655-088fcff5b337",
+          "pod-template-hash=c9767f9c"
+        ]
+      },
+      "k8s_POD_coredns-54996dc9b4-94zpj_kube-system_86f4a07b-00d4-46a7-a1a6-6f878fb26856_6": {
+        "image": "rancher/mirrored-pause:3.10.2",
+        "labels": [
+          "annotation.kubernetes.io/config.seen=2026-08-13T14:35:33.331900877+05:00",
+          "annotation.kubernetes.io/config.source=api",
+          "io.kubernetes.container.name=POD",
+          "io.kubernetes.docker.type=podsandbox",
+          "io.kubernetes.pod.name=coredns-54996dc9b4-94zpj",
+          "io.kubernetes.pod.namespace=kube-system",
+          "io.kubernetes.pod.uid=86f4a07b-00d4-46a7-a1a6-6f878fb26856",
+          "k8s-app=kube-dns",
+          "pod-template-hash=54996dc9b4"
+        ]
+      },
+      "k8s_POD_local-path-provisioner-58d557dc48-p9j96_kube-system_7fd6cb3b-fa1b-4cf6-91b8-2dc48f5ebd0f_5": {
+        "image": "rancher/mirrored-pause:3.10.2",
+        "labels": [
+          "annotation.kubernetes.io/config.seen=2026-08-13T14:35:47.041037422+05:00",
+          "annotation.kubernetes.io/config.source=api",
+          "app=local-path-provisioner",
+          "io.kubernetes.container.name=POD",
+          "io.kubernetes.docker.type=podsandbox",
+          "io.kubernetes.pod.name=local-path-provisioner-58d557dc48-p9j96",
+          "io.kubernetes.pod.namespace=kube-system",
+          "io.kubernetes.pod.uid=7fd6cb3b-fa1b-4cf6-91b8-2dc48f5ebd0f",
+          "pod-template-hash=58d557dc48"
+        ]
+      },
+      "k8s_POD_metrics-server-6dc596dfb8-46tvx_kube-system_b8abf359-78cf-46b7-afb3-a3cf654e93c0_7": {
+        "image": "rancher/mirrored-pause:3.10.2",
+        "labels": [
+          "annotation.kubernetes.io/config.seen=2026-08-13T14:35:47.041053960+05:00",
+          "annotation.kubernetes.io/config.source=api",
+          "io.kubernetes.container.name=POD",
+          "io.kubernetes.docker.type=podsandbox",
+          "io.kubernetes.pod.name=metrics-server-6dc596dfb8-46tvx",
+          "io.kubernetes.pod.namespace=kube-system",
+          "io.kubernetes.pod.uid=b8abf359-78cf-46b7-afb3-a3cf654e93c0",
+          "k8s-app=metrics-server",
+          "pod-template-hash=6dc596dfb8"
+        ]
+      },
+      "k8s_POD_net-kourier-controller-769cd4d84c-mpvj4_knative-serving_a859182b-3989-44e1-8ad7-068a1efe2192_3": {
+        "image": "rancher/mirrored-pause:3.10.2",
+        "labels": [
+          "annotation.kubernetes.io/config.seen=2026-08-13T14:35:33.331860970+05:00",
+          "annotation.kubernetes.io/config.source=api",
+          "annotation.prometheus.io/path=/metrics",
+          "annotation.prometheus.io/port=9090",
+          "annotation.prometheus.io/scrape=true",
+          "app=net-kourier-controller",
+          "io.kubernetes.container.name=POD",
+          "io.kubernetes.docker.type=podsandbox",
+          "io.kubernetes.pod.name=net-kourier-controller-769cd4d84c-mpvj4",
+          "io.kubernetes.pod.namespace=knative-serving",
+          "io.kubernetes.pod.uid=a859182b-3989-44e1-8ad7-068a1efe2192",
+          "pod-template-hash=769cd4d84c"
+        ]
+      },
+      "k8s_POD_svclb-kourier-32c17a7b-g99k6_kube-system_12a61aac-14f5-4323-985c-bfa66cd375ba_3": {
+        "image": "rancher/mirrored-pause:3.10.2",
+        "labels": [
+          "annotation.kubernetes.io/config.seen=2026-08-13T14:35:47.041061609+05:00",
+          "annotation.kubernetes.io/config.source=api",
+          "app=svclb-kourier-32c17a7b",
+          "controller-revision-hash=84c484b947",
+          "io.kubernetes.container.name=POD",
+          "io.kubernetes.docker.type=podsandbox",
+          "io.kubernetes.pod.name=svclb-kourier-32c17a7b-g99k6",
+          "io.kubernetes.pod.namespace=kube-system",
+          "io.kubernetes.pod.uid=12a61aac-14f5-4323-985c-bfa66cd375ba",
+          "pod-template-generation=1",
+          "svccontroller.k3s.cattle.io/svcname=kourier",
+          "svccontroller.k3s.cattle.io/svcnamespace=kourier-system"
+        ]
+      },
+      "k8s_POD_webhook-7d56465b69-khwt8_knative-serving_a7b84bd9-4373-4bbe-843a-0e2fb9c788d8_4": {
+        "image": "rancher/mirrored-pause:3.10.2",
+        "labels": [
+          "annotation.kubernetes.io/config.seen=2026-08-13T14:35:47.041034364+05:00",
+          "annotation.kubernetes.io/config.source=api",
+          "app.kubernetes.io/component=webhook",
+          "app.kubernetes.io/name=knative-serving",
+          "app.kubernetes.io/version=1.23.0",
+          "app=webhook",
+          "io.kubernetes.container.name=POD",
+          "io.kubernetes.docker.type=podsandbox",
+          "io.kubernetes.pod.name=webhook-7d56465b69-khwt8",
+          "io.kubernetes.pod.namespace=knative-serving",
+          "io.kubernetes.pod.uid=a7b84bd9-4373-4bbe-843a-0e2fb9c788d8",
+          "pod-template-hash=7d56465b69",
+          "role=webhook"
+        ]
+      },
+      "k8s_activator_activator-67cbcccdfb-t6cg7_knative-serving_af70f812-f578-45d9-aafe-c711ea35ebd4_3": {
+        "image": "e5ab46f3b73f",
+        "labels": [
+          "annotation.io.kubernetes.container.hash=37c0c95d",
+          "annotation.io.kubernetes.container.ports=[{\"name\":\"metrics\"",
+          "\"containerPort\":9090",
+          "\"protocol\":\"TCP\"}",
+          "{\"name\":\"profiling\"",
+          "\"containerPort\":8008",
+          "\"protocol\":\"TCP\"}",
+          "{\"name\":\"http1\"",
+          "\"containerPort\":8012",
+          "\"protocol\":\"TCP\"}",
+          "{\"name\":\"h2c\"",
+          "\"containerPort\":8013",
+          "\"protocol\":\"TCP\"}]",
+          "annotation.io.kubernetes.container.restartCount=3",
+          "annotation.io.kubernetes.container.terminationMessagePath=/dev/termination-log",
+          "annotation.io.kubernetes.container.terminationMessagePolicy=File",
+          "annotation.io.kubernetes.pod.terminationGracePeriod=600",
+          "io.kubernetes.container.logpath=/var/log/pods/knative-serving_activator-67cbcccdfb-t6cg7_af70f812-f578-45d9-aafe-c711ea35ebd4/activator/3.log",
+          "io.kubernetes.container.name=activator",
+          "io.kubernetes.docker.type=container",
+          "io.kubernetes.pod.name=activator-67cbcccdfb-t6cg7",
+          "io.kubernetes.pod.namespace=knative-serving",
+          "io.kubernetes.pod.uid=af70f812-f578-45d9-aafe-c711ea35ebd4",
+          "io.kubernetes.sandbox.id=9cc68a1b0c619354924941286c55d0a6f39934cbcb097e5499c9a40949d88758",
+          "org.opencontainers.image.created=2026-07-13T21:26:57Z"
+        ]
+      },
+      "k8s_autoscaler_autoscaler-847d45f498-rkvpp_knative-serving_ec82673b-6dc8-472a-9e8a-04e02f65f117_3": {
+        "image": "879da127b23d",
+        "labels": [
+          "annotation.io.kubernetes.container.hash=4597bac7",
+          "annotation.io.kubernetes.container.ports=[{\"name\":\"metrics\"",
+          "\"containerPort\":9090",
+          "\"protocol\":\"TCP\"}",
+          "{\"name\":\"profiling\"",
+          "\"containerPort\":8008",
+          "\"protocol\":\"TCP\"}",
+          "{\"name\":\"websocket\"",
+          "\"containerPort\":8080",
+          "\"protocol\":\"TCP\"}]",
+          "annotation.io.kubernetes.container.restartCount=3",
+          "annotation.io.kubernetes.container.terminationMessagePath=/dev/termination-log",
+          "annotation.io.kubernetes.container.terminationMessagePolicy=File",
+          "annotation.io.kubernetes.pod.terminationGracePeriod=30",
+          "io.kubernetes.container.logpath=/var/log/pods/knative-serving_autoscaler-847d45f498-rkvpp_ec82673b-6dc8-472a-9e8a-04e02f65f117/autoscaler/3.log",
+          "io.kubernetes.container.name=autoscaler",
+          "io.kubernetes.docker.type=container",
+          "io.kubernetes.pod.name=autoscaler-847d45f498-rkvpp",
+          "io.kubernetes.pod.namespace=knative-serving",
+          "io.kubernetes.pod.uid=ec82673b-6dc8-472a-9e8a-04e02f65f117",
+          "io.kubernetes.sandbox.id=7917cd04b90801d0040b2044d5d71440242f709fa978e1889b129ac773def064",
+          "org.opencontainers.image.created=2026-07-13T21:26:57Z"
+        ]
+      },
+      "k8s_controller_controller-c9767f9c-h8zvb_knative-serving_9a5a04d4-1393-48b2-b655-088fcff5b337_5": {
+        "image": "ca5062ece032",
+        "labels": [
+          "annotation.io.kubernetes.container.hash=dc4bd0df",
+          "annotation.io.kubernetes.container.ports=[{\"name\":\"metrics\"",
+          "\"containerPort\":9090",
+          "\"protocol\":\"TCP\"}",
+          "{\"name\":\"profiling\"",
+          "\"containerPort\":8008",
+          "\"protocol\":\"TCP\"}",
+          "{\"name\":\"probes\"",
+          "\"containerPort\":8080",
+          "\"protocol\":\"TCP\"}]",
+          "annotation.io.kubernetes.container.restartCount=5",
+          "annotation.io.kubernetes.container.terminationMessagePath=/dev/termination-log",
+          "annotation.io.kubernetes.container.terminationMessagePolicy=File",
+          "annotation.io.kubernetes.pod.terminationGracePeriod=30",
+          "io.kubernetes.container.logpath=/var/log/pods/knative-serving_controller-c9767f9c-h8zvb_9a5a04d4-1393-48b2-b655-088fcff5b337/controller/5.log",
+          "io.kubernetes.container.name=controller",
+          "io.kubernetes.docker.type=container",
+          "io.kubernetes.pod.name=controller-c9767f9c-h8zvb",
+          "io.kubernetes.pod.namespace=knative-serving",
+          "io.kubernetes.pod.uid=9a5a04d4-1393-48b2-b655-088fcff5b337",
+          "io.kubernetes.sandbox.id=885f140c670ee0003af02207774fcaa1b8ea962dac973d7ed4633ab65261476a",
+          "org.opencontainers.image.created=2026-07-13T21:26:57Z"
+        ]
+      },
+      "k8s_controller_net-kourier-controller-769cd4d84c-mpvj4_knative-serving_a859182b-3989-44e1-8ad7-068a1efe2192_5": {
+        "image": "eedfe3938f1e",
+        "labels": [
+          "annotation.io.kubernetes.container.hash=128736a5",
+          "annotation.io.kubernetes.container.ports=[{\"name\":\"http2-xds\"",
+          "\"containerPort\":18000",
+          "\"protocol\":\"TCP\"}",
+          "{\"name\":\"metrics\"",
+          "\"containerPort\":9090",
+          "\"protocol\":\"TCP\"}]",
+          "annotation.io.kubernetes.container.restartCount=5",
+          "annotation.io.kubernetes.container.terminationMessagePath=/dev/termination-log",
+          "annotation.io.kubernetes.container.terminationMessagePolicy=File",
+          "annotation.io.kubernetes.pod.terminationGracePeriod=30",
+          "io.kubernetes.container.logpath=/var/log/pods/knative-serving_net-kourier-controller-769cd4d84c-mpvj4_a859182b-3989-44e1-8ad7-068a1efe2192/controller/5.log",
+          "io.kubernetes.container.name=controller",
+          "io.kubernetes.docker.type=container",
+          "io.kubernetes.pod.name=net-kourier-controller-769cd4d84c-mpvj4",
+          "io.kubernetes.pod.namespace=knative-serving",
+          "io.kubernetes.pod.uid=a859182b-3989-44e1-8ad7-068a1efe2192",
+          "io.kubernetes.sandbox.id=61d8e23a4a6acede7bb8bdb2d4f5eb86ac4096c33e983ebe52de024daa73fda2",
+          "org.opencontainers.image.created=2026-07-13T21:26:57Z"
+        ]
+      },
+      "k8s_coredns_coredns-54996dc9b4-94zpj_kube-system_86f4a07b-00d4-46a7-a1a6-6f878fb26856_3": {
+        "image": "900f9c109f7a",
+        "labels": [
+          "annotation.io.kubernetes.container.hash=1735ce2a",
+          "annotation.io.kubernetes.container.ports=[{\"name\":\"dns\"",
+          "\"containerPort\":53",
+          "\"protocol\":\"UDP\"}",
+          "{\"name\":\"dns-tcp\"",
+          "\"containerPort\":53",
+          "\"protocol\":\"TCP\"}",
+          "{\"name\":\"metrics\"",
+          "\"containerPort\":9153",
+          "\"protocol\":\"TCP\"}]",
+          "annotation.io.kubernetes.container.restartCount=3",
+          "annotation.io.kubernetes.container.terminationMessagePath=/dev/termination-log",
+          "annotation.io.kubernetes.container.terminationMessagePolicy=File",
+          "annotation.io.kubernetes.pod.terminationGracePeriod=30",
+          "io.kubernetes.container.logpath=/var/log/pods/kube-system_coredns-54996dc9b4-94zpj_86f4a07b-00d4-46a7-a1a6-6f878fb26856/coredns/3.log",
+          "io.kubernetes.container.name=coredns",
+          "io.kubernetes.docker.type=container",
+          "io.kubernetes.pod.name=coredns-54996dc9b4-94zpj",
+          "io.kubernetes.pod.namespace=kube-system",
+          "io.kubernetes.pod.uid=86f4a07b-00d4-46a7-a1a6-6f878fb26856",
+          "io.kubernetes.sandbox.id=dc618bf779c15e2d199962a1a0fdc04f7e92e82af260a74a124feaaf762027f6"
+        ]
+      },
+      "k8s_kourier-gateway_3scale-kourier-gateway-d95dfffb6-z2zzz_kourier-system_69daf3cc-53df-449a-ba4e-12ca3f124bf1_3": {
+        "image": "1c2b79776c6e",
+        "labels": [
+          "annotation.io.kubernetes.container.hash=241835de",
+          "annotation.io.kubernetes.container.ports=[{\"name\":\"http2-external\"",
+          "\"containerPort\":8080",
+          "\"protocol\":\"TCP\"}",
+          "{\"name\":\"http2-internal\"",
+          "\"containerPort\":8081",
+          "\"protocol\":\"TCP\"}",
+          "{\"name\":\"https-external\"",
+          "\"containerPort\":8443",
+          "\"protocol\":\"TCP\"}",
+          "{\"name\":\"http-probe\"",
+          "\"containerPort\":8090",
+          "\"protocol\":\"TCP\"}",
+          "{\"name\":\"https-probe\"",
+          "\"containerPort\":9443",
+          "\"protocol\":\"TCP\"}",
+          "{\"name\":\"metrics\"",
+          "\"containerPort\":9000",
+          "\"protocol\":\"TCP\"}]",
+          "annotation.io.kubernetes.container.preStopHandler={\"exec\":{\"command\":[\"/bin/sh\"",
+          "\"-c\"",
+          "\"curl -X POST http://localhost:9901/drain_listeners?graceful; sleep $DRAIN_TIME_SECONDS\"]}}",
+          "annotation.io.kubernetes.container.restartCount=3",
+          "annotation.io.kubernetes.container.terminationMessagePath=/dev/termination-log",
+          "annotation.io.kubernetes.container.terminationMessagePolicy=File",
+          "annotation.io.kubernetes.pod.terminationGracePeriod=30",
+          "io.kubernetes.container.logpath=/var/log/pods/kourier-system_3scale-kourier-gateway-d95dfffb6-z2zzz_69daf3cc-53df-449a-ba4e-12ca3f124bf1/kourier-gateway/3.log",
+          "io.kubernetes.container.name=kourier-gateway",
+          "io.kubernetes.docker.type=container",
+          "io.kubernetes.pod.name=3scale-kourier-gateway-d95dfffb6-z2zzz",
+          "io.kubernetes.pod.namespace=kourier-system",
+          "io.kubernetes.pod.uid=69daf3cc-53df-449a-ba4e-12ca3f124bf1",
+          "io.kubernetes.sandbox.id=de7ff32127342c9f0bf0cf757eb639c4fcade4b5fc43f808737a00c2b3756aec",
+          "org.opencontainers.image.version=22.04"
+        ]
+      },
+      "k8s_lb-tcp-443_svclb-kourier-32c17a7b-g99k6_kube-system_12a61aac-14f5-4323-985c-bfa66cd375ba_3": {
+        "image": "910944bb0bd9",
+        "labels": [
+          "annotation.io.kubernetes.container.hash=93cfbcd9",
+          "annotation.io.kubernetes.container.ports=[{\"name\":\"lb-tcp-443\"",
+          "\"hostPort\":443",
+          "\"containerPort\":443",
+          "\"protocol\":\"TCP\"}]",
+          "annotation.io.kubernetes.container.restartCount=3",
+          "annotation.io.kubernetes.container.terminationMessagePath=/dev/termination-log",
+          "annotation.io.kubernetes.container.terminationMessagePolicy=File",
+          "annotation.io.kubernetes.pod.terminationGracePeriod=30",
+          "buildDate=",
+          "io.kubernetes.container.logpath=/var/log/pods/kube-system_svclb-kourier-32c17a7b-g99k6_12a61aac-14f5-4323-985c-bfa66cd375ba/lb-tcp-443/3.log",
+          "io.kubernetes.container.name=lb-tcp-443",
+          "io.kubernetes.docker.type=container",
+          "io.kubernetes.pod.name=svclb-kourier-32c17a7b-g99k6",
+          "io.kubernetes.pod.namespace=kube-system",
+          "io.kubernetes.pod.uid=12a61aac-14f5-4323-985c-bfa66cd375ba",
+          "io.kubernetes.sandbox.id=c46a4762b564c9afb91beabb610e293a61a7ac34564312babc43bb651865cdf2"
+        ]
+      },
+      "k8s_lb-tcp-80_svclb-kourier-32c17a7b-g99k6_kube-system_12a61aac-14f5-4323-985c-bfa66cd375ba_3": {
+        "image": "910944bb0bd9",
+        "labels": [
+          "annotation.io.kubernetes.container.hash=5e234596",
+          "annotation.io.kubernetes.container.ports=[{\"name\":\"lb-tcp-80\"",
+          "\"hostPort\":80",
+          "\"containerPort\":80",
+          "\"protocol\":\"TCP\"}]",
+          "annotation.io.kubernetes.container.restartCount=3",
+          "annotation.io.kubernetes.container.terminationMessagePath=/dev/termination-log",
+          "annotation.io.kubernetes.container.terminationMessagePolicy=File",
+          "annotation.io.kubernetes.pod.terminationGracePeriod=30",
+          "buildDate=",
+          "io.kubernetes.container.logpath=/var/log/pods/kube-system_svclb-kourier-32c17a7b-g99k6_12a61aac-14f5-4323-985c-bfa66cd375ba/lb-tcp-80/3.log",
+          "io.kubernetes.container.name=lb-tcp-80",
+          "io.kubernetes.docker.type=container",
+          "io.kubernetes.pod.name=svclb-kourier-32c17a7b-g99k6",
+          "io.kubernetes.pod.namespace=kube-system",
+          "io.kubernetes.pod.uid=12a61aac-14f5-4323-985c-bfa66cd375ba",
+          "io.kubernetes.sandbox.id=c46a4762b564c9afb91beabb610e293a61a7ac34564312babc43bb651865cdf2"
+        ]
+      },
+      "k8s_local-path-provisioner_local-path-provisioner-58d557dc48-p9j96_kube-system_7fd6cb3b-fa1b-4cf6-91b8-2dc48f5ebd0f_3": {
+        "image": "1eba82e9c386",
+        "labels": [
+          "annotation.io.kubernetes.container.hash=6649ab14",
+          "annotation.io.kubernetes.container.restartCount=3",
+          "annotation.io.kubernetes.container.terminationMessagePath=/dev/termination-log",
+          "annotation.io.kubernetes.container.terminationMessagePolicy=File",
+          "annotation.io.kubernetes.pod.terminationGracePeriod=30",
+          "io.kubernetes.container.logpath=/var/log/pods/kube-system_local-path-provisioner-58d557dc48-p9j96_7fd6cb3b-fa1b-4cf6-91b8-2dc48f5ebd0f/local-path-provisioner/3.log",
+          "io.kubernetes.container.name=local-path-provisioner",
+          "io.kubernetes.docker.type=container",
+          "io.kubernetes.pod.name=local-path-provisioner-58d557dc48-p9j96",
+          "io.kubernetes.pod.namespace=kube-system",
+          "io.kubernetes.pod.uid=7fd6cb3b-fa1b-4cf6-91b8-2dc48f5ebd0f",
+          "io.kubernetes.sandbox.id=50e6e26c2e8c3cd77fb34e8b4e3190cfc17e39035fe797a791d4618d754776f5"
+        ]
+      },
+      "k8s_metrics-server_metrics-server-6dc596dfb8-46tvx_kube-system_b8abf359-78cf-46b7-afb3-a3cf654e93c0_3": {
+        "image": "d9862115e7c7",
+        "labels": [
+          "annotation.io.kubernetes.container.hash=8538ee20",
+          "annotation.io.kubernetes.container.ports=[{\"name\":\"https\"",
+          "\"containerPort\":10250",
+          "\"protocol\":\"TCP\"}]",
+          "annotation.io.kubernetes.container.restartCount=3",
+          "annotation.io.kubernetes.container.terminationMessagePath=/dev/termination-log",
+          "annotation.io.kubernetes.container.terminationMessagePolicy=File",
+          "annotation.io.kubernetes.pod.terminationGracePeriod=30",
+          "io.kubernetes.container.logpath=/var/log/pods/kube-system_metrics-server-6dc596dfb8-46tvx_b8abf359-78cf-46b7-afb3-a3cf654e93c0/metrics-server/3.log",
+          "io.kubernetes.container.name=metrics-server",
+          "io.kubernetes.docker.type=container",
+          "io.kubernetes.pod.name=metrics-server-6dc596dfb8-46tvx",
+          "io.kubernetes.pod.namespace=kube-system",
+          "io.kubernetes.pod.uid=b8abf359-78cf-46b7-afb3-a3cf654e93c0",
+          "io.kubernetes.sandbox.id=bd4aa9e09b4d5d21aac2edee5968ce478cce9c2b99f92af16163d3357bd268aa"
+        ]
+      },
+      "k8s_webhook_webhook-7d56465b69-khwt8_knative-serving_a7b84bd9-4373-4bbe-843a-0e2fb9c788d8_3": {
+        "image": "3846e9a41666",
+        "labels": [
+          "annotation.io.kubernetes.container.hash=ae2dd1bc",
+          "annotation.io.kubernetes.container.ports=[{\"name\":\"metrics\"",
+          "\"containerPort\":9090",
+          "\"protocol\":\"TCP\"}",
+          "{\"name\":\"profiling\"",
+          "\"containerPort\":8008",
+          "\"protocol\":\"TCP\"}",
+          "{\"name\":\"https-webhook\"",
+          "\"containerPort\":8443",
+          "\"protocol\":\"TCP\"}]",
+          "annotation.io.kubernetes.container.restartCount=3",
+          "annotation.io.kubernetes.container.terminationMessagePath=/dev/termination-log",
+          "annotation.io.kubernetes.container.terminationMessagePolicy=File",
+          "annotation.io.kubernetes.pod.terminationGracePeriod=300",
+          "io.kubernetes.container.logpath=/var/log/pods/knative-serving_webhook-7d56465b69-khwt8_a7b84bd9-4373-4bbe-843a-0e2fb9c788d8/webhook/3.log",
+          "io.kubernetes.container.name=webhook",
+          "io.kubernetes.docker.type=container",
+          "io.kubernetes.pod.name=webhook-7d56465b69-khwt8",
+          "io.kubernetes.pod.namespace=knative-serving",
+          "io.kubernetes.pod.uid=a7b84bd9-4373-4bbe-843a-0e2fb9c788d8",
+          "io.kubernetes.sandbox.id=aa854c7d3ba1022fe62838beabcaa7521505f25e99ef747f223490d1cde61244",
+          "org.opencontainers.image.created=2026-07-13T21:26:57Z"
+        ]
+      },
+      "openwhisk": {
+        "image": "openwhisk/standalone:nightly",
+        "labels": []
+      },
+      "wsk0_1_prewarm_nodejs20": {
+        "image": "openwhisk/action-nodejs-v20:nightly",
+        "labels": []
+      },
+      "wsk0_2_prewarm_nodejs20": {
+        "image": "openwhisk/action-nodejs-v20:nightly",
+        "labels": []
+      },
+      "wsk0_3_guest_hello": {
+        "image": "openwhisk/action-python-v3.11:nightly",
+        "labels": []
+      },
+      "wsk0_4_guest_hello": {
+        "image": "openwhisk/action-python-v3.11:nightly",
+        "labels": []
+      }
+    },
+    "cp_peak_mem_mb": 290.5,
+    "carbon_gCO2": {
+      "op_total": 0.096,
+      "op_control_plane": 0.033,
+      "idle_band": {
+        "15": 0.213,
+        "30": 0.386,
+        "45": 0.558
+      }
+    },
+    "model": {
+      "idle_w": 4.832,
+      "busy_core_w": 3.5,
+      "pue": 1.15,
+      "ci": 150.0
+    },
+    "sensitivity": {
+      "cp_dynamic_share_pct_by_busy_w": {
+        "2.0": 81.43,
+        "3.5": 81.43,
+        "5.0": 81.43
+      },
+      "dynamic_energy_J_by_busy_w": {
+        "2.0": 480.6,
+        "3.5": 841.0,
+        "5.0": 1201.4
+      },
+      "op_carbon_gCO2_by_busy_w": {
+        "2.0": 0.079,
+        "3.5": 0.096,
+        "5.0": 0.113
+      }
+    },
+    "kpi_gco2_per_slo_compliant_inv": 5.609e-05,
+    "kpi_gco2_per_inv_dynamic": 2.357e-05,
+    "embodied_dram_g_per_gb_h": 0.0317,
+    "host_cpu_sec": 1017.66,
+    "host_window_s": 240.242,
+    "host_saturation_pct": 52.9,
+    "host_plausible": true,
+    "host_saturated": false,
+    "host_overhead_cpu_sec": 777.38,
+    "orchestration_cpu_sec": 973.04,
+    "orchestration_share_pct": 95.62,
+    "steal_sec": null,
+    "steal_pct": null,
+    "cp_delta_sec": 195.661,
+    "cp_sampler_vs_delta_pct": 0.0,
+    "delta_check_map": {
+      "openwhisk": "ok"
+    },
+    "env": {
+      "cpu_count": 8,
+      "governor": "powersave",
+      "freq_mhz_before": 3619.1,
+      "freq_mhz_after": 737.0,
+      "sampler": "cgroup",
+      "loadgen": "py",
+      "loadgen_requested": "hey",
+      "loadgen_fallback": true
+    },
+    "rapl_validation_err_pct": 44.82,
+    "rapl_wrap": "none",
+    "rapl_available": true
+  },
+  {
+    "platform": "openwhisk",
+    "url": "http://127.0.0.1:3233/api/v1/web/guest/default/hello",
+    "mode": "load",
+    "wall_s": 240.2,
+    "wall_harness_s": 240.2,
+    "sampling_covered_s": 240.2,
+    "requests": 2459,
+    "successes": 2459,
+    "availability": 1.0,
+    "throughput_rps": 10.24,
+    "latency_ms": {
+      "p50": 94.78,
+      "p90": 116.71,
+      "p99": 143.32,
+      "max": 162.79
+    },
+    "slo_ms": 500.0,
+    "slo_compliance": 1.0,
+    "compliance_source": "measured",
+    "energy_J": {
+      "total": 2253.8,
+      "dynamic": 1093.2,
+      "control_plane": 899.4,
+      "function": 193.8
+    },
+    "cp_share_pct": 39.9,
+    "cp_dynamic_share_pct": 82.27,
+    "cpu_sec": {
+      "control_plane": 256.96,
+      "function": 55.37
+    },
+    "cpu_sec_ceiling": 1921.58,
+    "physical_plausible": true,
+    "unclassified_cpu_s": 3.46,
+    "container_inventory": [
+      "k8s_POD_3scale-kourier-gateway-d95dfffb6-z2zzz_kourier-system_69daf3cc-53df-449a-ba4e-12ca3f124bf1_3",
+      "k8s_POD_activator-67cbcccdfb-t6cg7_knative-serving_af70f812-f578-45d9-aafe-c711ea35ebd4_3",
+      "k8s_POD_autoscaler-847d45f498-rkvpp_knative-serving_ec82673b-6dc8-472a-9e8a-04e02f65f117_3",
+      "k8s_POD_controller-c9767f9c-h8zvb_knative-serving_9a5a04d4-1393-48b2-b655-088fcff5b337_3",
+      "k8s_POD_coredns-54996dc9b4-94zpj_kube-system_86f4a07b-00d4-46a7-a1a6-6f878fb26856_6",
+      "k8s_POD_local-path-provisioner-58d557dc48-p9j96_kube-system_7fd6cb3b-fa1b-4cf6-91b8-2dc48f5ebd0f_5",
+      "k8s_POD_metrics-server-6dc596dfb8-46tvx_kube-system_b8abf359-78cf-46b7-afb3-a3cf654e93c0_7",
+      "k8s_POD_net-kourier-controller-769cd4d84c-mpvj4_knative-serving_a859182b-3989-44e1-8ad7-068a1efe2192_3",
+      "k8s_POD_svclb-kourier-32c17a7b-g99k6_kube-system_12a61aac-14f5-4323-985c-bfa66cd375ba_3",
+      "k8s_POD_webhook-7d56465b69-khwt8_knative-serving_a7b84bd9-4373-4bbe-843a-0e2fb9c788d8_4",
+      "k8s_activator_activator-67cbcccdfb-t6cg7_knative-serving_af70f812-f578-45d9-aafe-c711ea35ebd4_3",
+      "k8s_autoscaler_autoscaler-847d45f498-rkvpp_knative-serving_ec82673b-6dc8-472a-9e8a-04e02f65f117_3",
+      "k8s_controller_controller-c9767f9c-h8zvb_knative-serving_9a5a04d4-1393-48b2-b655-088fcff5b337_5",
+      "k8s_controller_net-kourier-controller-769cd4d84c-mpvj4_knative-serving_a859182b-3989-44e1-8ad7-068a1efe2192_5",
+      "k8s_coredns_coredns-54996dc9b4-94zpj_kube-system_86f4a07b-00d4-46a7-a1a6-6f878fb26856_3",
+      "k8s_kourier-gateway_3scale-kourier-gateway-d95dfffb6-z2zzz_kourier-system_69daf3cc-53df-449a-ba4e-12ca3f124bf1_3",
+      "k8s_lb-tcp-443_svclb-kourier-32c17a7b-g99k6_kube-system_12a61aac-14f5-4323-985c-bfa66cd375ba_3",
+      "k8s_lb-tcp-80_svclb-kourier-32c17a7b-g99k6_kube-system_12a61aac-14f5-4323-985c-bfa66cd375ba_3",
+      "k8s_local-path-provisioner_local-path-provisioner-58d557dc48-p9j96_kube-system_7fd6cb3b-fa1b-4cf6-91b8-2dc48f5ebd0f_3",
+      "k8s_metrics-server_metrics-server-6dc596dfb8-46tvx_kube-system_b8abf359-78cf-46b7-afb3-a3cf654e93c0_3",
+      "k8s_webhook_webhook-7d56465b69-khwt8_knative-serving_a7b84bd9-4373-4bbe-843a-0e2fb9c788d8_3",
+      "openwhisk",
+      "wsk0_3_guest_hello",
+      "wsk0_4_guest_hello",
+      "wsk0_5_prewarm_nodejs20",
+      "wsk0_6_guest_hello"
+    ],
+    "container_labels": {
+      "k8s_POD_3scale-kourier-gateway-d95dfffb6-z2zzz_kourier-system_69daf3cc-53df-449a-ba4e-12ca3f124bf1_3": {
+        "image": "rancher/mirrored-pause:3.10.2",
+        "labels": [
+          "annotation.kubernetes.io/config.seen=2026-08-13T14:35:47.041069792+05:00",
+          "annotation.kubernetes.io/config.source=api",
+          "annotation.networking.knative.dev/poke=v0.26",
+          "annotation.prometheus.io/path=/stats/prometheus",
+          "annotation.prometheus.io/port=9000",
+          "annotation.prometheus.io/scrape=true",
+          "app=3scale-kourier-gateway",
+          "io.kubernetes.container.name=POD",
+          "io.kubernetes.docker.type=podsandbox",
+          "io.kubernetes.pod.name=3scale-kourier-gateway-d95dfffb6-z2zzz",
+          "io.kubernetes.pod.namespace=kourier-system",
+          "io.kubernetes.pod.uid=69daf3cc-53df-449a-ba4e-12ca3f124bf1",
+          "pod-template-hash=d95dfffb6"
+        ]
+      },
+      "k8s_POD_activator-67cbcccdfb-t6cg7_knative-serving_af70f812-f578-45d9-aafe-c711ea35ebd4_3": {
+        "image": "rancher/mirrored-pause:3.10.2",
+        "labels": [
+          "annotation.kubernetes.io/config.seen=2026-08-13T14:35:33.331904160+05:00",
+          "annotation.kubernetes.io/config.source=api",
+          "app.kubernetes.io/component=activator",
+          "app.kubernetes.io/name=knative-serving",
+          "app.kubernetes.io/version=1.23.0",
+          "app=activator",
+          "io.kubernetes.container.name=POD",
+          "io.kubernetes.docker.type=podsandbox",
+          "io.kubernetes.pod.name=activator-67cbcccdfb-t6cg7",
+          "io.kubernetes.pod.namespace=knative-serving",
+          "io.kubernetes.pod.uid=af70f812-f578-45d9-aafe-c711ea35ebd4",
+          "pod-template-hash=67cbcccdfb",
+          "role=activator"
+        ]
+      },
+      "k8s_POD_autoscaler-847d45f498-rkvpp_knative-serving_ec82673b-6dc8-472a-9e8a-04e02f65f117_3": {
+        "image": "rancher/mirrored-pause:3.10.2",
+        "labels": [
+          "annotation.kubernetes.io/config.seen=2026-08-13T14:35:33.331890481+05:00",
+          "annotation.kubernetes.io/config.source=api",
+          "app.kubernetes.io/component=autoscaler",
+          "app.kubernetes.io/name=knative-serving",
+          "app.kubernetes.io/version=1.23.0",
+          "app=autoscaler",
+          "io.kubernetes.container.name=POD",
+          "io.kubernetes.docker.type=podsandbox",
+          "io.kubernetes.pod.name=autoscaler-847d45f498-rkvpp",
+          "io.kubernetes.pod.namespace=knative-serving",
+          "io.kubernetes.pod.uid=ec82673b-6dc8-472a-9e8a-04e02f65f117",
+          "pod-template-hash=847d45f498"
+        ]
+      },
+      "k8s_POD_controller-c9767f9c-h8zvb_knative-serving_9a5a04d4-1393-48b2-b655-088fcff5b337_3": {
+        "image": "rancher/mirrored-pause:3.10.2",
+        "labels": [
+          "annotation.kubernetes.io/config.seen=2026-08-13T14:35:33.331896145+05:00",
+          "annotation.kubernetes.io/config.source=api",
+          "app.kubernetes.io/component=controller",
+          "app.kubernetes.io/name=knative-serving",
+          "app.kubernetes.io/version=1.23.0",
+          "app=controller",
+          "io.kubernetes.container.name=POD",
+          "io.kubernetes.docker.type=podsandbox",
+          "io.kubernetes.pod.name=controller-c9767f9c-h8zvb",
+          "io.kubernetes.pod.namespace=knative-serving",
+          "io.kubernetes.pod.uid=9a5a04d4-1393-48b2-b655-088fcff5b337",
+          "pod-template-hash=c9767f9c"
+        ]
+      },
+      "k8s_POD_coredns-54996dc9b4-94zpj_kube-system_86f4a07b-00d4-46a7-a1a6-6f878fb26856_6": {
+        "image": "rancher/mirrored-pause:3.10.2",
+        "labels": [
+          "annotation.kubernetes.io/config.seen=2026-08-13T14:35:33.331900877+05:00",
+          "annotation.kubernetes.io/config.source=api",
+          "io.kubernetes.container.name=POD",
+          "io.kubernetes.docker.type=podsandbox",
+          "io.kubernetes.pod.name=coredns-54996dc9b4-94zpj",
+          "io.kubernetes.pod.namespace=kube-system",
+          "io.kubernetes.pod.uid=86f4a07b-00d4-46a7-a1a6-6f878fb26856",
+          "k8s-app=kube-dns",
+          "pod-template-hash=54996dc9b4"
+        ]
+      },
+      "k8s_POD_local-path-provisioner-58d557dc48-p9j96_kube-system_7fd6cb3b-fa1b-4cf6-91b8-2dc48f5ebd0f_5": {
+        "image": "rancher/mirrored-pause:3.10.2",
+        "labels": [
+          "annotation.kubernetes.io/config.seen=2026-08-13T14:35:47.041037422+05:00",
+          "annotation.kubernetes.io/config.source=api",
+          "app=local-path-provisioner",
+          "io.kubernetes.container.name=POD",
+          "io.kubernetes.docker.type=podsandbox",
+          "io.kubernetes.pod.name=local-path-provisioner-58d557dc48-p9j96",
+          "io.kubernetes.pod.namespace=kube-system",
+          "io.kubernetes.pod.uid=7fd6cb3b-fa1b-4cf6-91b8-2dc48f5ebd0f",
+          "pod-template-hash=58d557dc48"
+        ]
+      },
+      "k8s_POD_metrics-server-6dc596dfb8-46tvx_kube-system_b8abf359-78cf-46b7-afb3-a3cf654e93c0_7": {
+        "image": "rancher/mirrored-pause:3.10.2",
+        "labels": [
+          "annotation.kubernetes.io/config.seen=2026-08-13T14:35:47.041053960+05:00",
+          "annotation.kubernetes.io/config.source=api",
+          "io.kubernetes.container.name=POD",
+          "io.kubernetes.docker.type=podsandbox",
+          "io.kubernetes.pod.name=metrics-server-6dc596dfb8-46tvx",
+          "io.kubernetes.pod.namespace=kube-system",
+          "io.kubernetes.pod.uid=b8abf359-78cf-46b7-afb3-a3cf654e93c0",
+          "k8s-app=metrics-server",
+          "pod-template-hash=6dc596dfb8"
+        ]
+      },
+      "k8s_POD_net-kourier-controller-769cd4d84c-mpvj4_knative-serving_a859182b-3989-44e1-8ad7-068a1efe2192_3": {
+        "image": "rancher/mirrored-pause:3.10.2",
+        "labels": [
+          "annotation.kubernetes.io/config.seen=2026-08-13T14:35:33.331860970+05:00",
+          "annotation.kubernetes.io/config.source=api",
+          "annotation.prometheus.io/path=/metrics",
+          "annotation.prometheus.io/port=9090",
+          "annotation.prometheus.io/scrape=true",
+          "app=net-kourier-controller",
+          "io.kubernetes.container.name=POD",
+          "io.kubernetes.docker.type=podsandbox",
+          "io.kubernetes.pod.name=net-kourier-controller-769cd4d84c-mpvj4",
+          "io.kubernetes.pod.namespace=knative-serving",
+          "io.kubernetes.pod.uid=a859182b-3989-44e1-8ad7-068a1efe2192",
+          "pod-template-hash=769cd4d84c"
+        ]
+      },
+      "k8s_POD_svclb-kourier-32c17a7b-g99k6_kube-system_12a61aac-14f5-4323-985c-bfa66cd375ba_3": {
+        "image": "rancher/mirrored-pause:3.10.2",
+        "labels": [
+          "annotation.kubernetes.io/config.seen=2026-08-13T14:35:47.041061609+05:00",
+          "annotation.kubernetes.io/config.source=api",
+          "app=svclb-kourier-32c17a7b",
+          "controller-revision-hash=84c484b947",
+          "io.kubernetes.container.name=POD",
+          "io.kubernetes.docker.type=podsandbox",
+          "io.kubernetes.pod.name=svclb-kourier-32c17a7b-g99k6",
+          "io.kubernetes.pod.namespace=kube-system",
+          "io.kubernetes.pod.uid=12a61aac-14f5-4323-985c-bfa66cd375ba",
+          "pod-template-generation=1",
+          "svccontroller.k3s.cattle.io/svcname=kourier",
+          "svccontroller.k3s.cattle.io/svcnamespace=kourier-system"
+        ]
+      },
+      "k8s_POD_webhook-7d56465b69-khwt8_knative-serving_a7b84bd9-4373-4bbe-843a-0e2fb9c788d8_4": {
+        "image": "rancher/mirrored-pause:3.10.2",
+        "labels": [
+          "annotation.kubernetes.io/config.seen=2026-08-13T14:35:47.041034364+05:00",
+          "annotation.kubernetes.io/config.source=api",
+          "app.kubernetes.io/component=webhook",
+          "app.kubernetes.io/name=knative-serving",
+          "app.kubernetes.io/version=1.23.0",
+          "app=webhook",
+          "io.kubernetes.container.name=POD",
+          "io.kubernetes.docker.type=podsandbox",
+          "io.kubernetes.pod.name=webhook-7d56465b69-khwt8",
+          "io.kubernetes.pod.namespace=knative-serving",
+          "io.kubernetes.pod.uid=a7b84bd9-4373-4bbe-843a-0e2fb9c788d8",
+          "pod-template-hash=7d56465b69",
+          "role=webhook"
+        ]
+      },
+      "k8s_activator_activator-67cbcccdfb-t6cg7_knative-serving_af70f812-f578-45d9-aafe-c711ea35ebd4_3": {
+        "image": "e5ab46f3b73f",
+        "labels": [
+          "annotation.io.kubernetes.container.hash=37c0c95d",
+          "annotation.io.kubernetes.container.ports=[{\"name\":\"metrics\"",
+          "\"containerPort\":9090",
+          "\"protocol\":\"TCP\"}",
+          "{\"name\":\"profiling\"",
+          "\"containerPort\":8008",
+          "\"protocol\":\"TCP\"}",
+          "{\"name\":\"http1\"",
+          "\"containerPort\":8012",
+          "\"protocol\":\"TCP\"}",
+          "{\"name\":\"h2c\"",
+          "\"containerPort\":8013",
+          "\"protocol\":\"TCP\"}]",
+          "annotation.io.kubernetes.container.restartCount=3",
+          "annotation.io.kubernetes.container.terminationMessagePath=/dev/termination-log",
+          "annotation.io.kubernetes.container.terminationMessagePolicy=File",
+          "annotation.io.kubernetes.pod.terminationGracePeriod=600",
+          "io.kubernetes.container.logpath=/var/log/pods/knative-serving_activator-67cbcccdfb-t6cg7_af70f812-f578-45d9-aafe-c711ea35ebd4/activator/3.log",
+          "io.kubernetes.container.name=activator",
+          "io.kubernetes.docker.type=container",
+          "io.kubernetes.pod.name=activator-67cbcccdfb-t6cg7",
+          "io.kubernetes.pod.namespace=knative-serving",
+          "io.kubernetes.pod.uid=af70f812-f578-45d9-aafe-c711ea35ebd4",
+          "io.kubernetes.sandbox.id=9cc68a1b0c619354924941286c55d0a6f39934cbcb097e5499c9a40949d88758",
+          "org.opencontainers.image.created=2026-07-13T21:26:57Z"
+        ]
+      },
+      "k8s_autoscaler_autoscaler-847d45f498-rkvpp_knative-serving_ec82673b-6dc8-472a-9e8a-04e02f65f117_3": {
+        "image": "879da127b23d",
+        "labels": [
+          "annotation.io.kubernetes.container.hash=4597bac7",
+          "annotation.io.kubernetes.container.ports=[{\"name\":\"metrics\"",
+          "\"containerPort\":9090",
+          "\"protocol\":\"TCP\"}",
+          "{\"name\":\"profiling\"",
+          "\"containerPort\":8008",
+          "\"protocol\":\"TCP\"}",
+          "{\"name\":\"websocket\"",
+          "\"containerPort\":8080",
+          "\"protocol\":\"TCP\"}]",
+          "annotation.io.kubernetes.container.restartCount=3",
+          "annotation.io.kubernetes.container.terminationMessagePath=/dev/termination-log",
+          "annotation.io.kubernetes.container.terminationMessagePolicy=File",
+          "annotation.io.kubernetes.pod.terminationGracePeriod=30",
+          "io.kubernetes.container.logpath=/var/log/pods/knative-serving_autoscaler-847d45f498-rkvpp_ec82673b-6dc8-472a-9e8a-04e02f65f117/autoscaler/3.log",
+          "io.kubernetes.container.name=autoscaler",
+          "io.kubernetes.docker.type=container",
+          "io.kubernetes.pod.name=autoscaler-847d45f498-rkvpp",
+          "io.kubernetes.pod.namespace=knative-serving",
+          "io.kubernetes.pod.uid=ec82673b-6dc8-472a-9e8a-04e02f65f117",
+          "io.kubernetes.sandbox.id=7917cd04b90801d0040b2044d5d71440242f709fa978e1889b129ac773def064",
+          "org.opencontainers.image.created=2026-07-13T21:26:57Z"
+        ]
+      },
+      "k8s_controller_controller-c9767f9c-h8zvb_knative-serving_9a5a04d4-1393-48b2-b655-088fcff5b337_5": {
+        "image": "ca5062ece032",
+        "labels": [
+          "annotation.io.kubernetes.container.hash=dc4bd0df",
+          "annotation.io.kubernetes.container.ports=[{\"name\":\"metrics\"",
+          "\"containerPort\":9090",
+          "\"protocol\":\"TCP\"}",
+          "{\"name\":\"profiling\"",
+          "\"containerPort\":8008",
+          "\"protocol\":\"TCP\"}",
+          "{\"name\":\"probes\"",
+          "\"containerPort\":8080",
+          "\"protocol\":\"TCP\"}]",
+          "annotation.io.kubernetes.container.restartCount=5",
+          "annotation.io.kubernetes.container.terminationMessagePath=/dev/termination-log",
+          "annotation.io.kubernetes.container.terminationMessagePolicy=File",
+          "annotation.io.kubernetes.pod.terminationGracePeriod=30",
+          "io.kubernetes.container.logpath=/var/log/pods/knative-serving_controller-c9767f9c-h8zvb_9a5a04d4-1393-48b2-b655-088fcff5b337/controller/5.log",
+          "io.kubernetes.container.name=controller",
+          "io.kubernetes.docker.type=container",
+          "io.kubernetes.pod.name=controller-c9767f9c-h8zvb",
+          "io.kubernetes.pod.namespace=knative-serving",
+          "io.kubernetes.pod.uid=9a5a04d4-1393-48b2-b655-088fcff5b337",
+          "io.kubernetes.sandbox.id=885f140c670ee0003af02207774fcaa1b8ea962dac973d7ed4633ab65261476a",
+          "org.opencontainers.image.created=2026-07-13T21:26:57Z"
+        ]
+      },
+      "k8s_controller_net-kourier-controller-769cd4d84c-mpvj4_knative-serving_a859182b-3989-44e1-8ad7-068a1efe2192_5": {
+        "image": "eedfe3938f1e",
+        "labels": [
+          "annotation.io.kubernetes.container.hash=128736a5",
+          "annotation.io.kubernetes.container.ports=[{\"name\":\"http2-xds\"",
+          "\"containerPort\":18000",
+          "\"protocol\":\"TCP\"}",
+          "{\"name\":\"metrics\"",
+          "\"containerPort\":9090",
+          "\"protocol\":\"TCP\"}]",
+          "annotation.io.kubernetes.container.restartCount=5",
+          "annotation.io.kubernetes.container.terminationMessagePath=/dev/termination-log",
+          "annotation.io.kubernetes.container.terminationMessagePolicy=File",
+          "annotation.io.kubernetes.pod.terminationGracePeriod=30",
+          "io.kubernetes.container.logpath=/var/log/pods/knative-serving_net-kourier-controller-769cd4d84c-mpvj4_a859182b-3989-44e1-8ad7-068a1efe2192/controller/5.log",
+          "io.kubernetes.container.name=controller",
+          "io.kubernetes.docker.type=container",
+          "io.kubernetes.pod.name=net-kourier-controller-769cd4d84c-mpvj4",
+          "io.kubernetes.pod.namespace=knative-serving",
+          "io.kubernetes.pod.uid=a859182b-3989-44e1-8ad7-068a1efe2192",
+          "io.kubernetes.sandbox.id=61d8e23a4a6acede7bb8bdb2d4f5eb86ac4096c33e983ebe52de024daa73fda2",
+          "org.opencontainers.image.created=2026-07-13T21:26:57Z"
+        ]
+      },
+      "k8s_coredns_coredns-54996dc9b4-94zpj_kube-system_86f4a07b-00d4-46a7-a1a6-6f878fb26856_3": {
+        "image": "900f9c109f7a",
+        "labels": [
+          "annotation.io.kubernetes.container.hash=1735ce2a",
+          "annotation.io.kubernetes.container.ports=[{\"name\":\"dns\"",
+          "\"containerPort\":53",
+          "\"protocol\":\"UDP\"}",
+          "{\"name\":\"dns-tcp\"",
+          "\"containerPort\":53",
+          "\"protocol\":\"TCP\"}",
+          "{\"name\":\"metrics\"",
+          "\"containerPort\":9153",
+          "\"protocol\":\"TCP\"}]",
+          "annotation.io.kubernetes.container.restartCount=3",
+          "annotation.io.kubernetes.container.terminationMessagePath=/dev/termination-log",
+          "annotation.io.kubernetes.container.terminationMessagePolicy=File",
+          "annotation.io.kubernetes.pod.terminationGracePeriod=30",
+          "io.kubernetes.container.logpath=/var/log/pods/kube-system_coredns-54996dc9b4-94zpj_86f4a07b-00d4-46a7-a1a6-6f878fb26856/coredns/3.log",
+          "io.kubernetes.container.name=coredns",
+          "io.kubernetes.docker.type=container",
+          "io.kubernetes.pod.name=coredns-54996dc9b4-94zpj",
+          "io.kubernetes.pod.namespace=kube-system",
+          "io.kubernetes.pod.uid=86f4a07b-00d4-46a7-a1a6-6f878fb26856",
+          "io.kubernetes.sandbox.id=dc618bf779c15e2d199962a1a0fdc04f7e92e82af260a74a124feaaf762027f6"
+        ]
+      },
+      "k8s_kourier-gateway_3scale-kourier-gateway-d95dfffb6-z2zzz_kourier-system_69daf3cc-53df-449a-ba4e-12ca3f124bf1_3": {
+        "image": "1c2b79776c6e",
+        "labels": [
+          "annotation.io.kubernetes.container.hash=241835de",
+          "annotation.io.kubernetes.container.ports=[{\"name\":\"http2-external\"",
+          "\"containerPort\":8080",
+          "\"protocol\":\"TCP\"}",
+          "{\"name\":\"http2-internal\"",
+          "\"containerPort\":8081",
+          "\"protocol\":\"TCP\"}",
+          "{\"name\":\"https-external\"",
+          "\"containerPort\":8443",
+          "\"protocol\":\"TCP\"}",
+          "{\"name\":\"http-probe\"",
+          "\"containerPort\":8090",
+          "\"protocol\":\"TCP\"}",
+          "{\"name\":\"https-probe\"",
+          "\"containerPort\":9443",
+          "\"protocol\":\"TCP\"}",
+          "{\"name\":\"metrics\"",
+          "\"containerPort\":9000",
+          "\"protocol\":\"TCP\"}]",
+          "annotation.io.kubernetes.container.preStopHandler={\"exec\":{\"command\":[\"/bin/sh\"",
+          "\"-c\"",
+          "\"curl -X POST http://localhost:9901/drain_listeners?graceful; sleep $DRAIN_TIME_SECONDS\"]}}",
+          "annotation.io.kubernetes.container.restartCount=3",
+          "annotation.io.kubernetes.container.terminationMessagePath=/dev/termination-log",
+          "annotation.io.kubernetes.container.terminationMessagePolicy=File",
+          "annotation.io.kubernetes.pod.terminationGracePeriod=30",
+          "io.kubernetes.container.logpath=/var/log/pods/kourier-system_3scale-kourier-gateway-d95dfffb6-z2zzz_69daf3cc-53df-449a-ba4e-12ca3f124bf1/kourier-gateway/3.log",
+          "io.kubernetes.container.name=kourier-gateway",
+          "io.kubernetes.docker.type=container",
+          "io.kubernetes.pod.name=3scale-kourier-gateway-d95dfffb6-z2zzz",
+          "io.kubernetes.pod.namespace=kourier-system",
+          "io.kubernetes.pod.uid=69daf3cc-53df-449a-ba4e-12ca3f124bf1",
+          "io.kubernetes.sandbox.id=de7ff32127342c9f0bf0cf757eb639c4fcade4b5fc43f808737a00c2b3756aec",
+          "org.opencontainers.image.version=22.04"
+        ]
+      },
+      "k8s_lb-tcp-443_svclb-kourier-32c17a7b-g99k6_kube-system_12a61aac-14f5-4323-985c-bfa66cd375ba_3": {
+        "image": "910944bb0bd9",
+        "labels": [
+          "annotation.io.kubernetes.container.hash=93cfbcd9",
+          "annotation.io.kubernetes.container.ports=[{\"name\":\"lb-tcp-443\"",
+          "\"hostPort\":443",
+          "\"containerPort\":443",
+          "\"protocol\":\"TCP\"}]",
+          "annotation.io.kubernetes.container.restartCount=3",
+          "annotation.io.kubernetes.container.terminationMessagePath=/dev/termination-log",
+          "annotation.io.kubernetes.container.terminationMessagePolicy=File",
+          "annotation.io.kubernetes.pod.terminationGracePeriod=30",
+          "buildDate=",
+          "io.kubernetes.container.logpath=/var/log/pods/kube-system_svclb-kourier-32c17a7b-g99k6_12a61aac-14f5-4323-985c-bfa66cd375ba/lb-tcp-443/3.log",
+          "io.kubernetes.container.name=lb-tcp-443",
+          "io.kubernetes.docker.type=container",
+          "io.kubernetes.pod.name=svclb-kourier-32c17a7b-g99k6",
+          "io.kubernetes.pod.namespace=kube-system",
+          "io.kubernetes.pod.uid=12a61aac-14f5-4323-985c-bfa66cd375ba",
+          "io.kubernetes.sandbox.id=c46a4762b564c9afb91beabb610e293a61a7ac34564312babc43bb651865cdf2"
+        ]
+      },
+      "k8s_lb-tcp-80_svclb-kourier-32c17a7b-g99k6_kube-system_12a61aac-14f5-4323-985c-bfa66cd375ba_3": {
+        "image": "910944bb0bd9",
+        "labels": [
+          "annotation.io.kubernetes.container.hash=5e234596",
+          "annotation.io.kubernetes.container.ports=[{\"name\":\"lb-tcp-80\"",
+          "\"hostPort\":80",
+          "\"containerPort\":80",
+          "\"protocol\":\"TCP\"}]",
+          "annotation.io.kubernetes.container.restartCount=3",
+          "annotation.io.kubernetes.container.terminationMessagePath=/dev/termination-log",
+          "annotation.io.kubernetes.container.terminationMessagePolicy=File",
+          "annotation.io.kubernetes.pod.terminationGracePeriod=30",
+          "buildDate=",
+          "io.kubernetes.container.logpath=/var/log/pods/kube-system_svclb-kourier-32c17a7b-g99k6_12a61aac-14f5-4323-985c-bfa66cd375ba/lb-tcp-80/3.log",
+          "io.kubernetes.container.name=lb-tcp-80",
+          "io.kubernetes.docker.type=container",
+          "io.kubernetes.pod.name=svclb-kourier-32c17a7b-g99k6",
+          "io.kubernetes.pod.namespace=kube-system",
+          "io.kubernetes.pod.uid=12a61aac-14f5-4323-985c-bfa66cd375ba",
+          "io.kubernetes.sandbox.id=c46a4762b564c9afb91beabb610e293a61a7ac34564312babc43bb651865cdf2"
+        ]
+      },
+      "k8s_local-path-provisioner_local-path-provisioner-58d557dc48-p9j96_kube-system_7fd6cb3b-fa1b-4cf6-91b8-2dc48f5ebd0f_3": {
+        "image": "1eba82e9c386",
+        "labels": [
+          "annotation.io.kubernetes.container.hash=6649ab14",
+          "annotation.io.kubernetes.container.restartCount=3",
+          "annotation.io.kubernetes.container.terminationMessagePath=/dev/termination-log",
+          "annotation.io.kubernetes.container.terminationMessagePolicy=File",
+          "annotation.io.kubernetes.pod.terminationGracePeriod=30",
+          "io.kubernetes.container.logpath=/var/log/pods/kube-system_local-path-provisioner-58d557dc48-p9j96_7fd6cb3b-fa1b-4cf6-91b8-2dc48f5ebd0f/local-path-provisioner/3.log",
+          "io.kubernetes.container.name=local-path-provisioner",
+          "io.kubernetes.docker.type=container",
+          "io.kubernetes.pod.name=local-path-provisioner-58d557dc48-p9j96",
+          "io.kubernetes.pod.namespace=kube-system",
+          "io.kubernetes.pod.uid=7fd6cb3b-fa1b-4cf6-91b8-2dc48f5ebd0f",
+          "io.kubernetes.sandbox.id=50e6e26c2e8c3cd77fb34e8b4e3190cfc17e39035fe797a791d4618d754776f5"
+        ]
+      },
+      "k8s_metrics-server_metrics-server-6dc596dfb8-46tvx_kube-system_b8abf359-78cf-46b7-afb3-a3cf654e93c0_3": {
+        "image": "d9862115e7c7",
+        "labels": [
+          "annotation.io.kubernetes.container.hash=8538ee20",
+          "annotation.io.kubernetes.container.ports=[{\"name\":\"https\"",
+          "\"containerPort\":10250",
+          "\"protocol\":\"TCP\"}]",
+          "annotation.io.kubernetes.container.restartCount=3",
+          "annotation.io.kubernetes.container.terminationMessagePath=/dev/termination-log",
+          "annotation.io.kubernetes.container.terminationMessagePolicy=File",
+          "annotation.io.kubernetes.pod.terminationGracePeriod=30",
+          "io.kubernetes.container.logpath=/var/log/pods/kube-system_metrics-server-6dc596dfb8-46tvx_b8abf359-78cf-46b7-afb3-a3cf654e93c0/metrics-server/3.log",
+          "io.kubernetes.container.name=metrics-server",
+          "io.kubernetes.docker.type=container",
+          "io.kubernetes.pod.name=metrics-server-6dc596dfb8-46tvx",
+          "io.kubernetes.pod.namespace=kube-system",
+          "io.kubernetes.pod.uid=b8abf359-78cf-46b7-afb3-a3cf654e93c0",
+          "io.kubernetes.sandbox.id=bd4aa9e09b4d5d21aac2edee5968ce478cce9c2b99f92af16163d3357bd268aa"
+        ]
+      },
+      "k8s_webhook_webhook-7d56465b69-khwt8_knative-serving_a7b84bd9-4373-4bbe-843a-0e2fb9c788d8_3": {
+        "image": "3846e9a41666",
+        "labels": [
+          "annotation.io.kubernetes.container.hash=ae2dd1bc",
+          "annotation.io.kubernetes.container.ports=[{\"name\":\"metrics\"",
+          "\"containerPort\":9090",
+          "\"protocol\":\"TCP\"}",
+          "{\"name\":\"profiling\"",
+          "\"containerPort\":8008",
+          "\"protocol\":\"TCP\"}",
+          "{\"name\":\"https-webhook\"",
+          "\"containerPort\":8443",
+          "\"protocol\":\"TCP\"}]",
+          "annotation.io.kubernetes.container.restartCount=3",
+          "annotation.io.kubernetes.container.terminationMessagePath=/dev/termination-log",
+          "annotation.io.kubernetes.container.terminationMessagePolicy=File",
+          "annotation.io.kubernetes.pod.terminationGracePeriod=300",
+          "io.kubernetes.container.logpath=/var/log/pods/knative-serving_webhook-7d56465b69-khwt8_a7b84bd9-4373-4bbe-843a-0e2fb9c788d8/webhook/3.log",
+          "io.kubernetes.container.name=webhook",
+          "io.kubernetes.docker.type=container",
+          "io.kubernetes.pod.name=webhook-7d56465b69-khwt8",
+          "io.kubernetes.pod.namespace=knative-serving",
+          "io.kubernetes.pod.uid=a7b84bd9-4373-4bbe-843a-0e2fb9c788d8",
+          "io.kubernetes.sandbox.id=aa854c7d3ba1022fe62838beabcaa7521505f25e99ef747f223490d1cde61244",
+          "org.opencontainers.image.created=2026-07-13T21:26:57Z"
+        ]
+      },
+      "openwhisk": {
+        "image": "openwhisk/standalone:nightly",
+        "labels": []
+      },
+      "wsk0_1_prewarm_nodejs20": {
+        "image": "openwhisk/action-nodejs-v20:nightly",
+        "labels": []
+      },
+      "wsk0_2_prewarm_nodejs20": {
+        "image": "openwhisk/action-nodejs-v20:nightly",
+        "labels": []
+      },
+      "wsk0_3_guest_hello": {
+        "image": "openwhisk/action-python-v3.11:nightly",
+        "labels": []
+      },
+      "wsk0_4_guest_hello": {
+        "image": "openwhisk/action-python-v3.11:nightly",
+        "labels": []
+      },
+      "wsk0_5_prewarm_nodejs20": {
+        "image": "openwhisk/action-nodejs-v20:nightly",
+        "labels": []
+      },
+      "wsk0_6_guest_hello": {
+        "image": "openwhisk/action-python-v3.11:nightly",
+        "labels": []
+      }
+    },
+    "cp_peak_mem_mb": 428.8,
+    "carbon_gCO2": {
+      "op_total": 0.108,
+      "op_control_plane": 0.043,
+      "idle_band": {
+        "15": 0.225,
+        "30": 0.398,
+        "45": 0.57
+      }
+    },
+    "model": {
+      "idle_w": 4.832,
+      "busy_core_w": 3.5,
+      "pue": 1.15,
+      "ci": 150.0
+    },
+    "sensitivity": {
+      "cp_dynamic_share_pct_by_busy_w": {
+        "2.0": 82.27,
+        "3.5": 82.27,
+        "5.0": 82.27
+      },
+      "dynamic_energy_J_by_busy_w": {
+        "2.0": 624.7,
+        "3.5": 1093.2,
+        "5.0": 1561.6
+      },
+      "op_carbon_gCO2_by_busy_w": {
+        "2.0": 0.086,
+        "3.5": 0.108,
+        "5.0": 0.13
+      }
+    },
+    "kpi_gco2_per_slo_compliant_inv": 4.392e-05,
+    "kpi_gco2_per_inv_dynamic": 2.13e-05,
+    "embodied_dram_g_per_gb_h": 0.0317,
+    "host_cpu_sec": 1183.24,
+    "host_window_s": 240.198,
+    "host_saturation_pct": 61.6,
+    "host_plausible": true,
+    "host_saturated": false,
+    "host_overhead_cpu_sec": 870.91,
+    "orchestration_cpu_sec": 1127.87,
+    "orchestration_share_pct": 95.32,
+    "steal_sec": null,
+    "steal_pct": null,
+    "cp_delta_sec": 256.958,
+    "cp_sampler_vs_delta_pct": 0.0,
+    "delta_check_map": {
+      "openwhisk": "ok"
+    },
+    "env": {
+      "cpu_count": 8,
+      "governor": "powersave",
+      "freq_mhz_before": 3997.9,
+      "freq_mhz_after": 399.6,
+      "sampler": "cgroup",
+      "loadgen": "py",
+      "loadgen_requested": "hey",
+      "loadgen_fallback": true
+    },
+    "rapl_validation_err_pct": 37.89,
+    "rapl_wrap": "none",
+    "rapl_available": true
+  },
+  {
+    "platform": "openwhisk",
+    "url": "http://127.0.0.1:3233/api/v1/web/guest/default/hello",
+    "mode": "load",
+    "wall_s": 240.25,
+    "wall_harness_s": 240.25,
+    "sampling_covered_s": 240.25,
+    "requests": 1928,
+    "successes": 1928,
+    "availability": 1.0,
+    "throughput_rps": 8.02,
+    "latency_ms": {
+      "p50": 122.33,
+      "p90": 150.25,
+      "p99": 192.26,
+      "max": 241.67
+    },
+    "slo_ms": 500.0,
+    "slo_compliance": 1.0,
+    "compliance_source": "measured",
+    "energy_J": {
+      "total": 2115.7,
+      "dynamic": 954.8,
+      "control_plane": 784.0,
+      "function": 170.7
+    },
+    "cp_share_pct": 37.06,
+    "cp_dynamic_share_pct": 82.12,
+    "cpu_sec": {
+      "control_plane": 224.01,
+      "function": 48.78
+    },
+    "cpu_sec_ceiling": 1922.02,
+    "physical_plausible": true,
+    "unclassified_cpu_s": 3.44,
+    "container_inventory": [
+      "k8s_POD_3scale-kourier-gateway-d95dfffb6-z2zzz_kourier-system_69daf3cc-53df-449a-ba4e-12ca3f124bf1_3",
+      "k8s_POD_activator-67cbcccdfb-t6cg7_knative-serving_af70f812-f578-45d9-aafe-c711ea35ebd4_3",
+      "k8s_POD_autoscaler-847d45f498-rkvpp_knative-serving_ec82673b-6dc8-472a-9e8a-04e02f65f117_3",
+      "k8s_POD_controller-c9767f9c-h8zvb_knative-serving_9a5a04d4-1393-48b2-b655-088fcff5b337_3",
+      "k8s_POD_coredns-54996dc9b4-94zpj_kube-system_86f4a07b-00d4-46a7-a1a6-6f878fb26856_6",
+      "k8s_POD_local-path-provisioner-58d557dc48-p9j96_kube-system_7fd6cb3b-fa1b-4cf6-91b8-2dc48f5ebd0f_5",
+      "k8s_POD_metrics-server-6dc596dfb8-46tvx_kube-system_b8abf359-78cf-46b7-afb3-a3cf654e93c0_7",
+      "k8s_POD_net-kourier-controller-769cd4d84c-mpvj4_knative-serving_a859182b-3989-44e1-8ad7-068a1efe2192_3",
+      "k8s_POD_svclb-kourier-32c17a7b-g99k6_kube-system_12a61aac-14f5-4323-985c-bfa66cd375ba_3",
+      "k8s_POD_webhook-7d56465b69-khwt8_knative-serving_a7b84bd9-4373-4bbe-843a-0e2fb9c788d8_4",
+      "k8s_activator_activator-67cbcccdfb-t6cg7_knative-serving_af70f812-f578-45d9-aafe-c711ea35ebd4_3",
+      "k8s_autoscaler_autoscaler-847d45f498-rkvpp_knative-serving_ec82673b-6dc8-472a-9e8a-04e02f65f117_3",
+      "k8s_controller_controller-c9767f9c-h8zvb_knative-serving_9a5a04d4-1393-48b2-b655-088fcff5b337_5",
+      "k8s_controller_net-kourier-controller-769cd4d84c-mpvj4_knative-serving_a859182b-3989-44e1-8ad7-068a1efe2192_5",
+      "k8s_coredns_coredns-54996dc9b4-94zpj_kube-system_86f4a07b-00d4-46a7-a1a6-6f878fb26856_3",
+      "k8s_kourier-gateway_3scale-kourier-gateway-d95dfffb6-z2zzz_kourier-system_69daf3cc-53df-449a-ba4e-12ca3f124bf1_3",
+      "k8s_lb-tcp-443_svclb-kourier-32c17a7b-g99k6_kube-system_12a61aac-14f5-4323-985c-bfa66cd375ba_3",
+      "k8s_lb-tcp-80_svclb-kourier-32c17a7b-g99k6_kube-system_12a61aac-14f5-4323-985c-bfa66cd375ba_3",
+      "k8s_local-path-provisioner_local-path-provisioner-58d557dc48-p9j96_kube-system_7fd6cb3b-fa1b-4cf6-91b8-2dc48f5ebd0f_3",
+      "k8s_metrics-server_metrics-server-6dc596dfb8-46tvx_kube-system_b8abf359-78cf-46b7-afb3-a3cf654e93c0_3",
+      "k8s_webhook_webhook-7d56465b69-khwt8_knative-serving_a7b84bd9-4373-4bbe-843a-0e2fb9c788d8_3",
+      "openwhisk",
+      "wsk0_3_guest_hello",
+      "wsk0_4_guest_hello",
+      "wsk0_5_prewarm_nodejs20",
+      "wsk0_6_guest_hello"
+    ],
+    "container_labels": {
+      "k8s_POD_3scale-kourier-gateway-d95dfffb6-z2zzz_kourier-system_69daf3cc-53df-449a-ba4e-12ca3f124bf1_3": {
+        "image": "rancher/mirrored-pause:3.10.2",
+        "labels": [
+          "annotation.kubernetes.io/config.seen=2026-08-13T14:35:47.041069792+05:00",
+          "annotation.kubernetes.io/config.source=api",
+          "annotation.networking.knative.dev/poke=v0.26",
+          "annotation.prometheus.io/path=/stats/prometheus",
+          "annotation.prometheus.io/port=9000",
+          "annotation.prometheus.io/scrape=true",
+          "app=3scale-kourier-gateway",
+          "io.kubernetes.container.name=POD",
+          "io.kubernetes.docker.type=podsandbox",
+          "io.kubernetes.pod.name=3scale-kourier-gateway-d95dfffb6-z2zzz",
+          "io.kubernetes.pod.namespace=kourier-system",
+          "io.kubernetes.pod.uid=69daf3cc-53df-449a-ba4e-12ca3f124bf1",
+          "pod-template-hash=d95dfffb6"
+        ]
+      },
+      "k8s_POD_activator-67cbcccdfb-t6cg7_knative-serving_af70f812-f578-45d9-aafe-c711ea35ebd4_3": {
+        "image": "rancher/mirrored-pause:3.10.2",
+        "labels": [
+          "annotation.kubernetes.io/config.seen=2026-08-13T14:35:33.331904160+05:00",
+          "annotation.kubernetes.io/config.source=api",
+          "app.kubernetes.io/component=activator",
+          "app.kubernetes.io/name=knative-serving",
+          "app.kubernetes.io/version=1.23.0",
+          "app=activator",
+          "io.kubernetes.container.name=POD",
+          "io.kubernetes.docker.type=podsandbox",
+          "io.kubernetes.pod.name=activator-67cbcccdfb-t6cg7",
+          "io.kubernetes.pod.namespace=knative-serving",
+          "io.kubernetes.pod.uid=af70f812-f578-45d9-aafe-c711ea35ebd4",
+          "pod-template-hash=67cbcccdfb",
+          "role=activator"
+        ]
+      },
+      "k8s_POD_autoscaler-847d45f498-rkvpp_knative-serving_ec82673b-6dc8-472a-9e8a-04e02f65f117_3": {
+        "image": "rancher/mirrored-pause:3.10.2",
+        "labels": [
+          "annotation.kubernetes.io/config.seen=2026-08-13T14:35:33.331890481+05:00",
+          "annotation.kubernetes.io/config.source=api",
+          "app.kubernetes.io/component=autoscaler",
+          "app.kubernetes.io/name=knative-serving",
+          "app.kubernetes.io/version=1.23.0",
+          "app=autoscaler",
+          "io.kubernetes.container.name=POD",
+          "io.kubernetes.docker.type=podsandbox",
+          "io.kubernetes.pod.name=autoscaler-847d45f498-rkvpp",
+          "io.kubernetes.pod.namespace=knative-serving",
+          "io.kubernetes.pod.uid=ec82673b-6dc8-472a-9e8a-04e02f65f117",
+          "pod-template-hash=847d45f498"
+        ]
+      },
+      "k8s_POD_controller-c9767f9c-h8zvb_knative-serving_9a5a04d4-1393-48b2-b655-088fcff5b337_3": {
+        "image": "rancher/mirrored-pause:3.10.2",
+        "labels": [
+          "annotation.kubernetes.io/config.seen=2026-08-13T14:35:33.331896145+05:00",
+          "annotation.kubernetes.io/config.source=api",
+          "app.kubernetes.io/component=controller",
+          "app.kubernetes.io/name=knative-serving",
+          "app.kubernetes.io/version=1.23.0",
+          "app=controller",
+          "io.kubernetes.container.name=POD",
+          "io.kubernetes.docker.type=podsandbox",
+          "io.kubernetes.pod.name=controller-c9767f9c-h8zvb",
+          "io.kubernetes.pod.namespace=knative-serving",
+          "io.kubernetes.pod.uid=9a5a04d4-1393-48b2-b655-088fcff5b337",
+          "pod-template-hash=c9767f9c"
+        ]
+      },
+      "k8s_POD_coredns-54996dc9b4-94zpj_kube-system_86f4a07b-00d4-46a7-a1a6-6f878fb26856_6": {
+        "image": "rancher/mirrored-pause:3.10.2",
+        "labels": [
+          "annotation.kubernetes.io/config.seen=2026-08-13T14:35:33.331900877+05:00",
+          "annotation.kubernetes.io/config.source=api",
+          "io.kubernetes.container.name=POD",
+          "io.kubernetes.docker.type=podsandbox",
+          "io.kubernetes.pod.name=coredns-54996dc9b4-94zpj",
+          "io.kubernetes.pod.namespace=kube-system",
+          "io.kubernetes.pod.uid=86f4a07b-00d4-46a7-a1a6-6f878fb26856",
+          "k8s-app=kube-dns",
+          "pod-template-hash=54996dc9b4"
+        ]
+      },
+      "k8s_POD_local-path-provisioner-58d557dc48-p9j96_kube-system_7fd6cb3b-fa1b-4cf6-91b8-2dc48f5ebd0f_5": {
+        "image": "rancher/mirrored-pause:3.10.2",
+        "labels": [
+          "annotation.kubernetes.io/config.seen=2026-08-13T14:35:47.041037422+05:00",
+          "annotation.kubernetes.io/config.source=api",
+          "app=local-path-provisioner",
+          "io.kubernetes.container.name=POD",
+          "io.kubernetes.docker.type=podsandbox",
+          "io.kubernetes.pod.name=local-path-provisioner-58d557dc48-p9j96",
+          "io.kubernetes.pod.namespace=kube-system",
+          "io.kubernetes.pod.uid=7fd6cb3b-fa1b-4cf6-91b8-2dc48f5ebd0f",
+          "pod-template-hash=58d557dc48"
+        ]
+      },
+      "k8s_POD_metrics-server-6dc596dfb8-46tvx_kube-system_b8abf359-78cf-46b7-afb3-a3cf654e93c0_7": {
+        "image": "rancher/mirrored-pause:3.10.2",
+        "labels": [
+          "annotation.kubernetes.io/config.seen=2026-08-13T14:35:47.041053960+05:00",
+          "annotation.kubernetes.io/config.source=api",
+          "io.kubernetes.container.name=POD",
+          "io.kubernetes.docker.type=podsandbox",
+          "io.kubernetes.pod.name=metrics-server-6dc596dfb8-46tvx",
+          "io.kubernetes.pod.namespace=kube-system",
+          "io.kubernetes.pod.uid=b8abf359-78cf-46b7-afb3-a3cf654e93c0",
+          "k8s-app=metrics-server",
+          "pod-template-hash=6dc596dfb8"
+        ]
+      },
+      "k8s_POD_net-kourier-controller-769cd4d84c-mpvj4_knative-serving_a859182b-3989-44e1-8ad7-068a1efe2192_3": {
+        "image": "rancher/mirrored-pause:3.10.2",
+        "labels": [
+          "annotation.kubernetes.io/config.seen=2026-08-13T14:35:33.331860970+05:00",
+          "annotation.kubernetes.io/config.source=api",
+          "annotation.prometheus.io/path=/metrics",
+          "annotation.prometheus.io/port=9090",
+          "annotation.prometheus.io/scrape=true",
+          "app=net-kourier-controller",
+          "io.kubernetes.container.name=POD",
+          "io.kubernetes.docker.type=podsandbox",
+          "io.kubernetes.pod.name=net-kourier-controller-769cd4d84c-mpvj4",
+          "io.kubernetes.pod.namespace=knative-serving",
+          "io.kubernetes.pod.uid=a859182b-3989-44e1-8ad7-068a1efe2192",
+          "pod-template-hash=769cd4d84c"
+        ]
+      },
+      "k8s_POD_svclb-kourier-32c17a7b-g99k6_kube-system_12a61aac-14f5-4323-985c-bfa66cd375ba_3": {
+        "image": "rancher/mirrored-pause:3.10.2",
+        "labels": [
+          "annotation.kubernetes.io/config.seen=2026-08-13T14:35:47.041061609+05:00",
+          "annotation.kubernetes.io/config.source=api",
+          "app=svclb-kourier-32c17a7b",
+          "controller-revision-hash=84c484b947",
+          "io.kubernetes.container.name=POD",
+          "io.kubernetes.docker.type=podsandbox",
+          "io.kubernetes.pod.name=svclb-kourier-32c17a7b-g99k6",
+          "io.kubernetes.pod.namespace=kube-system",
+          "io.kubernetes.pod.uid=12a61aac-14f5-4323-985c-bfa66cd375ba",
+          "pod-template-generation=1",
+          "svccontroller.k3s.cattle.io/svcname=kourier",
+          "svccontroller.k3s.cattle.io/svcnamespace=kourier-system"
+        ]
+      },
+      "k8s_POD_webhook-7d56465b69-khwt8_knative-serving_a7b84bd9-4373-4bbe-843a-0e2fb9c788d8_4": {
+        "image": "rancher/mirrored-pause:3.10.2",
+        "labels": [
+          "annotation.kubernetes.io/config.seen=2026-08-13T14:35:47.041034364+05:00",
+          "annotation.kubernetes.io/config.source=api",
+          "app.kubernetes.io/component=webhook",
+          "app.kubernetes.io/name=knative-serving",
+          "app.kubernetes.io/version=1.23.0",
+          "app=webhook",
+          "io.kubernetes.container.name=POD",
+          "io.kubernetes.docker.type=podsandbox",
+          "io.kubernetes.pod.name=webhook-7d56465b69-khwt8",
+          "io.kubernetes.pod.namespace=knative-serving",
+          "io.kubernetes.pod.uid=a7b84bd9-4373-4bbe-843a-0e2fb9c788d8",
+          "pod-template-hash=7d56465b69",
+          "role=webhook"
+        ]
+      },
+      "k8s_activator_activator-67cbcccdfb-t6cg7_knative-serving_af70f812-f578-45d9-aafe-c711ea35ebd4_3": {
+        "image": "e5ab46f3b73f",
+        "labels": [
+          "annotation.io.kubernetes.container.hash=37c0c95d",
+          "annotation.io.kubernetes.container.ports=[{\"name\":\"metrics\"",
+          "\"containerPort\":9090",
+          "\"protocol\":\"TCP\"}",
+          "{\"name\":\"profiling\"",
+          "\"containerPort\":8008",
+          "\"protocol\":\"TCP\"}",
+          "{\"name\":\"http1\"",
+          "\"containerPort\":8012",
+          "\"protocol\":\"TCP\"}",
+          "{\"name\":\"h2c\"",
+          "\"containerPort\":8013",
+          "\"protocol\":\"TCP\"}]",
+          "annotation.io.kubernetes.container.restartCount=3",
+          "annotation.io.kubernetes.container.terminationMessagePath=/dev/termination-log",
+          "annotation.io.kubernetes.container.terminationMessagePolicy=File",
+          "annotation.io.kubernetes.pod.terminationGracePeriod=600",
+          "io.kubernetes.container.logpath=/var/log/pods/knative-serving_activator-67cbcccdfb-t6cg7_af70f812-f578-45d9-aafe-c711ea35ebd4/activator/3.log",
+          "io.kubernetes.container.name=activator",
+          "io.kubernetes.docker.type=container",
+          "io.kubernetes.pod.name=activator-67cbcccdfb-t6cg7",
+          "io.kubernetes.pod.namespace=knative-serving",
+          "io.kubernetes.pod.uid=af70f812-f578-45d9-aafe-c711ea35ebd4",
+          "io.kubernetes.sandbox.id=9cc68a1b0c619354924941286c55d0a6f39934cbcb097e5499c9a40949d88758",
+          "org.opencontainers.image.created=2026-07-13T21:26:57Z"
+        ]
+      },
+      "k8s_autoscaler_autoscaler-847d45f498-rkvpp_knative-serving_ec82673b-6dc8-472a-9e8a-04e02f65f117_3": {
+        "image": "879da127b23d",
+        "labels": [
+          "annotation.io.kubernetes.container.hash=4597bac7",
+          "annotation.io.kubernetes.container.ports=[{\"name\":\"metrics\"",
+          "\"containerPort\":9090",
+          "\"protocol\":\"TCP\"}",
+          "{\"name\":\"profiling\"",
+          "\"containerPort\":8008",
+          "\"protocol\":\"TCP\"}",
+          "{\"name\":\"websocket\"",
+          "\"containerPort\":8080",
+          "\"protocol\":\"TCP\"}]",
+          "annotation.io.kubernetes.container.restartCount=3",
+          "annotation.io.kubernetes.container.terminationMessagePath=/dev/termination-log",
+          "annotation.io.kubernetes.container.terminationMessagePolicy=File",
+          "annotation.io.kubernetes.pod.terminationGracePeriod=30",
+          "io.kubernetes.container.logpath=/var/log/pods/knative-serving_autoscaler-847d45f498-rkvpp_ec82673b-6dc8-472a-9e8a-04e02f65f117/autoscaler/3.log",
+          "io.kubernetes.container.name=autoscaler",
+          "io.kubernetes.docker.type=container",
+          "io.kubernetes.pod.name=autoscaler-847d45f498-rkvpp",
+          "io.kubernetes.pod.namespace=knative-serving",
+          "io.kubernetes.pod.uid=ec82673b-6dc8-472a-9e8a-04e02f65f117",
+          "io.kubernetes.sandbox.id=7917cd04b90801d0040b2044d5d71440242f709fa978e1889b129ac773def064",
+          "org.opencontainers.image.created=2026-07-13T21:26:57Z"
+        ]
+      },
+      "k8s_controller_controller-c9767f9c-h8zvb_knative-serving_9a5a04d4-1393-48b2-b655-088fcff5b337_5": {
+        "image": "ca5062ece032",
+        "labels": [
+          "annotation.io.kubernetes.container.hash=dc4bd0df",
+          "annotation.io.kubernetes.container.ports=[{\"name\":\"metrics\"",
+          "\"containerPort\":9090",
+          "\"protocol\":\"TCP\"}",
+          "{\"name\":\"profiling\"",
+          "\"containerPort\":8008",
+          "\"protocol\":\"TCP\"}",
+          "{\"name\":\"probes\"",
+          "\"containerPort\":8080",
+          "\"protocol\":\"TCP\"}]",
+          "annotation.io.kubernetes.container.restartCount=5",
+          "annotation.io.kubernetes.container.terminationMessagePath=/dev/termination-log",
+          "annotation.io.kubernetes.container.terminationMessagePolicy=File",
+          "annotation.io.kubernetes.pod.terminationGracePeriod=30",
+          "io.kubernetes.container.logpath=/var/log/pods/knative-serving_controller-c9767f9c-h8zvb_9a5a04d4-1393-48b2-b655-088fcff5b337/controller/5.log",
+          "io.kubernetes.container.name=controller",
+          "io.kubernetes.docker.type=container",
+          "io.kubernetes.pod.name=controller-c9767f9c-h8zvb",
+          "io.kubernetes.pod.namespace=knative-serving",
+          "io.kubernetes.pod.uid=9a5a04d4-1393-48b2-b655-088fcff5b337",
+          "io.kubernetes.sandbox.id=885f140c670ee0003af02207774fcaa1b8ea962dac973d7ed4633ab65261476a",
+          "org.opencontainers.image.created=2026-07-13T21:26:57Z"
+        ]
+      },
+      "k8s_controller_net-kourier-controller-769cd4d84c-mpvj4_knative-serving_a859182b-3989-44e1-8ad7-068a1efe2192_5": {
+        "image": "eedfe3938f1e",
+        "labels": [
+          "annotation.io.kubernetes.container.hash=128736a5",
+          "annotation.io.kubernetes.container.ports=[{\"name\":\"http2-xds\"",
+          "\"containerPort\":18000",
+          "\"protocol\":\"TCP\"}",
+          "{\"name\":\"metrics\"",
+          "\"containerPort\":9090",
+          "\"protocol\":\"TCP\"}]",
+          "annotation.io.kubernetes.container.restartCount=5",
+          "annotation.io.kubernetes.container.terminationMessagePath=/dev/termination-log",
+          "annotation.io.kubernetes.container.terminationMessagePolicy=File",
+          "annotation.io.kubernetes.pod.terminationGracePeriod=30",
+          "io.kubernetes.container.logpath=/var/log/pods/knative-serving_net-kourier-controller-769cd4d84c-mpvj4_a859182b-3989-44e1-8ad7-068a1efe2192/controller/5.log",
+          "io.kubernetes.container.name=controller",
+          "io.kubernetes.docker.type=container",
+          "io.kubernetes.pod.name=net-kourier-controller-769cd4d84c-mpvj4",
+          "io.kubernetes.pod.namespace=knative-serving",
+          "io.kubernetes.pod.uid=a859182b-3989-44e1-8ad7-068a1efe2192",
+          "io.kubernetes.sandbox.id=61d8e23a4a6acede7bb8bdb2d4f5eb86ac4096c33e983ebe52de024daa73fda2",
+          "org.opencontainers.image.created=2026-07-13T21:26:57Z"
+        ]
+      },
+      "k8s_coredns_coredns-54996dc9b4-94zpj_kube-system_86f4a07b-00d4-46a7-a1a6-6f878fb26856_3": {
+        "image": "900f9c109f7a",
+        "labels": [
+          "annotation.io.kubernetes.container.hash=1735ce2a",
+          "annotation.io.kubernetes.container.ports=[{\"name\":\"dns\"",
+          "\"containerPort\":53",
+          "\"protocol\":\"UDP\"}",
+          "{\"name\":\"dns-tcp\"",
+          "\"containerPort\":53",
+          "\"protocol\":\"TCP\"}",
+          "{\"name\":\"metrics\"",
+          "\"containerPort\":9153",
+          "\"protocol\":\"TCP\"}]",
+          "annotation.io.kubernetes.container.restartCount=3",
+          "annotation.io.kubernetes.container.terminationMessagePath=/dev/termination-log",
+          "annotation.io.kubernetes.container.terminationMessagePolicy=File",
+          "annotation.io.kubernetes.pod.terminationGracePeriod=30",
+          "io.kubernetes.container.logpath=/var/log/pods/kube-system_coredns-54996dc9b4-94zpj_86f4a07b-00d4-46a7-a1a6-6f878fb26856/coredns/3.log",
+          "io.kubernetes.container.name=coredns",
+          "io.kubernetes.docker.type=container",
+          "io.kubernetes.pod.name=coredns-54996dc9b4-94zpj",
+          "io.kubernetes.pod.namespace=kube-system",
+          "io.kubernetes.pod.uid=86f4a07b-00d4-46a7-a1a6-6f878fb26856",
+          "io.kubernetes.sandbox.id=dc618bf779c15e2d199962a1a0fdc04f7e92e82af260a74a124feaaf762027f6"
+        ]
+      },
+      "k8s_kourier-gateway_3scale-kourier-gateway-d95dfffb6-z2zzz_kourier-system_69daf3cc-53df-449a-ba4e-12ca3f124bf1_3": {
+        "image": "1c2b79776c6e",
+        "labels": [
+          "annotation.io.kubernetes.container.hash=241835de",
+          "annotation.io.kubernetes.container.ports=[{\"name\":\"http2-external\"",
+          "\"containerPort\":8080",
+          "\"protocol\":\"TCP\"}",
+          "{\"name\":\"http2-internal\"",
+          "\"containerPort\":8081",
+          "\"protocol\":\"TCP\"}",
+          "{\"name\":\"https-external\"",
+          "\"containerPort\":8443",
+          "\"protocol\":\"TCP\"}",
+          "{\"name\":\"http-probe\"",
+          "\"containerPort\":8090",
+          "\"protocol\":\"TCP\"}",
+          "{\"name\":\"https-probe\"",
+          "\"containerPort\":9443",
+          "\"protocol\":\"TCP\"}",
+          "{\"name\":\"metrics\"",
+          "\"containerPort\":9000",
+          "\"protocol\":\"TCP\"}]",
+          "annotation.io.kubernetes.container.preStopHandler={\"exec\":{\"command\":[\"/bin/sh\"",
+          "\"-c\"",
+          "\"curl -X POST http://localhost:9901/drain_listeners?graceful; sleep $DRAIN_TIME_SECONDS\"]}}",
+          "annotation.io.kubernetes.container.restartCount=3",
+          "annotation.io.kubernetes.container.terminationMessagePath=/dev/termination-log",
+          "annotation.io.kubernetes.container.terminationMessagePolicy=File",
+          "annotation.io.kubernetes.pod.terminationGracePeriod=30",
+          "io.kubernetes.container.logpath=/var/log/pods/kourier-system_3scale-kourier-gateway-d95dfffb6-z2zzz_69daf3cc-53df-449a-ba4e-12ca3f124bf1/kourier-gateway/3.log",
+          "io.kubernetes.container.name=kourier-gateway",
+          "io.kubernetes.docker.type=container",
+          "io.kubernetes.pod.name=3scale-kourier-gateway-d95dfffb6-z2zzz",
+          "io.kubernetes.pod.namespace=kourier-system",
+          "io.kubernetes.pod.uid=69daf3cc-53df-449a-ba4e-12ca3f124bf1",
+          "io.kubernetes.sandbox.id=de7ff32127342c9f0bf0cf757eb639c4fcade4b5fc43f808737a00c2b3756aec",
+          "org.opencontainers.image.version=22.04"
+        ]
+      },
+      "k8s_lb-tcp-443_svclb-kourier-32c17a7b-g99k6_kube-system_12a61aac-14f5-4323-985c-bfa66cd375ba_3": {
+        "image": "910944bb0bd9",
+        "labels": [
+          "annotation.io.kubernetes.container.hash=93cfbcd9",
+          "annotation.io.kubernetes.container.ports=[{\"name\":\"lb-tcp-443\"",
+          "\"hostPort\":443",
+          "\"containerPort\":443",
+          "\"protocol\":\"TCP\"}]",
+          "annotation.io.kubernetes.container.restartCount=3",
+          "annotation.io.kubernetes.container.terminationMessagePath=/dev/termination-log",
+          "annotation.io.kubernetes.container.terminationMessagePolicy=File",
+          "annotation.io.kubernetes.pod.terminationGracePeriod=30",
+          "buildDate=",
+          "io.kubernetes.container.logpath=/var/log/pods/kube-system_svclb-kourier-32c17a7b-g99k6_12a61aac-14f5-4323-985c-bfa66cd375ba/lb-tcp-443/3.log",
+          "io.kubernetes.container.name=lb-tcp-443",
+          "io.kubernetes.docker.type=container",
+          "io.kubernetes.pod.name=svclb-kourier-32c17a7b-g99k6",
+          "io.kubernetes.pod.namespace=kube-system",
+          "io.kubernetes.pod.uid=12a61aac-14f5-4323-985c-bfa66cd375ba",
+          "io.kubernetes.sandbox.id=c46a4762b564c9afb91beabb610e293a61a7ac34564312babc43bb651865cdf2"
+        ]
+      },
+      "k8s_lb-tcp-80_svclb-kourier-32c17a7b-g99k6_kube-system_12a61aac-14f5-4323-985c-bfa66cd375ba_3": {
+        "image": "910944bb0bd9",
+        "labels": [
+          "annotation.io.kubernetes.container.hash=5e234596",
+          "annotation.io.kubernetes.container.ports=[{\"name\":\"lb-tcp-80\"",
+          "\"hostPort\":80",
+          "\"containerPort\":80",
+          "\"protocol\":\"TCP\"}]",
+          "annotation.io.kubernetes.container.restartCount=3",
+          "annotation.io.kubernetes.container.terminationMessagePath=/dev/termination-log",
+          "annotation.io.kubernetes.container.terminationMessagePolicy=File",
+          "annotation.io.kubernetes.pod.terminationGracePeriod=30",
+          "buildDate=",
+          "io.kubernetes.container.logpath=/var/log/pods/kube-system_svclb-kourier-32c17a7b-g99k6_12a61aac-14f5-4323-985c-bfa66cd375ba/lb-tcp-80/3.log",
+          "io.kubernetes.container.name=lb-tcp-80",
+          "io.kubernetes.docker.type=container",
+          "io.kubernetes.pod.name=svclb-kourier-32c17a7b-g99k6",
+          "io.kubernetes.pod.namespace=kube-system",
+          "io.kubernetes.pod.uid=12a61aac-14f5-4323-985c-bfa66cd375ba",
+          "io.kubernetes.sandbox.id=c46a4762b564c9afb91beabb610e293a61a7ac34564312babc43bb651865cdf2"
+        ]
+      },
+      "k8s_local-path-provisioner_local-path-provisioner-58d557dc48-p9j96_kube-system_7fd6cb3b-fa1b-4cf6-91b8-2dc48f5ebd0f_3": {
+        "image": "1eba82e9c386",
+        "labels": [
+          "annotation.io.kubernetes.container.hash=6649ab14",
+          "annotation.io.kubernetes.container.restartCount=3",
+          "annotation.io.kubernetes.container.terminationMessagePath=/dev/termination-log",
+          "annotation.io.kubernetes.container.terminationMessagePolicy=File",
+          "annotation.io.kubernetes.pod.terminationGracePeriod=30",
+          "io.kubernetes.container.logpath=/var/log/pods/kube-system_local-path-provisioner-58d557dc48-p9j96_7fd6cb3b-fa1b-4cf6-91b8-2dc48f5ebd0f/local-path-provisioner/3.log",
+          "io.kubernetes.container.name=local-path-provisioner",
+          "io.kubernetes.docker.type=container",
+          "io.kubernetes.pod.name=local-path-provisioner-58d557dc48-p9j96",
+          "io.kubernetes.pod.namespace=kube-system",
+          "io.kubernetes.pod.uid=7fd6cb3b-fa1b-4cf6-91b8-2dc48f5ebd0f",
+          "io.kubernetes.sandbox.id=50e6e26c2e8c3cd77fb34e8b4e3190cfc17e39035fe797a791d4618d754776f5"
+        ]
+      },
+      "k8s_metrics-server_metrics-server-6dc596dfb8-46tvx_kube-system_b8abf359-78cf-46b7-afb3-a3cf654e93c0_3": {
+        "image": "d9862115e7c7",
+        "labels": [
+          "annotation.io.kubernetes.container.hash=8538ee20",
+          "annotation.io.kubernetes.container.ports=[{\"name\":\"https\"",
+          "\"containerPort\":10250",
+          "\"protocol\":\"TCP\"}]",
+          "annotation.io.kubernetes.container.restartCount=3",
+          "annotation.io.kubernetes.container.terminationMessagePath=/dev/termination-log",
+          "annotation.io.kubernetes.container.terminationMessagePolicy=File",
+          "annotation.io.kubernetes.pod.terminationGracePeriod=30",
+          "io.kubernetes.container.logpath=/var/log/pods/kube-system_metrics-server-6dc596dfb8-46tvx_b8abf359-78cf-46b7-afb3-a3cf654e93c0/metrics-server/3.log",
+          "io.kubernetes.container.name=metrics-server",
+          "io.kubernetes.docker.type=container",
+          "io.kubernetes.pod.name=metrics-server-6dc596dfb8-46tvx",
+          "io.kubernetes.pod.namespace=kube-system",
+          "io.kubernetes.pod.uid=b8abf359-78cf-46b7-afb3-a3cf654e93c0",
+          "io.kubernetes.sandbox.id=bd4aa9e09b4d5d21aac2edee5968ce478cce9c2b99f92af16163d3357bd268aa"
+        ]
+      },
+      "k8s_webhook_webhook-7d56465b69-khwt8_knative-serving_a7b84bd9-4373-4bbe-843a-0e2fb9c788d8_3": {
+        "image": "3846e9a41666",
+        "labels": [
+          "annotation.io.kubernetes.container.hash=ae2dd1bc",
+          "annotation.io.kubernetes.container.ports=[{\"name\":\"metrics\"",
+          "\"containerPort\":9090",
+          "\"protocol\":\"TCP\"}",
+          "{\"name\":\"profiling\"",
+          "\"containerPort\":8008",
+          "\"protocol\":\"TCP\"}",
+          "{\"name\":\"https-webhook\"",
+          "\"containerPort\":8443",
+          "\"protocol\":\"TCP\"}]",
+          "annotation.io.kubernetes.container.restartCount=3",
+          "annotation.io.kubernetes.container.terminationMessagePath=/dev/termination-log",
+          "annotation.io.kubernetes.container.terminationMessagePolicy=File",
+          "annotation.io.kubernetes.pod.terminationGracePeriod=300",
+          "io.kubernetes.container.logpath=/var/log/pods/knative-serving_webhook-7d56465b69-khwt8_a7b84bd9-4373-4bbe-843a-0e2fb9c788d8/webhook/3.log",
+          "io.kubernetes.container.name=webhook",
+          "io.kubernetes.docker.type=container",
+          "io.kubernetes.pod.name=webhook-7d56465b69-khwt8",
+          "io.kubernetes.pod.namespace=knative-serving",
+          "io.kubernetes.pod.uid=a7b84bd9-4373-4bbe-843a-0e2fb9c788d8",
+          "io.kubernetes.sandbox.id=aa854c7d3ba1022fe62838beabcaa7521505f25e99ef747f223490d1cde61244",
+          "org.opencontainers.image.created=2026-07-13T21:26:57Z"
+        ]
+      },
+      "openwhisk": {
+        "image": "openwhisk/standalone:nightly",
+        "labels": []
+      },
+      "wsk0_3_guest_hello": {
+        "image": "openwhisk/action-python-v3.11:nightly",
+        "labels": []
+      },
+      "wsk0_4_guest_hello": {
+        "image": "openwhisk/action-python-v3.11:nightly",
+        "labels": []
+      },
+      "wsk0_5_prewarm_nodejs20": {
+        "image": "openwhisk/action-nodejs-v20:nightly",
+        "labels": []
+      },
+      "wsk0_6_guest_hello": {
+        "image": "openwhisk/action-python-v3.11:nightly",
+        "labels": []
+      }
+    },
+    "cp_peak_mem_mb": 351.3,
+    "carbon_gCO2": {
+      "op_total": 0.101,
+      "op_control_plane": 0.038,
+      "idle_band": {
+        "15": 0.218,
+        "30": 0.391,
+        "45": 0.564
+      }
+    },
+    "model": {
+      "idle_w": 4.832,
+      "busy_core_w": 3.5,
+      "pue": 1.15,
+      "ci": 150.0
+    },
+    "sensitivity": {
+      "cp_dynamic_share_pct_by_busy_w": {
+        "2.0": 82.12,
+        "3.5": 82.12,
+        "5.0": 82.12
+      },
+      "dynamic_energy_J_by_busy_w": {
+        "2.0": 545.6,
+        "3.5": 954.8,
+        "5.0": 1363.9
+      },
+      "op_carbon_gCO2_by_busy_w": {
+        "2.0": 0.082,
+        "3.5": 0.101,
+        "5.0": 0.121
+      }
+    },
+    "kpi_gco2_per_slo_compliant_inv": 5.258e-05,
+    "kpi_gco2_per_inv_dynamic": 2.373e-05,
+    "embodied_dram_g_per_gb_h": 0.0317,
+    "host_cpu_sec": 1241.19,
+    "host_window_s": 240.253,
+    "host_saturation_pct": 64.6,
+    "host_plausible": true,
+    "host_saturated": false,
+    "host_overhead_cpu_sec": 968.4,
+    "orchestration_cpu_sec": 1192.41,
+    "orchestration_share_pct": 96.07,
+    "steal_sec": null,
+    "steal_pct": null,
+    "cp_delta_sec": 224.026,
+    "cp_sampler_vs_delta_pct": -0.01,
+    "delta_check_map": {
+      "openwhisk": "ok"
+    },
+    "env": {
+      "cpu_count": 8,
+      "governor": "powersave",
+      "freq_mhz_before": 3528.8,
+      "freq_mhz_after": 2458.8,
+      "sampler": "cgroup",
+      "loadgen": "py",
+      "loadgen_requested": "hey",
+      "loadgen_fallback": true
+    },
+    "rapl_validation_err_pct": 41.63,
+    "rapl_wrap": "none",
+    "rapl_available": true
+  },
+  {
+    "platform": "openwhisk",
+    "url": "http://127.0.0.1:3233/api/v1/web/guest/default/hello",
+    "mode": "load",
+    "wall_s": 240.23,
+    "wall_harness_s": 240.23,
+    "sampling_covered_s": 240.23,
+    "requests": 1659,
+    "successes": 1659,
+    "availability": 1.0,
+    "throughput_rps": 6.91,
+    "latency_ms": {
+      "p50": 142.55,
+      "p90": 175.36,
+      "p99": 233.21,
+      "max": 296.83
+    },
+    "slo_ms": 500.0,
+    "slo_compliance": 1.0,
+    "compliance_source": "measured",
+    "energy_J": {
+      "total": 1970.5,
+      "dynamic": 809.7,
+      "control_plane": 667.7,
+      "function": 142.1
+    },
+    "cp_share_pct": 33.88,
+    "cp_dynamic_share_pct": 82.46,
+    "cpu_sec": {
+      "control_plane": 190.76,
+      "function": 40.59
+    },
+    "cpu_sec_ceiling": 1921.84,
+    "physical_plausible": true,
+    "unclassified_cpu_s": 3.48,
+    "container_inventory": [
+      "k8s_POD_3scale-kourier-gateway-d95dfffb6-z2zzz_kourier-system_69daf3cc-53df-449a-ba4e-12ca3f124bf1_3",
+      "k8s_POD_activator-67cbcccdfb-t6cg7_knative-serving_af70f812-f578-45d9-aafe-c711ea35ebd4_3",
+      "k8s_POD_autoscaler-847d45f498-rkvpp_knative-serving_ec82673b-6dc8-472a-9e8a-04e02f65f117_3",
+      "k8s_POD_controller-c9767f9c-h8zvb_knative-serving_9a5a04d4-1393-48b2-b655-088fcff5b337_3",
+      "k8s_POD_coredns-54996dc9b4-94zpj_kube-system_86f4a07b-00d4-46a7-a1a6-6f878fb26856_6",
+      "k8s_POD_local-path-provisioner-58d557dc48-p9j96_kube-system_7fd6cb3b-fa1b-4cf6-91b8-2dc48f5ebd0f_5",
+      "k8s_POD_metrics-server-6dc596dfb8-46tvx_kube-system_b8abf359-78cf-46b7-afb3-a3cf654e93c0_7",
+      "k8s_POD_net-kourier-controller-769cd4d84c-mpvj4_knative-serving_a859182b-3989-44e1-8ad7-068a1efe2192_3",
+      "k8s_POD_svclb-kourier-32c17a7b-g99k6_kube-system_12a61aac-14f5-4323-985c-bfa66cd375ba_3",
+      "k8s_POD_webhook-7d56465b69-khwt8_knative-serving_a7b84bd9-4373-4bbe-843a-0e2fb9c788d8_4",
+      "k8s_activator_activator-67cbcccdfb-t6cg7_knative-serving_af70f812-f578-45d9-aafe-c711ea35ebd4_3",
+      "k8s_autoscaler_autoscaler-847d45f498-rkvpp_knative-serving_ec82673b-6dc8-472a-9e8a-04e02f65f117_3",
+      "k8s_controller_controller-c9767f9c-h8zvb_knative-serving_9a5a04d4-1393-48b2-b655-088fcff5b337_5",
+      "k8s_controller_net-kourier-controller-769cd4d84c-mpvj4_knative-serving_a859182b-3989-44e1-8ad7-068a1efe2192_5",
+      "k8s_coredns_coredns-54996dc9b4-94zpj_kube-system_86f4a07b-00d4-46a7-a1a6-6f878fb26856_3",
+      "k8s_kourier-gateway_3scale-kourier-gateway-d95dfffb6-z2zzz_kourier-system_69daf3cc-53df-449a-ba4e-12ca3f124bf1_3",
+      "k8s_lb-tcp-443_svclb-kourier-32c17a7b-g99k6_kube-system_12a61aac-14f5-4323-985c-bfa66cd375ba_3",
+      "k8s_lb-tcp-80_svclb-kourier-32c17a7b-g99k6_kube-system_12a61aac-14f5-4323-985c-bfa66cd375ba_3",
+      "k8s_local-path-provisioner_local-path-provisioner-58d557dc48-p9j96_kube-system_7fd6cb3b-fa1b-4cf6-91b8-2dc48f5ebd0f_3",
+      "k8s_metrics-server_metrics-server-6dc596dfb8-46tvx_kube-system_b8abf359-78cf-46b7-afb3-a3cf654e93c0_3",
+      "k8s_webhook_webhook-7d56465b69-khwt8_knative-serving_a7b84bd9-4373-4bbe-843a-0e2fb9c788d8_3",
+      "openwhisk",
+      "wsk0_3_guest_hello",
+      "wsk0_4_guest_hello",
+      "wsk0_6_guest_hello",
+      "wsk0_7_prewarm_nodejs20"
+    ],
+    "container_labels": {
+      "k8s_POD_3scale-kourier-gateway-d95dfffb6-z2zzz_kourier-system_69daf3cc-53df-449a-ba4e-12ca3f124bf1_3": {
+        "image": "rancher/mirrored-pause:3.10.2",
+        "labels": [
+          "annotation.kubernetes.io/config.seen=2026-08-13T14:35:47.041069792+05:00",
+          "annotation.kubernetes.io/config.source=api",
+          "annotation.networking.knative.dev/poke=v0.26",
+          "annotation.prometheus.io/path=/stats/prometheus",
+          "annotation.prometheus.io/port=9000",
+          "annotation.prometheus.io/scrape=true",
+          "app=3scale-kourier-gateway",
+          "io.kubernetes.container.name=POD",
+          "io.kubernetes.docker.type=podsandbox",
+          "io.kubernetes.pod.name=3scale-kourier-gateway-d95dfffb6-z2zzz",
+          "io.kubernetes.pod.namespace=kourier-system",
+          "io.kubernetes.pod.uid=69daf3cc-53df-449a-ba4e-12ca3f124bf1",
+          "pod-template-hash=d95dfffb6"
+        ]
+      },
+      "k8s_POD_activator-67cbcccdfb-t6cg7_knative-serving_af70f812-f578-45d9-aafe-c711ea35ebd4_3": {
+        "image": "rancher/mirrored-pause:3.10.2",
+        "labels": [
+          "annotation.kubernetes.io/config.seen=2026-08-13T14:35:33.331904160+05:00",
+          "annotation.kubernetes.io/config.source=api",
+          "app.kubernetes.io/component=activator",
+          "app.kubernetes.io/name=knative-serving",
+          "app.kubernetes.io/version=1.23.0",
+          "app=activator",
+          "io.kubernetes.container.name=POD",
+          "io.kubernetes.docker.type=podsandbox",
+          "io.kubernetes.pod.name=activator-67cbcccdfb-t6cg7",
+          "io.kubernetes.pod.namespace=knative-serving",
+          "io.kubernetes.pod.uid=af70f812-f578-45d9-aafe-c711ea35ebd4",
+          "pod-template-hash=67cbcccdfb",
+          "role=activator"
+        ]
+      },
+      "k8s_POD_autoscaler-847d45f498-rkvpp_knative-serving_ec82673b-6dc8-472a-9e8a-04e02f65f117_3": {
+        "image": "rancher/mirrored-pause:3.10.2",
+        "labels": [
+          "annotation.kubernetes.io/config.seen=2026-08-13T14:35:33.331890481+05:00",
+          "annotation.kubernetes.io/config.source=api",
+          "app.kubernetes.io/component=autoscaler",
+          "app.kubernetes.io/name=knative-serving",
+          "app.kubernetes.io/version=1.23.0",
+          "app=autoscaler",
+          "io.kubernetes.container.name=POD",
+          "io.kubernetes.docker.type=podsandbox",
+          "io.kubernetes.pod.name=autoscaler-847d45f498-rkvpp",
+          "io.kubernetes.pod.namespace=knative-serving",
+          "io.kubernetes.pod.uid=ec82673b-6dc8-472a-9e8a-04e02f65f117",
+          "pod-template-hash=847d45f498"
+        ]
+      },
+      "k8s_POD_controller-c9767f9c-h8zvb_knative-serving_9a5a04d4-1393-48b2-b655-088fcff5b337_3": {
+        "image": "rancher/mirrored-pause:3.10.2",
+        "labels": [
+          "annotation.kubernetes.io/config.seen=2026-08-13T14:35:33.331896145+05:00",
+          "annotation.kubernetes.io/config.source=api",
+          "app.kubernetes.io/component=controller",
+          "app.kubernetes.io/name=knative-serving",
+          "app.kubernetes.io/version=1.23.0",
+          "app=controller",
+          "io.kubernetes.container.name=POD",
+          "io.kubernetes.docker.type=podsandbox",
+          "io.kubernetes.pod.name=controller-c9767f9c-h8zvb",
+          "io.kubernetes.pod.namespace=knative-serving",
+          "io.kubernetes.pod.uid=9a5a04d4-1393-48b2-b655-088fcff5b337",
+          "pod-template-hash=c9767f9c"
+        ]
+      },
+      "k8s_POD_coredns-54996dc9b4-94zpj_kube-system_86f4a07b-00d4-46a7-a1a6-6f878fb26856_6": {
+        "image": "rancher/mirrored-pause:3.10.2",
+        "labels": [
+          "annotation.kubernetes.io/config.seen=2026-08-13T14:35:33.331900877+05:00",
+          "annotation.kubernetes.io/config.source=api",
+          "io.kubernetes.container.name=POD",
+          "io.kubernetes.docker.type=podsandbox",
+          "io.kubernetes.pod.name=coredns-54996dc9b4-94zpj",
+          "io.kubernetes.pod.namespace=kube-system",
+          "io.kubernetes.pod.uid=86f4a07b-00d4-46a7-a1a6-6f878fb26856",
+          "k8s-app=kube-dns",
+          "pod-template-hash=54996dc9b4"
+        ]
+      },
+      "k8s_POD_local-path-provisioner-58d557dc48-p9j96_kube-system_7fd6cb3b-fa1b-4cf6-91b8-2dc48f5ebd0f_5": {
+        "image": "rancher/mirrored-pause:3.10.2",
+        "labels": [
+          "annotation.kubernetes.io/config.seen=2026-08-13T14:35:47.041037422+05:00",
+          "annotation.kubernetes.io/config.source=api",
+          "app=local-path-provisioner",
+          "io.kubernetes.container.name=POD",
+          "io.kubernetes.docker.type=podsandbox",
+          "io.kubernetes.pod.name=local-path-provisioner-58d557dc48-p9j96",
+          "io.kubernetes.pod.namespace=kube-system",
+          "io.kubernetes.pod.uid=7fd6cb3b-fa1b-4cf6-91b8-2dc48f5ebd0f",
+          "pod-template-hash=58d557dc48"
+        ]
+      },
+      "k8s_POD_metrics-server-6dc596dfb8-46tvx_kube-system_b8abf359-78cf-46b7-afb3-a3cf654e93c0_7": {
+        "image": "rancher/mirrored-pause:3.10.2",
+        "labels": [
+          "annotation.kubernetes.io/config.seen=2026-08-13T14:35:47.041053960+05:00",
+          "annotation.kubernetes.io/config.source=api",
+          "io.kubernetes.container.name=POD",
+          "io.kubernetes.docker.type=podsandbox",
+          "io.kubernetes.pod.name=metrics-server-6dc596dfb8-46tvx",
+          "io.kubernetes.pod.namespace=kube-system",
+          "io.kubernetes.pod.uid=b8abf359-78cf-46b7-afb3-a3cf654e93c0",
+          "k8s-app=metrics-server",
+          "pod-template-hash=6dc596dfb8"
+        ]
+      },
+      "k8s_POD_net-kourier-controller-769cd4d84c-mpvj4_knative-serving_a859182b-3989-44e1-8ad7-068a1efe2192_3": {
+        "image": "rancher/mirrored-pause:3.10.2",
+        "labels": [
+          "annotation.kubernetes.io/config.seen=2026-08-13T14:35:33.331860970+05:00",
+          "annotation.kubernetes.io/config.source=api",
+          "annotation.prometheus.io/path=/metrics",
+          "annotation.prometheus.io/port=9090",
+          "annotation.prometheus.io/scrape=true",
+          "app=net-kourier-controller",
+          "io.kubernetes.container.name=POD",
+          "io.kubernetes.docker.type=podsandbox",
+          "io.kubernetes.pod.name=net-kourier-controller-769cd4d84c-mpvj4",
+          "io.kubernetes.pod.namespace=knative-serving",
+          "io.kubernetes.pod.uid=a859182b-3989-44e1-8ad7-068a1efe2192",
+          "pod-template-hash=769cd4d84c"
+        ]
+      },
+      "k8s_POD_svclb-kourier-32c17a7b-g99k6_kube-system_12a61aac-14f5-4323-985c-bfa66cd375ba_3": {
+        "image": "rancher/mirrored-pause:3.10.2",
+        "labels": [
+          "annotation.kubernetes.io/config.seen=2026-08-13T14:35:47.041061609+05:00",
+          "annotation.kubernetes.io/config.source=api",
+          "app=svclb-kourier-32c17a7b",
+          "controller-revision-hash=84c484b947",
+          "io.kubernetes.container.name=POD",
+          "io.kubernetes.docker.type=podsandbox",
+          "io.kubernetes.pod.name=svclb-kourier-32c17a7b-g99k6",
+          "io.kubernetes.pod.namespace=kube-system",
+          "io.kubernetes.pod.uid=12a61aac-14f5-4323-985c-bfa66cd375ba",
+          "pod-template-generation=1",
+          "svccontroller.k3s.cattle.io/svcname=kourier",
+          "svccontroller.k3s.cattle.io/svcnamespace=kourier-system"
+        ]
+      },
+      "k8s_POD_webhook-7d56465b69-khwt8_knative-serving_a7b84bd9-4373-4bbe-843a-0e2fb9c788d8_4": {
+        "image": "rancher/mirrored-pause:3.10.2",
+        "labels": [
+          "annotation.kubernetes.io/config.seen=2026-08-13T14:35:47.041034364+05:00",
+          "annotation.kubernetes.io/config.source=api",
+          "app.kubernetes.io/component=webhook",
+          "app.kubernetes.io/name=knative-serving",
+          "app.kubernetes.io/version=1.23.0",
+          "app=webhook",
+          "io.kubernetes.container.name=POD",
+          "io.kubernetes.docker.type=podsandbox",
+          "io.kubernetes.pod.name=webhook-7d56465b69-khwt8",
+          "io.kubernetes.pod.namespace=knative-serving",
+          "io.kubernetes.pod.uid=a7b84bd9-4373-4bbe-843a-0e2fb9c788d8",
+          "pod-template-hash=7d56465b69",
+          "role=webhook"
+        ]
+      },
+      "k8s_activator_activator-67cbcccdfb-t6cg7_knative-serving_af70f812-f578-45d9-aafe-c711ea35ebd4_3": {
+        "image": "e5ab46f3b73f",
+        "labels": [
+          "annotation.io.kubernetes.container.hash=37c0c95d",
+          "annotation.io.kubernetes.container.ports=[{\"name\":\"metrics\"",
+          "\"containerPort\":9090",
+          "\"protocol\":\"TCP\"}",
+          "{\"name\":\"profiling\"",
+          "\"containerPort\":8008",
+          "\"protocol\":\"TCP\"}",
+          "{\"name\":\"http1\"",
+          "\"containerPort\":8012",
+          "\"protocol\":\"TCP\"}",
+          "{\"name\":\"h2c\"",
+          "\"containerPort\":8013",
+          "\"protocol\":\"TCP\"}]",
+          "annotation.io.kubernetes.container.restartCount=3",
+          "annotation.io.kubernetes.container.terminationMessagePath=/dev/termination-log",
+          "annotation.io.kubernetes.container.terminationMessagePolicy=File",
+          "annotation.io.kubernetes.pod.terminationGracePeriod=600",
+          "io.kubernetes.container.logpath=/var/log/pods/knative-serving_activator-67cbcccdfb-t6cg7_af70f812-f578-45d9-aafe-c711ea35ebd4/activator/3.log",
+          "io.kubernetes.container.name=activator",
+          "io.kubernetes.docker.type=container",
+          "io.kubernetes.pod.name=activator-67cbcccdfb-t6cg7",
+          "io.kubernetes.pod.namespace=knative-serving",
+          "io.kubernetes.pod.uid=af70f812-f578-45d9-aafe-c711ea35ebd4",
+          "io.kubernetes.sandbox.id=9cc68a1b0c619354924941286c55d0a6f39934cbcb097e5499c9a40949d88758",
+          "org.opencontainers.image.created=2026-07-13T21:26:57Z"
+        ]
+      },
+      "k8s_autoscaler_autoscaler-847d45f498-rkvpp_knative-serving_ec82673b-6dc8-472a-9e8a-04e02f65f117_3": {
+        "image": "879da127b23d",
+        "labels": [
+          "annotation.io.kubernetes.container.hash=4597bac7",
+          "annotation.io.kubernetes.container.ports=[{\"name\":\"metrics\"",
+          "\"containerPort\":9090",
+          "\"protocol\":\"TCP\"}",
+          "{\"name\":\"profiling\"",
+          "\"containerPort\":8008",
+          "\"protocol\":\"TCP\"}",
+          "{\"name\":\"websocket\"",
+          "\"containerPort\":8080",
+          "\"protocol\":\"TCP\"}]",
+          "annotation.io.kubernetes.container.restartCount=3",
+          "annotation.io.kubernetes.container.terminationMessagePath=/dev/termination-log",
+          "annotation.io.kubernetes.container.terminationMessagePolicy=File",
+          "annotation.io.kubernetes.pod.terminationGracePeriod=30",
+          "io.kubernetes.container.logpath=/var/log/pods/knative-serving_autoscaler-847d45f498-rkvpp_ec82673b-6dc8-472a-9e8a-04e02f65f117/autoscaler/3.log",
+          "io.kubernetes.container.name=autoscaler",
+          "io.kubernetes.docker.type=container",
+          "io.kubernetes.pod.name=autoscaler-847d45f498-rkvpp",
+          "io.kubernetes.pod.namespace=knative-serving",
+          "io.kubernetes.pod.uid=ec82673b-6dc8-472a-9e8a-04e02f65f117",
+          "io.kubernetes.sandbox.id=7917cd04b90801d0040b2044d5d71440242f709fa978e1889b129ac773def064",
+          "org.opencontainers.image.created=2026-07-13T21:26:57Z"
+        ]
+      },
+      "k8s_controller_controller-c9767f9c-h8zvb_knative-serving_9a5a04d4-1393-48b2-b655-088fcff5b337_5": {
+        "image": "ca5062ece032",
+        "labels": [
+          "annotation.io.kubernetes.container.hash=dc4bd0df",
+          "annotation.io.kubernetes.container.ports=[{\"name\":\"metrics\"",
+          "\"containerPort\":9090",
+          "\"protocol\":\"TCP\"}",
+          "{\"name\":\"profiling\"",
+          "\"containerPort\":8008",
+          "\"protocol\":\"TCP\"}",
+          "{\"name\":\"probes\"",
+          "\"containerPort\":8080",
+          "\"protocol\":\"TCP\"}]",
+          "annotation.io.kubernetes.container.restartCount=5",
+          "annotation.io.kubernetes.container.terminationMessagePath=/dev/termination-log",
+          "annotation.io.kubernetes.container.terminationMessagePolicy=File",
+          "annotation.io.kubernetes.pod.terminationGracePeriod=30",
+          "io.kubernetes.container.logpath=/var/log/pods/knative-serving_controller-c9767f9c-h8zvb_9a5a04d4-1393-48b2-b655-088fcff5b337/controller/5.log",
+          "io.kubernetes.container.name=controller",
+          "io.kubernetes.docker.type=container",
+          "io.kubernetes.pod.name=controller-c9767f9c-h8zvb",
+          "io.kubernetes.pod.namespace=knative-serving",
+          "io.kubernetes.pod.uid=9a5a04d4-1393-48b2-b655-088fcff5b337",
+          "io.kubernetes.sandbox.id=885f140c670ee0003af02207774fcaa1b8ea962dac973d7ed4633ab65261476a",
+          "org.opencontainers.image.created=2026-07-13T21:26:57Z"
+        ]
+      },
+      "k8s_controller_net-kourier-controller-769cd4d84c-mpvj4_knative-serving_a859182b-3989-44e1-8ad7-068a1efe2192_5": {
+        "image": "eedfe3938f1e",
+        "labels": [
+          "annotation.io.kubernetes.container.hash=128736a5",
+          "annotation.io.kubernetes.container.ports=[{\"name\":\"http2-xds\"",
+          "\"containerPort\":18000",
+          "\"protocol\":\"TCP\"}",
+          "{\"name\":\"metrics\"",
+          "\"containerPort\":9090",
+          "\"protocol\":\"TCP\"}]",
+          "annotation.io.kubernetes.container.restartCount=5",
+          "annotation.io.kubernetes.container.terminationMessagePath=/dev/termination-log",
+          "annotation.io.kubernetes.container.terminationMessagePolicy=File",
+          "annotation.io.kubernetes.pod.terminationGracePeriod=30",
+          "io.kubernetes.container.logpath=/var/log/pods/knative-serving_net-kourier-controller-769cd4d84c-mpvj4_a859182b-3989-44e1-8ad7-068a1efe2192/controller/5.log",
+          "io.kubernetes.container.name=controller",
+          "io.kubernetes.docker.type=container",
+          "io.kubernetes.pod.name=net-kourier-controller-769cd4d84c-mpvj4",
+          "io.kubernetes.pod.namespace=knative-serving",
+          "io.kubernetes.pod.uid=a859182b-3989-44e1-8ad7-068a1efe2192",
+          "io.kubernetes.sandbox.id=61d8e23a4a6acede7bb8bdb2d4f5eb86ac4096c33e983ebe52de024daa73fda2",
+          "org.opencontainers.image.created=2026-07-13T21:26:57Z"
+        ]
+      },
+      "k8s_coredns_coredns-54996dc9b4-94zpj_kube-system_86f4a07b-00d4-46a7-a1a6-6f878fb26856_3": {
+        "image": "900f9c109f7a",
+        "labels": [
+          "annotation.io.kubernetes.container.hash=1735ce2a",
+          "annotation.io.kubernetes.container.ports=[{\"name\":\"dns\"",
+          "\"containerPort\":53",
+          "\"protocol\":\"UDP\"}",
+          "{\"name\":\"dns-tcp\"",
+          "\"containerPort\":53",
+          "\"protocol\":\"TCP\"}",
+          "{\"name\":\"metrics\"",
+          "\"containerPort\":9153",
+          "\"protocol\":\"TCP\"}]",
+          "annotation.io.kubernetes.container.restartCount=3",
+          "annotation.io.kubernetes.container.terminationMessagePath=/dev/termination-log",
+          "annotation.io.kubernetes.container.terminationMessagePolicy=File",
+          "annotation.io.kubernetes.pod.terminationGracePeriod=30",
+          "io.kubernetes.container.logpath=/var/log/pods/kube-system_coredns-54996dc9b4-94zpj_86f4a07b-00d4-46a7-a1a6-6f878fb26856/coredns/3.log",
+          "io.kubernetes.container.name=coredns",
+          "io.kubernetes.docker.type=container",
+          "io.kubernetes.pod.name=coredns-54996dc9b4-94zpj",
+          "io.kubernetes.pod.namespace=kube-system",
+          "io.kubernetes.pod.uid=86f4a07b-00d4-46a7-a1a6-6f878fb26856",
+          "io.kubernetes.sandbox.id=dc618bf779c15e2d199962a1a0fdc04f7e92e82af260a74a124feaaf762027f6"
+        ]
+      },
+      "k8s_kourier-gateway_3scale-kourier-gateway-d95dfffb6-z2zzz_kourier-system_69daf3cc-53df-449a-ba4e-12ca3f124bf1_3": {
+        "image": "1c2b79776c6e",
+        "labels": [
+          "annotation.io.kubernetes.container.hash=241835de",
+          "annotation.io.kubernetes.container.ports=[{\"name\":\"http2-external\"",
+          "\"containerPort\":8080",
+          "\"protocol\":\"TCP\"}",
+          "{\"name\":\"http2-internal\"",
+          "\"containerPort\":8081",
+          "\"protocol\":\"TCP\"}",
+          "{\"name\":\"https-external\"",
+          "\"containerPort\":8443",
+          "\"protocol\":\"TCP\"}",
+          "{\"name\":\"http-probe\"",
+          "\"containerPort\":8090",
+          "\"protocol\":\"TCP\"}",
+          "{\"name\":\"https-probe\"",
+          "\"containerPort\":9443",
+          "\"protocol\":\"TCP\"}",
+          "{\"name\":\"metrics\"",
+          "\"containerPort\":9000",
+          "\"protocol\":\"TCP\"}]",
+          "annotation.io.kubernetes.container.preStopHandler={\"exec\":{\"command\":[\"/bin/sh\"",
+          "\"-c\"",
+          "\"curl -X POST http://localhost:9901/drain_listeners?graceful; sleep $DRAIN_TIME_SECONDS\"]}}",
+          "annotation.io.kubernetes.container.restartCount=3",
+          "annotation.io.kubernetes.container.terminationMessagePath=/dev/termination-log",
+          "annotation.io.kubernetes.container.terminationMessagePolicy=File",
+          "annotation.io.kubernetes.pod.terminationGracePeriod=30",
+          "io.kubernetes.container.logpath=/var/log/pods/kourier-system_3scale-kourier-gateway-d95dfffb6-z2zzz_69daf3cc-53df-449a-ba4e-12ca3f124bf1/kourier-gateway/3.log",
+          "io.kubernetes.container.name=kourier-gateway",
+          "io.kubernetes.docker.type=container",
+          "io.kubernetes.pod.name=3scale-kourier-gateway-d95dfffb6-z2zzz",
+          "io.kubernetes.pod.namespace=kourier-system",
+          "io.kubernetes.pod.uid=69daf3cc-53df-449a-ba4e-12ca3f124bf1",
+          "io.kubernetes.sandbox.id=de7ff32127342c9f0bf0cf757eb639c4fcade4b5fc43f808737a00c2b3756aec",
+          "org.opencontainers.image.version=22.04"
+        ]
+      },
+      "k8s_lb-tcp-443_svclb-kourier-32c17a7b-g99k6_kube-system_12a61aac-14f5-4323-985c-bfa66cd375ba_3": {
+        "image": "910944bb0bd9",
+        "labels": [
+          "annotation.io.kubernetes.container.hash=93cfbcd9",
+          "annotation.io.kubernetes.container.ports=[{\"name\":\"lb-tcp-443\"",
+          "\"hostPort\":443",
+          "\"containerPort\":443",
+          "\"protocol\":\"TCP\"}]",
+          "annotation.io.kubernetes.container.restartCount=3",
+          "annotation.io.kubernetes.container.terminationMessagePath=/dev/termination-log",
+          "annotation.io.kubernetes.container.terminationMessagePolicy=File",
+          "annotation.io.kubernetes.pod.terminationGracePeriod=30",
+          "buildDate=",
+          "io.kubernetes.container.logpath=/var/log/pods/kube-system_svclb-kourier-32c17a7b-g99k6_12a61aac-14f5-4323-985c-bfa66cd375ba/lb-tcp-443/3.log",
+          "io.kubernetes.container.name=lb-tcp-443",
+          "io.kubernetes.docker.type=container",
+          "io.kubernetes.pod.name=svclb-kourier-32c17a7b-g99k6",
+          "io.kubernetes.pod.namespace=kube-system",
+          "io.kubernetes.pod.uid=12a61aac-14f5-4323-985c-bfa66cd375ba",
+          "io.kubernetes.sandbox.id=c46a4762b564c9afb91beabb610e293a61a7ac34564312babc43bb651865cdf2"
+        ]
+      },
+      "k8s_lb-tcp-80_svclb-kourier-32c17a7b-g99k6_kube-system_12a61aac-14f5-4323-985c-bfa66cd375ba_3": {
+        "image": "910944bb0bd9",
+        "labels": [
+          "annotation.io.kubernetes.container.hash=5e234596",
+          "annotation.io.kubernetes.container.ports=[{\"name\":\"lb-tcp-80\"",
+          "\"hostPort\":80",
+          "\"containerPort\":80",
+          "\"protocol\":\"TCP\"}]",
+          "annotation.io.kubernetes.container.restartCount=3",
+          "annotation.io.kubernetes.container.terminationMessagePath=/dev/termination-log",
+          "annotation.io.kubernetes.container.terminationMessagePolicy=File",
+          "annotation.io.kubernetes.pod.terminationGracePeriod=30",
+          "buildDate=",
+          "io.kubernetes.container.logpath=/var/log/pods/kube-system_svclb-kourier-32c17a7b-g99k6_12a61aac-14f5-4323-985c-bfa66cd375ba/lb-tcp-80/3.log",
+          "io.kubernetes.container.name=lb-tcp-80",
+          "io.kubernetes.docker.type=container",
+          "io.kubernetes.pod.name=svclb-kourier-32c17a7b-g99k6",
+          "io.kubernetes.pod.namespace=kube-system",
+          "io.kubernetes.pod.uid=12a61aac-14f5-4323-985c-bfa66cd375ba",
+          "io.kubernetes.sandbox.id=c46a4762b564c9afb91beabb610e293a61a7ac34564312babc43bb651865cdf2"
+        ]
+      },
+      "k8s_local-path-provisioner_local-path-provisioner-58d557dc48-p9j96_kube-system_7fd6cb3b-fa1b-4cf6-91b8-2dc48f5ebd0f_3": {
+        "image": "1eba82e9c386",
+        "labels": [
+          "annotation.io.kubernetes.container.hash=6649ab14",
+          "annotation.io.kubernetes.container.restartCount=3",
+          "annotation.io.kubernetes.container.terminationMessagePath=/dev/termination-log",
+          "annotation.io.kubernetes.container.terminationMessagePolicy=File",
+          "annotation.io.kubernetes.pod.terminationGracePeriod=30",
+          "io.kubernetes.container.logpath=/var/log/pods/kube-system_local-path-provisioner-58d557dc48-p9j96_7fd6cb3b-fa1b-4cf6-91b8-2dc48f5ebd0f/local-path-provisioner/3.log",
+          "io.kubernetes.container.name=local-path-provisioner",
+          "io.kubernetes.docker.type=container",
+          "io.kubernetes.pod.name=local-path-provisioner-58d557dc48-p9j96",
+          "io.kubernetes.pod.namespace=kube-system",
+          "io.kubernetes.pod.uid=7fd6cb3b-fa1b-4cf6-91b8-2dc48f5ebd0f",
+          "io.kubernetes.sandbox.id=50e6e26c2e8c3cd77fb34e8b4e3190cfc17e39035fe797a791d4618d754776f5"
+        ]
+      },
+      "k8s_metrics-server_metrics-server-6dc596dfb8-46tvx_kube-system_b8abf359-78cf-46b7-afb3-a3cf654e93c0_3": {
+        "image": "d9862115e7c7",
+        "labels": [
+          "annotation.io.kubernetes.container.hash=8538ee20",
+          "annotation.io.kubernetes.container.ports=[{\"name\":\"https\"",
+          "\"containerPort\":10250",
+          "\"protocol\":\"TCP\"}]",
+          "annotation.io.kubernetes.container.restartCount=3",
+          "annotation.io.kubernetes.container.terminationMessagePath=/dev/termination-log",
+          "annotation.io.kubernetes.container.terminationMessagePolicy=File",
+          "annotation.io.kubernetes.pod.terminationGracePeriod=30",
+          "io.kubernetes.container.logpath=/var/log/pods/kube-system_metrics-server-6dc596dfb8-46tvx_b8abf359-78cf-46b7-afb3-a3cf654e93c0/metrics-server/3.log",
+          "io.kubernetes.container.name=metrics-server",
+          "io.kubernetes.docker.type=container",
+          "io.kubernetes.pod.name=metrics-server-6dc596dfb8-46tvx",
+          "io.kubernetes.pod.namespace=kube-system",
+          "io.kubernetes.pod.uid=b8abf359-78cf-46b7-afb3-a3cf654e93c0",
+          "io.kubernetes.sandbox.id=bd4aa9e09b4d5d21aac2edee5968ce478cce9c2b99f92af16163d3357bd268aa"
+        ]
+      },
+      "k8s_webhook_webhook-7d56465b69-khwt8_knative-serving_a7b84bd9-4373-4bbe-843a-0e2fb9c788d8_3": {
+        "image": "3846e9a41666",
+        "labels": [
+          "annotation.io.kubernetes.container.hash=ae2dd1bc",
+          "annotation.io.kubernetes.container.ports=[{\"name\":\"metrics\"",
+          "\"containerPort\":9090",
+          "\"protocol\":\"TCP\"}",
+          "{\"name\":\"profiling\"",
+          "\"containerPort\":8008",
+          "\"protocol\":\"TCP\"}",
+          "{\"name\":\"https-webhook\"",
+          "\"containerPort\":8443",
+          "\"protocol\":\"TCP\"}]",
+          "annotation.io.kubernetes.container.restartCount=3",
+          "annotation.io.kubernetes.container.terminationMessagePath=/dev/termination-log",
+          "annotation.io.kubernetes.container.terminationMessagePolicy=File",
+          "annotation.io.kubernetes.pod.terminationGracePeriod=300",
+          "io.kubernetes.container.logpath=/var/log/pods/knative-serving_webhook-7d56465b69-khwt8_a7b84bd9-4373-4bbe-843a-0e2fb9c788d8/webhook/3.log",
+          "io.kubernetes.container.name=webhook",
+          "io.kubernetes.docker.type=container",
+          "io.kubernetes.pod.name=webhook-7d56465b69-khwt8",
+          "io.kubernetes.pod.namespace=knative-serving",
+          "io.kubernetes.pod.uid=a7b84bd9-4373-4bbe-843a-0e2fb9c788d8",
+          "io.kubernetes.sandbox.id=aa854c7d3ba1022fe62838beabcaa7521505f25e99ef747f223490d1cde61244",
+          "org.opencontainers.image.created=2026-07-13T21:26:57Z"
+        ]
+      },
+      "openwhisk": {
+        "image": "openwhisk/standalone:nightly",
+        "labels": []
+      },
+      "wsk0_3_guest_hello": {
+        "image": "openwhisk/action-python-v3.11:nightly",
+        "labels": []
+      },
+      "wsk0_4_guest_hello": {
+        "image": "openwhisk/action-python-v3.11:nightly",
+        "labels": []
+      },
+      "wsk0_5_prewarm_nodejs20": {
+        "image": "openwhisk/action-nodejs-v20:nightly",
+        "labels": []
+      },
+      "wsk0_6_guest_hello": {
+        "image": "openwhisk/action-python-v3.11:nightly",
+        "labels": []
+      },
+      "wsk0_7_prewarm_nodejs20": {
+        "image": "openwhisk/action-nodejs-v20:nightly",
+        "labels": []
+      }
+    },
+    "cp_peak_mem_mb": 438.1,
+    "carbon_gCO2": {
+      "op_total": 0.094,
+      "op_control_plane": 0.032,
+      "idle_band": {
+        "15": 0.211,
+        "30": 0.384,
+        "45": 0.557
+      }
+    },
+    "model": {
+      "idle_w": 4.832,
+      "busy_core_w": 3.5,
+      "pue": 1.15,
+      "ci": 150.0
+    },
+    "sensitivity": {
+      "cp_dynamic_share_pct_by_busy_w": {
+        "2.0": 82.46,
+        "3.5": 82.46,
+        "5.0": 82.46
+      },
+      "dynamic_energy_J_by_busy_w": {
+        "2.0": 462.7,
+        "3.5": 809.7,
+        "5.0": 1156.7
+      },
+      "op_carbon_gCO2_by_busy_w": {
+        "2.0": 0.078,
+        "3.5": 0.094,
+        "5.0": 0.111
+      }
+    },
+    "kpi_gco2_per_slo_compliant_inv": 5.691e-05,
+    "kpi_gco2_per_inv_dynamic": 2.339e-05,
+    "embodied_dram_g_per_gb_h": 0.0317,
+    "host_cpu_sec": 1236.61,
+    "host_window_s": 240.23,
+    "host_saturation_pct": 64.3,
+    "host_plausible": true,
+    "host_saturated": false,
+    "host_overhead_cpu_sec": 1005.26,
+    "orchestration_cpu_sec": 1196.02,
+    "orchestration_share_pct": 96.72,
+    "steal_sec": null,
+    "steal_pct": null,
+    "cp_delta_sec": 190.758,
+    "cp_sampler_vs_delta_pct": 0.0,
+    "delta_check_map": {
+      "openwhisk": "ok"
+    },
+    "env": {
+      "cpu_count": 8,
+      "governor": "powersave",
+      "freq_mhz_before": 2086.6,
+      "freq_mhz_after": 648.8,
+      "sampler": "cgroup",
+      "loadgen": "py",
+      "loadgen_requested": "hey",
+      "loadgen_fallback": true
+    },
+    "rapl_validation_err_pct": 45.73,
+    "rapl_wrap": "none",
+    "rapl_available": true
+  }
+]

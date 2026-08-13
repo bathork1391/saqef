@@ -1,0 +1,14 @@
+{
+  "state": "openfaas",
+  "label": "OpenFaaS control plane + hello@16",
+  "reads_w": [
+    4.082,
+    4.531,
+    4.093,
+    4.738,
+    4.322
+  ],
+  "median_w": 4.322,
+  "n": 5,
+  "ts_utc": "2026-08-13T16:03:15Z"
+}

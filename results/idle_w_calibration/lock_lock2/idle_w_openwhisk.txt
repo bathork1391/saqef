@@ -1,0 +1,14 @@
+{
+  "state": "openwhisk",
+  "label": "OpenWhisk standalone",
+  "reads_w": [
+    3.983,
+    3.96,
+    3.782,
+    4.195,
+    3.815
+  ],
+  "median_w": 3.96,
+  "n": 5,
+  "ts_utc": "2026-08-13T18:38:56Z"
+}

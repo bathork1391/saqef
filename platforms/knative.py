@@ -33,6 +33,7 @@ systemd service and stays up (it is the substrate); only the hello service is
 torn down between platforms so its 16 function pods cannot taint a later run.
 """
 
+import json
 import os
 import subprocess
 import time
@@ -157,13 +158,21 @@ class KnativeAdapter(Adapter):
 
     # ------------------------------------------------------------------ scale
     def scale(self, replicas):
-        """Static replica scale via the autoscaler annotations (GIL parity)."""
-        for key in ("autoscaling.knative.dev/minScale",
-                    "autoscaling.knative.dev/maxScale"):
-            r = k3s("annotate", "ksvc", "hello", "-n", "default",
-                    "%s=%d" % (key, replicas), "--overwrite")
-            if r.returncode != 0:
-                raise RuntimeError("knative scale: %s" % (r.stderr or "").strip()[-300:])
+        """Static replica scale via the autoscaler annotations (GIL parity).
+
+        These annotations must live under spec.template.metadata.annotations
+        (the revision template), not the ksvc's own top-level metadata --
+        Knative's admission webhook rejects the latter. `kubectl annotate`
+        only ever targets the object's own metadata, so a merge patch into
+        the template is used instead."""
+        patch = json.dumps({"spec": {"template": {"metadata": {"annotations": {
+            "autoscaling.knative.dev/minScale": str(replicas),
+            "autoscaling.knative.dev/maxScale": str(replicas),
+        }}}}})
+        r = k3s("patch", "ksvc", "hello", "-n", "default",
+                "--type=merge", "-p", patch)
+        if r.returncode != 0:
+            raise RuntimeError("knative scale: %s" % (r.stderr or "").strip()[-300:])
         if not _pod_ready("serving.knative.dev/service=hello", timeout=300.0):
             raise RuntimeError("knative scale: pods did not reach Running")
 

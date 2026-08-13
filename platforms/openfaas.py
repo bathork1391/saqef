@@ -85,8 +85,14 @@ class OpenFaaSAdapter(Adapter):
         r = subprocess.run(["bash", repo_script("run_openfaas.sh"), "stack"], text=True)
         if r.returncode != 0:
             raise RuntimeError("openfaas deploy: stack deploy failed (rc=%d)" % r.returncode)
+        # 300 s, not 90: a cold image pull of any stack component (alertmanager
+        # is ~80 MB) can hold a swarm task in "Preparing" for minutes -- seen
+        # live 2026-08-13 (5+ min pull aborted a lock-session run at this wait).
+        # The image cache is warm on re-run, but a pruned/evicted image would
+        # reproduce it; deploy is orchestration-only, so waiting longer cannot
+        # affect any measurement.
         ok, names = wait_containers(expected=self.cp_containers,
-                                    absent=("fnserver",), timeout=90.0)
+                                    absent=("fnserver",), timeout=300.0)
         if not ok:
             raise RuntimeError("openfaas deploy FAILED: control plane not up after stack deploy; "
                                "containers: %s" % ", ".join(names or ["none"]))
