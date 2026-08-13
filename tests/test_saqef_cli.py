@@ -505,16 +505,46 @@ class TestHarnessAggregation(unittest.TestCase):
                          ["fnserver", "wsk0_3_guest_hello"])
 
     def test_rapl_correct_wrap_single(self):
-        rng = self.h.rapl_max_range_j()
-        self.assertTrue(rng)  # this box exposes the counter range
-        e, flag = self.h.rapl_correct_wrap(-rng + 1000.0)
-        self.assertEqual(flag, "corrected_single")
-        self.assertAlmostEqual(e, 1000.0)
+        # Monkeypatched, not the physical sysfs counter: a machine without a
+        # readable max_energy_range_uj (containers, some cloud VMs, CI) must
+        # not fail this test -- rapl_correct_wrap's behavior is pure function
+        # of rapl_max_range_j()'s return value, so patch it directly.
+        import unittest.mock as mock
+        with mock.patch.object(self.h, "rapl_max_range_j", return_value=1000.0):
+            e, flag = self.h.rapl_correct_wrap(-1000.0 + 300.0)  # single wrap, true energy 300J
+            self.assertEqual(flag, "corrected_single")
+            self.assertAlmostEqual(e, 300.0)
 
     def test_rapl_correct_wrap_double_is_uncertain(self):
-        e, flag = self.h.rapl_correct_wrap(-2.0 * 999999999999.0)
-        self.assertIsNone(e)
-        self.assertEqual(flag, "uncertain_double")
+        import unittest.mock as mock
+        with mock.patch.object(self.h, "rapl_max_range_j", return_value=1000.0):
+            # corrected = -2500 + 1000 = -1500, still negative -> caught as uncertain_double
+            e, flag = self.h.rapl_correct_wrap(-2500.0)
+            self.assertIsNone(e)
+            self.assertEqual(flag, "uncertain_double")
+
+    def test_rapl_correct_wrap_no_range_is_uncertain(self):
+        import unittest.mock as mock
+        with mock.patch.object(self.h, "rapl_max_range_j", return_value=None):
+            e, flag = self.h.rapl_correct_wrap(-500.0)
+            self.assertIsNone(e)
+            self.assertEqual(flag, "uncertain_no_range")
+
+    def test_rapl_correct_wrap_double_can_be_mislabeled_single(self):
+        """Regression test documenting rapl_correct_wrap's own docstring caveat:
+        a genuine double wrap can still land >=0 after a single +1-range
+        correction and get mislabeled 'corrected_single'. Not a bug to fix --
+        a mathematical limitation of two-point sampling (no periodic
+        re-sampling within a run) -- this test exists so the limitation stays
+        documented and visible rather than silently regressing to a stronger
+        (false) claim."""
+        import unittest.mock as mock
+        with mock.patch.object(self.h, "rapl_max_range_j", return_value=1000.0):
+            # true energy 2500J over two wraps of a 1000J-range counter can
+            # produce a raw (end-start) delta of -500J.
+            e, flag = self.h.rapl_correct_wrap(-500.0)
+            self.assertEqual(flag, "corrected_single")  # mislabeled by construction
+            self.assertNotEqual(e, 2500.0)  # "corrected" value is NOT the true energy
 
     def test_rapl_correct_wrap_none_passthrough(self):
         e, flag = self.h.rapl_correct_wrap(None)

@@ -19,12 +19,12 @@
   "slo_compliance": 1.0,
   "compliance_source": "hey_interp",
   "energy_J": {
-    "total": 371.1,
+    "total": 364.1,
     "dynamic": 271.1,
     "control_plane": 33.7,
     "function": 237.8
   },
-  "cp_share_pct": 9.15,
+  "cp_share_pct": 9.33,
   "cp_dynamic_share_pct": 12.44,
   "cpu_sec": {
     "control_plane": 9.64,
@@ -1831,7 +1831,7 @@
   },
   "cp_peak_mem_mb": 80.8,
   "carbon_gCO2": {
-    "op_total": 0.018,
+    "op_total": 0.017,
     "op_control_plane": 0.002,
     "idle_band": {
       "15": 0.028,
@@ -1840,7 +1840,7 @@
     }
   },
   "model": {
-    "idle_w": 4.906,
+    "idle_w": 4.561,
     "busy_core_w": 3.5,
     "pue": 1.15,
     "ci": 150.0
@@ -1858,11 +1858,11 @@
     },
     "op_carbon_gCO2_by_busy_w": {
       "2.0": 0.012,
-      "3.5": 0.018,
+      "3.5": 0.017,
       "5.0": 0.023
     }
   },
-  "kpi_gco2_per_slo_compliant_inv": 1.78e-06,
+  "kpi_gco2_per_slo_compliant_inv": 1.74e-06,
   "kpi_gco2_per_inv_dynamic": 1.3e-06,
   "embodied_dram_g_per_gb_h": 0.0317,
   "host_cpu_sec": 122.43,

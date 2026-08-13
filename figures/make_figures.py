@@ -10,8 +10,12 @@ lives in the paper captions):
   Figure 1 — core-count effect (Fn vs OpenFaaS): the controlled same-instrument
              experiment, 8 cores vs the same box cpuset-pinned to 2 cores.
              This is the machine-dependence contribution.
-  Figure 2 — per-run shares, four platforms (8-core box, same day): every
-             per-run value shown honestly (n=5 per session; Fn = 3 sessions).
+  Figure 2 — per-run shares, four platforms (8-core box, same instrument):
+             every per-run value shown honestly (n=5 per session; Fn = 3
+             sessions spanning 2026-08-06/07/09; OpenFaaS/Knative/OpenWhisk
+             are each a single session, collected on different dates -- see
+             the data-source note in the paper's Appendix A / figure caption,
+             NOT a same-day four-platform comparison).
   Figure 3 — attribution split (CP / fn / unclassified CPU-time) for the
              same four platforms.
   Figure 4 — control-plane CPU per invocation (ms), all four platforms.
@@ -73,7 +77,9 @@ REGIMES = {
 # Figure 1 (core-count): the controlled Fn-vs-OF experiment
 CORE_COUNT_REGS = ("8core_quiet", "2core")
 CORE_COUNT_PLAT = ("fn", "openfaas")
-# Figures 2-4 (four-platform, 8-core box, same-day sessions)
+# Figures 2-4 (four-platform, 8-core box, same instrument -- NOT same day;
+# Fn/OpenFaaS from 2026-08-09, Knative/OpenWhisk from 2026-08-08, Fn's three
+# sessions span 2026-08-06/07/09 -- see the paper's data-source note)
 FOURPLAT_REGS = ("fourplat",)
 FOURPLAT_PLAT = ("openfaas", "fn", "knative", "openwhisk")
 
@@ -187,7 +193,7 @@ def figure1_core_count(agg):
 
 
 def figure2_four_platform_scatter(agg):
-    """Per-run shares, all four platforms (8-core box, same-day sessions)."""
+    """Per-run shares, all four platforms (8-core box, same instrument -- sessions collected on different dates, see module docstring)."""
     fig, ax = plt.subplots(figsize=(7.2, 4.4), dpi=150)
     rng = __import__("random").Random(0)
     markers = ("o", "s", "^", "D")

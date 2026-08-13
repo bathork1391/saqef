@@ -131,12 +131,28 @@ def rapl_correct_wrap(raw_delta):
     """Return (e_rapl, wrap_flag) for a raw RAPL (end - start) energy delta.
 
     Corrects for the energy_uj counter's wraparound: a single wrap is corrected
-    exactly using rapl_max_range_j(); anything else (double wrap, or a
-    counter with no known range) is reported as uncertain and returns None --
-    fail-open, never a garbage validation number. wrap_flag is one of
-    'none' | 'corrected_single' | 'uncertain_double' | 'uncertain_no_range',
-    so a discarded reading is DISTINGUISHABLE in the output from "RAPL not
-    available" (rapl_available is a separate field)."""
+    exactly by adding one counter range (rapl_max_range_j()); a negative
+    counter with no known range is reported as uncertain and returns None --
+    fail-open, never a garbage validation number.
+
+    CAVEAT (not a general double-wrap detector): from a single before/after
+    pair there is no way to determine the true wrap count in general -- the
+    correction only ever adds ONE range, so a genuine double-or-more wrap
+    whose raw delta happens to land >=0 after adding one range is silently
+    mislabeled 'corrected_single' rather than caught by the 'corrected <  0'
+    check below (e.g. rng=1000J, true energy=2500J: two wraps can produce a
+    raw delta that becomes positive after a single +rng correction). This is
+    a mathematical limitation of two-point sampling, not a bug: distinguishing
+    N wraps requires periodic re-sampling within the run, which this harness
+    does not do. It is inconsequential on the machine this study runs on --
+    max_energy_range_uj is ~262 kJ, several orders of magnitude above what a
+    17-320 s run consumes at realistic power draw, so multi-wrap is not
+    physically reachable here -- but the docstring should not imply the
+    wrap_flag values are a sound general-purpose classifier; they are a
+    best-effort single-wrap correction with a fail-open backstop, not a proof.
+    wrap_flag is one of 'none' | 'corrected_single' | 'uncertain_double' |
+    'uncertain_no_range', so a discarded reading is DISTINGUISHABLE in the
+    output from "RAPL not available" (rapl_available is a separate field)."""
     if raw_delta is None or raw_delta >= 0:
         return raw_delta, "none"
     rng = rapl_max_range_j()
