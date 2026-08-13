@@ -30,7 +30,7 @@ energy/carbon citable OF/Fn/Kn (fresh per-leg idle_w 3.505 / 3.56 / 4.352 W, run
 JVM/linear-model mismatch). All committed in `f2d9a4e` (paper + figures 2–4 + data; figure1
 untouched — core-count experiment unchanged). `SAQEF_PAPER_DRAFT.md` + `figures/make_figures.py`
 REGIMES `fourplat` are synced to these dirs; robustness figures (KN queue-proxy→CP **24.9%**,
-flat-5ms-normalized shares **9.36/12.42/15.36/83.79%**) re-derived from raw data. The prior
+flat-5ms-normalized shares **9.35/12.42/15.35/83.79%**) re-derived from raw data. The prior
 snapshots (2026-08-07 contaminated / 2026-08-08 morning / 2026-08-08/09 two-day stitch / first
 `lock_lock` attempt) are explicitly retired in the paper but retained in git for the appendix
 evolution note.
@@ -1245,7 +1245,7 @@ regenerated (figure1 untouched); paper's abstract/§3/§4.1/§4.5/§5.6/§8.1/§
 re-anchored to the lock session (OF 7.29 / Fn 11.16 / Kn 11.82 / OW 81.88), with the three
 earlier snapshots explicitly retired and cross-checked number-for-number against
 `results/*_lock_lock{2,3}/runs.json` (CIs, CVs, per-inv CP/fn ms, RAPL ranges, QoS, idle_w all
-match; the KN queue-proxy→CP 24.9% and flat-5ms 9.36/12.42/15.36/83.79% robustness figures were
+match; the KN queue-proxy→CP 24.9% and flat-5ms 9.35/12.42/15.35/83.79% robustness figures were
 re-derived from `samples.csv`/runs.json and fixed from the earlier rounded-value drift). (2)
 ~~re-anchor regression refs~~ — **verified NOT needed:** the lock session's Fn 11.16 / OF 7.29
 sit within the 0.5 pp tolerance of the 2026-08-09 refs (11.49 / 7.61; dev 0.33 / 0.32 pp), so
