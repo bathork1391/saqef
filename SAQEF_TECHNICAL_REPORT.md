@@ -1285,5 +1285,70 @@ short contamination A/B legs (TOTAL=3000, ~5 s wall) with the same `idle_w=4.3`.
   mismatch (31–50% RAPL err, stable across all sessions — the standalone JVM does not fit a
   linear busy-core model) is named in the paper's Future Work as a separate, larger open item, not
   the same class as the idle-w calibration gap; it was never in `saqef regression`'s scope (that
-  gate proves the refactored CLI reproduces old-runner values for fn/openfaas, which have tight
-  references).
+   gate proves the refactored CLI reproduces old-runner values for fn/openfaas, which have tight
+   references).
+
+## 33. lock4 — the matched single-day four-platform session (2026-08-14)
+
+The publication-lock pair (§32 context; lock2 + lock3, 2026-08-13/14) was clean but still
+stitched OpenWhisk across to a second day (its lock2 leg was corrupted by the loadgen-timeout
+bug — 1,993/10,000 — fixed in `7f7bad5`; lock3 re-ran OW only). **lock4 replaces it as the
+paper's citable four-platform baseline**: all four platforms back-to-back the SAME day
+(2026-08-14) via `tools/run_lock_session.sh` (dry-run first, then the real session), under the
+self-certifying quiet gate, count-complete, zero loadgen fallbacks, all gates green. This closes
+the cold-review-pass-#6 "asymmetric quiet-gate certification" criticism at the root — every leg
+now carries its own `ambient` field and fresh idle-w.
+
+**Data dirs.** `results/{openfaas,fn,knative,openwhisk}_cpubound_lock_lock4/` (5 runs each,
+`runs.json` + `summary.json` + per-run `samples.csv`), `results/idle_w_calibration/lock_lock4/`
+(N=5 raw RAPL reads per stack state, medians), `results/lock_session_lock4/lock_summary.json`
+(session-level gate report). Driver smoke-test artifacts (`results/lock_session_smoketest/`,
+`*_cpubound_lock_smoketest_quick/`) are REPEAT<5 `_quick` never-publish working artifacts.
+
+**Headline medians (`cp_dynamic_share_pct`):** OpenFaaS **7.58** (CI 6.78–7.66, CV 5.41%) < Fn
+**11.29** (CI 9.82–11.50, CV 6.39%) ≈ Knative **11.47** (CI 10.94–12.31, CV 4.39%) < OpenWhisk
+**81.78** (CI 80.65–84.45, CV 1.71%). Gap Fn−OF = **+3.71 pp**. Reproduces lock2/lock3
+(7.29/11.16/11.82/81.88) within ≤0.35 pp per platform; ordering OF < Fn≈Kn << OW holds; the
+Fn–Kn cluster tie flipped sign (lock2 Kn +0.66 pp above Fn; lock4 Fn +0.18 pp above Kn) — inside
+overlapping CIs, consistent with reporting a cluster. Per-inv CP cost 0.54 / 0.72 / 0.88 /
+25.66 ms; fn cost 6.62 / 5.66 / 6.82 / 5.72 ms.
+
+**Idle-w calibration (N=5 per stack state):** bare 4.084 W, OpenFaaS@16 4.235 W, Fn 4.249 W,
+Knative@16 5.739 W, OpenWhisk 4.882 W. The Knative premium (B−A) re-read **~1.66 W** vs 0.690 W
+on 2026-08-09 — same direction, larger magnitude, both N=5 → the paper now cites "~0.7–1.7 W"
+and each session models energy with its own fresh per-leg idle-w (energy/carbon used 4.235 /
+4.249 / 5.739 / 4.882 W; §5.6, §11).
+
+**Gates.** All four legs: runs==5, delta ~0, CPmapped 6/6 (OF) / 1/1 (Fn) / 18/18 (Kn) / 1/1
+(OW), coverage 100%, host_plausible=physical_plausible=True, `rapl_wrap` none, ambient present
+and under threshold (5.9–7.4% of a 15% ceiling), host_sat 70.8 / 71.9 / 74.1 / 60.7% (< 85% →
+QoS citable). `saqef gates` GREEN on all legs.
+
+**QoS (median).** OpenFaaS p50 7.0 / p99 13.1 ms @ 532.8 rps; Fn p50 6.5 / p99 9.4 ms @ 590.5
+rps; Knative p50 7.6 / p99 11.0 ms @ 505.8 rps; OpenWhisk p50 110.7 / p99 189.2 ms @ 35.0 rps;
+SLO compliance 1.0 all four. OW latency remains above the 2026-08-08 quiet-morning reading
+(97.4/136.5 @ 40.8 rps) — box-state and run-to-run throughput variance, host_sat disclosed
+alongside.
+
+**Energy/carbon.** Fn/OpenFaaS/Knative citable from this session's own steady-state runs 3–5
+(RAPL err 0.6–3.4% / 1.0–2.3% / 4.1–8.8%; runs 1–2 warm-up transient ≤32.0/34.6/27.2%).
+OpenWhisk NOT citable (RAPL err 27.4–46.8%, median 42.0% — structural JVM/linear-model
+mismatch, unchanged across all five sessions; §10 item 10 / §5.6). Energy totals (median):
+Fn 295.3 J, OF 331.3 J, Kn 383.0 J, OW 2447.4 J; carbon op_total 0.014 / 0.016 / 0.018 / 0.117 g.
+
+**Robustness figures re-derived from raw data.** Queue-proxy→CP for Knative: per-run integrated
+CPU-time from `samples.csv` reproduces the harness's own shares exactly (10.94/11.32/11.68/11.47/
+12.31), queue-proxy ~10.2 CPU-s/run vs ~57.8 s fn and ~8.8 s CP → **24.8%** (vs 24.9% in lock2).
+Flat-5ms-normalized shares (share = cp_ms/(cp_ms+5)): **9.81 / 12.60 / 15.01 / 83.69%**.
+
+**Regression refs.** lock4 Fn 11.29 (dev 0.20 pp) and OF 7.58 (dev 0.03 pp) both within the
+0.5 pp tolerance of the 2026-08-09 references (11.49 / 7.61) → `metrics/cpubound.json` unchanged,
+no re-anchor needed.
+
+**Sync applied (2026-08-14, this commit):** `figures/make_figures.py` REGIMES `fourplat` →
+lock4 dirs (figure1 untouched; its PNG byte-identical, PDF metadata-only per the 2026-08-13
+wording fix); figures 2–4 regenerated; `SAQEF_PAPER_DRAFT.md` abstract, §3, §4.1/§4.5, §5.6
+(table, fig captions, convention + function-cost-normalized views, idle-baseline day-state note,
+reproducibility, QoS), §8.1 G6, §10, §11, Appendices A/B re-anchored; `AGENTS.md` current-state
+block rewritten to lock4. `SAQEF_TECHNICAL_REPORT.md` prior sections remain the durable history;
+lock2/lock3 stay retired-but-documented (Appendix evolution note).
