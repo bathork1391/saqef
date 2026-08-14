@@ -406,7 +406,11 @@ for plat in [p for p in ("openfaas", "fn", "knative", "openwhisk") if short[p] i
         print("%-10s FAIL -- no summary under %s (%s)" % (order[plat], out, e)); all_ok = False; continue
     share = s.get("cp_dynamic_share_pct")
     problems = []
-    if len(runs) != 5:
+    # quick-tier (REPEAT<5, _quick outdir) is exploratory by design and must
+    # NOT fail the lock gate on run count -- only full REPEAT=5 citable sessions
+    # require exactly 5 runs. Any other gate (host_plausible, delta_check,
+    # rapl_wrap, ambient) still applies to quick-tier runs.
+    if int(repeat) >= 5 and len(runs) != 5:
         problems.append("runs=%d (want 5)" % len(runs))
     for p in runs:
         try:
@@ -454,7 +458,8 @@ json.dump({"session": meta, "platforms": summary, "all_gates_ok": all_ok}, open(
 print("\nlock summary written to %s" % os.path.relpath(outp, repo))
 if not all_ok:
     sys.exit("FAIL: one or more legs failed the gate check -- do NOT cite from this session until resolved.")
-print("ALL GATES OK -- session is citable under the same-discipline rules (N=5, quiet-gated, same day, same box).")
+tier = "quick-tier (REPEAT<5, exploratory, NOT citable until promoted to REPEAT=5)" if int(repeat) < 5 else "citable"
+print("ALL GATES OK -- session is %s under the same-discipline rules (quiet-gated, same day, same box)." % tier)
 PY
 
 echo
