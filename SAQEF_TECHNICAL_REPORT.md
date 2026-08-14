@@ -150,8 +150,9 @@ python3 saqef_harness.py \
     --cp-containers fnserver --total 3000 --concurrency 20 --duration 60 \
     --warmup 20 --repeat 5 --sampler cgroup \
     --outdir results/fn_cpubound_v6
-# freeze ablation:
-docker update --env-add FN_FREEZE_IDLE_MSECS=0 fnserver   # then rerun; record difference
+# freeze ablation (NOTE: docker update has NO --env-add flag -- env is fixed at container
+# creation. Use the run_saqef.sh hook instead: FN_FREEZE_IDLE_MSECS=0 bash run_saqef.sh all):
+FN_FREEZE_IDLE_MSECS=0 bash run_saqef.sh all   # then rerun with the var unset; record difference
 ```
 Then follow `OPENFAAS_SETUP.md` with `--auth admin:<pw>` and `--verify` before measuring.
 
@@ -223,7 +224,7 @@ python3 saqef_harness.py --url http://localhost:8080/t/app1/hello --platform fn 
     --outdir results/fn_coldstart
 #   ...then compare against the warm run above -> "carbon cost of elasticity"
 
-# 4. freeze ablation (unchanged): docker update --env-add FN_FREEZE_IDLE_MSECS=0 fnserver
+# 4. freeze ablation: FN_FREEZE_IDLE_MSECS=0 bash run_saqef.sh all  (env set at container creation; see line 153)
 ```
 
 ---

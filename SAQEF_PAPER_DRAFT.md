@@ -778,6 +778,35 @@ confirmed stable across four independent sessions, so **OpenWhisk energy/carbon 
 citable**; that is a separate, larger open item (Future Work §10), not a calibration gap this
 protocol could close.
 
+**Idle bare-vs-loaded decomposition for ALL four platforms (lock4, N=5 per state).** The same
+lock4 calibration that re-read Knative's premium also measured every other platform's always-on
+idle draw in the exact bench-time stack state (control plane up, warm replicas, **zero traffic**;
+`results/idle_w_calibration/lock_lock4/*.txt`, raw reads committed and reviewer-re-derivable). The
+ΔW over the bare substrate (4.084 W) is each platform's always-on control-plane + warm-replica
+power — the static half of the paper's idle-vs-dynamic energy split (§4.5), now a measured row for
+every platform rather than only Knative:
+
+*Table 13 — lock4 always-on idle decomposition (N=5 repeated 60 s RAPL reads per state, 2026-08-14 quiet box, raw reads in `results/idle_w_calibration/lock_lock4/`).*
+
+| stack state | idle W (median; min–max) | ΔW vs bare |
+|---|---|---|
+| bare substrate (k3s + knative-serving + kourier, no function) | 4.084 (3.864–4.515, spread 0.65) | — |
+| OpenFaaS (control plane + hello @ 16) | 4.235 (4.017–4.418, spread 0.40) | **+0.151** |
+| Fn (fnserver, function registered) | 4.249 (3.994–4.339, spread 0.35) | **+0.165** |
+| OpenWhisk (standalone JVM) | 4.882 (4.464–5.907, spread 1.44) | **+0.798** |
+| Knative (serving + hello @ 16) | 5.739 (5.435–6.272, spread 0.84) | **+1.655** |
+
+**Reading:** the four platforms split into two regimes. Fn and OpenFaaS add only ~0.15 W of
+always-on control-plane power over the bare substrate — their idle cost is essentially the
+substrate itself. The OpenWhisk standalone adds ~0.8 W (its always-resident JVM + per-activation
+container pool), and Knative's k8s-native stack adds ~1.66 W — the largest always-on premium, ~10×
+the Fn/OpenFaaS value, driven by the warm 16-replica × queue-proxy deployment plus
+knative-serving/kourier. This is the same conclusion as the Knative-only finding above but now
+measured uniformly across all four platforms from one same-day, same-gate session. As with the
+Knative premium (§5.6), magnitudes are day-state dependent — what matters is the *ordering*
+(Fn ≈ OpenFaaS ≪ OpenWhisk < Knative), which is exactly the ordering of the platform stacks'
+static footprint (design-principle C3, §11).
+
 **Reproducibility note (five sessions, five box-states).** OpenWhisk's share has now been
 measured five times under different conditions — 82.54 (contaminated), 80.23 (quiet), 82.36
 (moderately loaded: host_sat 57–70%, `dockerd` itself ran at 45–64% CPU during the
@@ -901,7 +930,7 @@ The central methodological claim is not a number; it is that **every reported qu
 
 ### 8.1 The validation gates (each number is double-checked)
 
-*Table 13 — Cross-check ledger: every reported quantity and how it is independently verified.*
+*Table 14 — Cross-check ledger: every reported quantity and how it is independently verified.*
 
 | # | Reported quantity | Independent cross-check | Current status |
 |---|---|---|---|
@@ -1035,7 +1064,7 @@ agent-contaminated: Fn 12.27 / OF 7.53 / Kn 13.99 / OW 82.54; 2026-08-08 quiet-b
 publication-lock pair: 7.29 / 11.16 / 11.82 / 81.88). **Do not cite the earlier snapshots** —
 their evolution is recorded in git history and summarized in the paper's evolution note (§5.6).
 
-*Table 14 — Consolidated four-platform results (lock4 session 2026-08-14, medians of REPEAT=5 per leg; all gates green, count-complete).*
+*Table 15 — Consolidated four-platform results (lock4 session 2026-08-14, medians of REPEAT=5 per leg; all gates green, count-complete).*
 
 | Metric (median of 5) | Fn | OpenFaaS | Knative | OpenWhisk |
 |---|---|---|---|---|
@@ -1051,6 +1080,7 @@ their evolution is recorded in git history and summarized in the paper's evoluti
 | SLO compliance | 1.0 | 1.0 | 1.0 | 1.0 |
 | host_sat | 71.9% | 70.8% | 74.1% | 60.7% |
 | `idle_w` (fresh per-leg) | 4.249 W | 4.235 W | 5.739 W | 4.882 W |
+| always-on ΔW vs bare substrate (4.084 W, N=5) | +0.165 | +0.151 | +1.655 | +0.798 |
 | RAPL validation err (5-run range, median) | 0.55–32.00% (3.36%) | 1.01–34.55% (2.33%) | 2.45–27.18% (5.88%) | 27.36–46.77% (42.02%) |
 | energy/carbon | validated (0.6–3.4% ss) | validated (1.0–2.3% ss) | validated (4.1–8.8% ss) | estimate only (27.4–46.8%) |
 
@@ -1058,7 +1088,9 @@ their evolution is recorded in git history and summarized in the paper's evoluti
 of-watchdog); OW CP cost is the standalone JVM incl. per-activation docker-log log-store
 (deployment-mode caveat, §5.6). All four legs passed the host_sat < 85% contamination gate.
 OpenWhisk's poor RAPL fit is stable across all five sessions regardless of box-state (structural
-JVM/linear-model mismatch, not noise; §10 item 10). Full per-run tables: `SAQEF_TECHNICAL_REPORT.md`
+JVM/linear-model mismatch, not noise; §10 item 10). The always-on ΔW row is the lock4 idle
+decomposition (Table 13; raw reads in `results/idle_w_calibration/lock_lock4/*.txt`). Full per-run
+tables: `SAQEF_TECHNICAL_REPORT.md`
 §30.1, `results/{openfaas,fn,knative,openwhisk}_cpubound_lock_lock4`
 (prior snapshots: `results/{fn,openfaas}_cpubound_baremetal`, `results/regression/{openfaas,fn}`,
 `results/{knative,openwhisk}_cpubound_baremetal`, `results/*_cpubound_lock_lock2/3`).*
@@ -1087,7 +1119,7 @@ at 8-core bare metal (lock4 session 2026-08-14, current as of Appendix A; shares
 QoS, and — for Fn/OF/Kn — energy are all citable from that session). The four-platform
 comparison lives in Appendix A and figures 2–3.
 
-*Table 15 — Consolidated cross-platform results across all bare-metal regimes (8-core vs 2-core pinned).*
+*Table 16 — Consolidated cross-platform results across all bare-metal regimes (8-core vs 2-core pinned).*
 
 | Metric (median of 5) | Fn (bare c=4) | OF (bare c=4) | Kn (bare c=4) | OW (bare c=4) | Fn (2-core pinned) | OF (2-core pinned) |
 |---|---|---|---|---|---|---|

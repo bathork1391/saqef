@@ -93,6 +93,15 @@ setup_fn() {
   reset_fn
   echo "=== [setup] Fn server ==="
   mkdir -p /tmp/iofs /tmp/data
+  # Freeze-ablation hook: FN_FREEZE_IDLE_MSECS=0 disables Fn's hot-container
+  # pause/unpause. Must be set at container CREATION (docker update cannot change
+  # env on a live container -- the old report recipe was wrong). Unset by default
+  # => default freeze behavior, byte-identical to any prior citable run.
+  FN_RUN_ENV=()
+  if [ -n "${FN_FREEZE_IDLE_MSECS:-}" ]; then
+    FN_RUN_ENV+=(-e "FN_FREEZE_IDLE_MSECS=$FN_FREEZE_IDLE_MSECS")
+    echo "=== [setup] freeze ablation ON: FN_FREEZE_IDLE_MSECS=$FN_FREEZE_IDLE_MSECS ==="
+  fi
   docker run -d --rm --name fnserver \
     -v /tmp/iofs:/iofs \
     -e FN_IOFS_DOCKER_PATH=/tmp/iofs \
@@ -101,6 +110,7 @@ setup_fn() {
     -v /var/run/docker.sock:/var/run/docker.sock \
     --privileged -p 8080:8080 \
     --entrypoint ./fnserver -e FN_LOG_LEVEL=DEBUG \
+    "${FN_RUN_ENV[@]}" \
     fnproject/fnserver
   sleep 6
 

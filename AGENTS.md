@@ -1171,6 +1171,57 @@ is achievable and would make platform N a 30-minute config job instead of a codi
 start until the paper is out; this is refactor-for-refactor's-sake otherwise. If the strawman
 (§C) is built as `platforms/proxy.py`, that's already a 5th test of the adapter contract.
 
+## Next experiments — DECIDED PLAN (2026-08-15; read this before any bare-box session)
+
+Three experts converged on the same short list after lock4. Constraints the user set: **must stay
+under the sustainability+QoS umbrella, minimum effort/scripts/code/troubleshooting, verifiable by
+2–3 fresh reviewers, quick-tier counts where possible.** Every new measurement runs from a bare
+shell with agents quit (the ambient quiet gate self-certifies). Quick-tier = TOTAL=3000, REPEAT=3,
+outdir gets `_quick` automatically and is never published until gates pass and it is promoted.
+
+**AGREED ORDER OF WORK (all cheap):**
+1. **Idle bare-vs-loaded ΔW table for ALL FOUR platforms — DONE 2026-08-15 (reporting only, no run).**
+   `results/idle_w_calibration/lock_lock4/` has N=5 medians for bare (4.084 W) plus every
+   platform-up state: Fn +0.165, OpenFaaS +0.151, Knative +1.655, OpenWhisk +0.798 W.
+   **COMMITTED to the paper as Table 13** (mirroring Kn's Table 12 decomposition, §5.6) + an
+   always-on ΔW row in Appendix A's Table 15 (Tables 13–15 renumbered → 14–16). Raw reads
+   already committed, reviewer-re-derivable. No further work.
+2. **Fn freeze-ablation (FN_FREEZE_IDLE_MSECS=0 vs default).** Hook added to `run_saqef.sh`
+   `setup_fn()` (env set at container creation; the old `docker update --env-add` recipe was wrong
+   and is fixed in `SAQEF_TECHNICAL_REPORT.md` lines 153/227). Run: baseline Fn leg (REPEAT=3) +
+   `FN_FREEZE_IDLE_MSECS=0 bash run_saqef.sh all` leg (REPEAT=3). ~25–30 min. Framing: footnote-
+   closer for fnserver per-request CP variance (NOT the stale "5× low" — that was the fixed
+   sampler bug, report:161/424); tests whether pause/unpause churn drives fn-side variance.
+3. **Concurrency sweep c=1/2/8/16 on OF/Fn/Kn + OW spot-check.** Reuse `run_lock_session.sh`
+   (`--concurrency`, `--repeat 3`, `--total 3000`). ~50 min full (OW is the time hog ~28 min of
+   it); ~25 min if OW is reduced to a c=4-vs-c=8 spot-check. c=8 host_sat ~91–93% → QoS there not
+   citable, share is (same discipline as §5.5). Answer: does CP overhead amortize with concurrency?
+4. **I/O-bound workload variant (time.sleep(0.005) instead of the busy spin), all 4 platforms.**
+   One-line edit per handler (`hello/func.py`, `OF_FUNCTION/handler.py`, `KNATIVE_FUNCTION/app.py`,
+   `OW_FUNCTION/hello.py`) + rebuild + REPEAT=3 quick pass. ~60 min (rebuilds dominate; benches
+   ~2 min/platform at TOTAL=3000). The one workload change worth doing — **skip the 1/20 ms spin
+   sweep** (Table 11's flat-5ms normalization already answers "artifact of the 5 ms pick").
+5. **(Optional) 4-core point for Fn/OF only** via `pin_cpuset.sh` 4 cores, REPEAT=3. ~30 min.
+   Fills the regime curve (8-core 7.67/10.46 → 4-core → 2-core 7.0/14.0). NOT Kn/OW (pinning on
+   k3s is unproven) and NOT 1-core (predictably non-citable like the 2-core row).
+
+**EXPLICITLY CUT (do not re-suggest without new evidence):** full 1/2/4/8×4 CPU matrix (1-core non-
+citable, Kn/OW pinning unproven); payload-size sweep (scope creep, not in AGENTS.md); cold-start
+across all platforms (static 16-replica design means only Fn can show cold paths; would need
+reconfiguring OF/Kn = real work); native-baseline (needs a new adapter); repeated-day
+reproducibility (already in §5.6 as session-to-session drift); freeze ablation as a headline (it
+is a diagnostic); re-running lock4 or any promoted-REPEAT=5 session for its own sake.
+
+**Future-work / documentation-only (the "design our own control plane" ask, paper §10 + appendix):**
+a "Design principles for a carbon-aware control plane" note built from C1–C3 + the new ΔW table:
+per-replica co-located proxies (C1), streaming log collection not per-activation `docker logs`
+(C2), an idle-watts-budget autoscaler (C3), and the strawman nginx floor (AGENTS.md §C above) as
+the validation rig. No code, no measurement — a paragraph, kept out of the results path.
+
+**Scheduling:** one bare-shell morning ≈ 90 min = items 1 (paper work, needs no box) + 2 + 3; a
+second session ≈ 90 min = item 4 (+ optional 5). All quick-tier results are raw-data-verifiable by
+the next reviewers.
+
 ## Cold review pass #6 + independent verification (2026-08-13) — disposition
 
 Ran `EXPERT_REVIEW_PROMPT_COLD.md` (pinned to 311301c) via a fresh cloud reviewer, then had a
