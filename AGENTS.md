@@ -119,6 +119,29 @@ claim). (6) §5.6 now states plainly WHY OW was rerun on 2026-08-14 (loadgen-tim
 1993/10000 completed, runbook items 12–18) and that the cross-day stitch is reported, not
 concealed.
 
+**Review 3 (2026-08-14, pasted by user; largely confirmatory — fixes applied in the presentation-pass commit below).**
+The reviewer independently re-derived all four headline shares and CP ms/inv from the raw lock4
+`summary.json` files and got exact matches (7.58/11.29/11.47/81.78; 0.54/0.72/0.88/25.66) —
+"flawless," including negligible `unclassified_cpu_s`, so allowlist topology is confirmed
+(no action). Energy/carbon audit confirmed OW's exclusion and the Fn/OF/Kn fits (no action).
+Most recommendations were already in the paper: queue-proxy→CP sensitivity is in the abstract +
+Table 10 (convention-normalized view, 24.8%); the k3s host residual is declared (§5.6 map, Knative
+CP is a *container-visible lower bound* — reviewer explicitly said "do not try to fix it"); OW
+standalone-only + not-citable already disclosed. **Actionable items, all applied:** (1) crisp
+attribution-boundary rule added to the §5.6 map ("per-replica co-located request-path proxies →
+fn; centralized routers/schedulers/gateways → CP"); (2) **OpenWhisk renamed "OpenWhisk
+(standalone)"** in Table 9 header, Figure 2 caption, abstract ordering line, and the figure axis
+labels (`figures/make_figures.py` PLATFORMS label + regenerated figures 2–4; figure1 PNG
+byte-identical, its PDF reverted from the working tree to avoid metadata churn); (3) §4.3 frames
+the 5 ms spin as a **stress-test metric** isolating orchestration tax from IO-wait masking
+(preempts the "real functions do I/O" attack); (4) the **ambient quiet gate now has its own §4.7
+home** — a new Table 2 gate row (20 s window, ≤15% ceiling, `ambient.top_cpu` snapshot in
+summary.json, refuses to start, `--no-quiet-gate` escape hatch) + a "core contribution, not a
+detail" paragraph. The review's "give the quiet gate its own methodology subsection" is a
+legitimate point — done. We did NOT adopt its "drop OpenWhisk / three platforms cleaner" framing
+(none of the three reviews recommended dropping data; OW is the paper's most distinctive result and
+its caveats are already prominent).
+
 **ETHICS BOUNDARY — DO NOT CROSS (user asked 2026-08-14, declined):** the user proposed
 "aggregating" lock2 (2026-08-13) + lock3 (2026-08-14, OW-only) into a single file and presenting
 them as if they ran the same day, so a reviewer "wouldn't know" they're different days. **Refused**
@@ -139,10 +162,12 @@ is already fresh per session); closing it needs (a) a JVM-aware energy model (pe
 nonlinear fit) or (b) the deployment-mode resolution (§5.6/§10 open item — how much of the 26 ms/inv
 is log-store artifact vs real CP). Wording stays until one of those lands.
 
-**Tomorrow's session should:** (1) start from this block; (2) commit or revert the six uncommitted
-paper fixes per user direction; (3) run review 3 as a GENUINELY fresh reviewer (no context from
-this session — per reviewer-#5's discipline, a reviewer who knows the codebase pattern-matches and
-defeats the purpose); (4) hand the reviewer the honest lock2/lock3 framing, NOT the concealment.
+**Tomorrow's session should:** (1) start from this block; (2) run the scheduled fresh reviewer with
+no context from this session (per reviewer-#5's discipline, a reviewer who knows the codebase
+pattern-matches and defeats the purpose); (3) hand the reviewer the honest lock2/lock3 framing,
+NOT the concealment. (The six review-2 fixes and the review-3 presentation pass are BOTH committed
+and pushed — `4e395b2` and the presentation-pass commit below — so there is no longer any
+uncommitted paper state to decide on.)
 
 ## Expert review #5 (2026-08-09) — disposition
 

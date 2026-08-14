@@ -39,7 +39,7 @@ OUTDIR = sys.argv[1] if len(sys.argv) > 1 else os.path.join(os.path.dirname(__fi
 PLATFORMS = {
     "fn":        {"label": "Fn",       "color": "#1f77b4"},
     "openfaas":  {"label": "OpenFaaS", "color": "#ff7f0e"},
-    "openwhisk": {"label": "OpenWhisk", "color": "#2ca02c"},
+    "openwhisk": {"label": "OpenWhisk (standalone)", "color": "#2ca02c"},
     "knative":   {"label": "Knative",  "color": "#9467bd"},
 }
 
