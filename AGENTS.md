@@ -17,36 +17,42 @@ a contention-robust discriminator. Decision gate: platform gap in the share must
   `host_plausible` (must be true), `physical_plausible`, `host_sat%` (~100 on the codespace is
   the honest saturated-box flag, not a failure).
 
-## Current state (2026-08-14 — publication-lock session COMPLETE; read this first)
+## Current state (2026-08-14 — lock4 session COMPLETE; read this first)
 
-**The paper's citable four-platform baseline is the publication-lock session (2026-08-13/14):
-OpenFaaS 7.29 < Fn ≈ Knative 11.16 / 11.82 < OpenWhisk 81.88 (`cp_dynamic_share_pct` medians).**
-Data in `results/{openfaas,fn,knative}_cpubound_lock_lock2` + `results/openwhisk_cpubound_lock_lock3`
-(OF/Fn/Kn from lock2 on 2026-08-13, OW from lock3 on 2026-08-14 — treated as ONE matched
-quiet-gated session set; **lock2's own OW leg is the corrupted 1993/10000 run, never cite it**).
-Per-inv CP cost 0.52 / 0.71 / 0.91 / 25.84 ms; QoS citable all four (host_sat 61–75%);
-energy/carbon citable OF/Fn/Kn (fresh per-leg idle_w 3.505 / 3.56 / 4.352 W, runs 3–5 RAPL
-3.6–9.8% / 0.5–3.7% / 4.2–4.8%) and NOT citable for OW (rapl err 33–53%, median 48%, structural
-JVM/linear-model mismatch). All committed in `f2d9a4e` (paper + figures 2–4 + data; figure1
-untouched — core-count experiment unchanged). `SAQEF_PAPER_DRAFT.md` + `figures/make_figures.py`
-REGIMES `fourplat` are synced to these dirs; robustness figures (KN queue-proxy→CP **24.9%**,
-flat-5ms-normalized shares **9.35/12.42/15.35/83.79%**) re-derived from raw data. The prior
-snapshots (2026-08-07 contaminated / 2026-08-08 morning / 2026-08-08/09 two-day stitch / first
-`lock_lock` attempt) are explicitly retired in the paper but retained in git for the appendix
-evolution note.
+**The paper's citable four-platform baseline is the lock4 session (2026-08-14): OpenFaaS 7.58 <
+Fn ≈ Knative 11.29 / 11.47 < OpenWhisk 81.78 (`cp_dynamic_share_pct` medians).** Data in
+`results/{openfaas,fn,knative,openwhisk}_cpubound_lock_lock4` — all four platforms back-to-back
+the SAME day under the self-certifying quiet gate (ambient 5.9–7.4% of a 15% ceiling), the first
+fully matched single-day four-platform session; it replaces the two-day publication-lock pair
+(lock2 OF/Fn/Kn 2026-08-13 + lock3 OW 2026-08-14: 7.29 / 11.16 / 11.82 / 81.88), which remains
+retired-but-documented in the paper's evolution note (**lock2's own OW leg is the corrupted
+1993/10000 run, never cite it**). Per-inv CP cost 0.54 / 0.72 / 0.88 / 25.66 ms; QoS citable all
+four (host_sat 60.7–74.1%); energy/carbon citable OF/Fn/Kn (fresh N=5 per-leg idle_w 4.235 / 4.249 /
+5.739 W, runs 3–5 RAPL 1.0–2.3% / 0.6–3.4% / 4.1–8.8%) and NOT citable for OW (rapl err
+27.4–46.8%, median 42.0%, structural JVM/linear-model mismatch). lock4's N=5 idle calibration
+re-confirmed the Knative idle premium's *direction* but showed its *magnitude* is day-state
+dependent (0.690 W on 2026-08-09 vs ~1.66 W on 2026-08-14 — both N=5 medians; paper cites
+"~0.7–1.7 W", not a fixed number). **NOT YET COMMITTED** (wait for user): paper
+`SAQEF_PAPER_DRAFT.md` + `figures/make_figures.py` REGIMES `fourplat` + regenerated figures 2–4
+(all synced to lock4; figure1 untouched — core-count experiment unchanged). Robustness figures
+re-derived from raw data: KN queue-proxy→CP **24.8%** (samples.csv integration reproduces the
+harness's own 11.47 to ~0.03 pp), flat-5ms-normalized shares **9.81/12.60/15.01/83.69%**. The
+prior snapshots (2026-08-07 contaminated / 2026-08-08 morning / 2026-08-08/09 two-day stitch /
+2026-08-13/14 publication-lock pair) are explicitly retired in the paper but retained in git for
+the appendix evolution note.
 
 **Regression refs still valid — no re-anchor needed.** `metrics/cpubound.json` (fn 11.49 / of
-7.61) holds: lock Fn 11.16 (dev 0.33 pp) / OF 7.29 (dev 0.32 pp) both ≤ 0.5 pp tolerance.
+7.61) holds: lock4 Fn 11.29 (dev 0.20 pp) / OF 7.58 (dev 0.03 pp) both ≤ 0.5 pp tolerance.
 `tools/reanchor_and_kn_idle.sh` does NOT need to run for this box-state.
 
 **What remains before submission (all documented in detail below):** (1) cold review pass #6 on
 the four newest code paths — **DONE 2026-08-13** (see its disposition section; 9 confirmed
 findings all fixed; deliberate scope: "safe fixes only", the fresh 4-platform rerun + Fn/OF
-idle-w recalibration deferred); (2) the **second physical machine** decision — **DECIDED
+idle-w recalibration deferred — the deferred 4-platform rerun is what became lock4); (2) the **second physical machine** decision — **DECIDED
 2026-08-14: no second machine; ship the honestly-scoped n=1** (wording already in paper
 Contribution #3 + T5V #8; a future study may revisit, but it is no longer an open decision
 blocking submission); (3) OpenWhisk's structural energy-model mismatch is named as a separate open item in
-Future Work, not a calibration gap. Idle-w: lock session recalibrated per-leg (above);
+Future Work, not a calibration gap. Idle-w: lock4 recalibrated per-leg (above);
 the 2026-08-05/06 Fn/OF constant `4.3 W` remains the figure1/2-core-regime value and is
 fine there.
 
@@ -55,7 +61,8 @@ fine there.
 under an emulated agent profile) and regression re-anchor (11.49/7.61) and Knative idle-w
 (0.690 W premium) all completed on the quiet box 2026-08-08/09; lock2/lock3 run via
 `tools/run_lock_session.sh` with the OW `--duration` bug fixed (`7f7bad5`, INCOMPLETE-RUN +
-LOADGEN-FALLBACK gate checks added). 55/55 tests pass.
+LOADGEN-FALLBACK gate checks added); lock4 (the matched single-day four-platform replacement,
+2026-08-14) run via the same driver. 55/55 tests pass.
 
 ## Two adversarial cold reviews (2026-08-14 evening) — disposition + handoff for tomorrow
 
@@ -1303,7 +1310,9 @@ requests, no loadgen fallback, all gates genuinely passing, `cp_dynamic_share_pc
 (CV 1.57%) — consistent with OpenWhisk's prior-session band (82.54/80.23/82.36/82.27/82.36).
 **Citable publication-lock set = lock2's OF+Fn+Kn legs + lock3's OW leg, treated as one
 matched session for the paper**, not lock2 alone (its OW leg is the corrupted 1993/10000 run
-and must not be cited). `orchestration_share_pct` (new harness field, `host_cpu_sec − fn_cpu_s`)
+and must not be cited). **SUPERSEDED 2026-08-14 by lock4** (same driver, all four platforms
+back-to-back the same day — `results/*_cpubound_lock_lock4`, the paper's current cited session);
+lock2+lock3 remain retired-but-documented history. `orchestration_share_pct` (new harness field, `host_cpu_sec − fn_cpu_s`)
 needs no new paper treatment — it's the same host-wide-residual field already defined and
 explicitly excluded from claims in `SAQEF_TECHNICAL_REPORT.md`/`SAQEF_PAPER_DRAFT.md`; only
 the cgroup-exact `cp_dynamic_share_pct` is presented as the citable share.
