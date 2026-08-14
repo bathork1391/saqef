@@ -32,9 +32,20 @@ four (host_sat 60.7–74.1%); energy/carbon citable OF/Fn/Kn (fresh N=5 per-leg 
 27.4–46.8%, median 42.0%, structural JVM/linear-model mismatch). lock4's N=5 idle calibration
 re-confirmed the Knative idle premium's *direction* but showed its *magnitude* is day-state
 dependent (0.690 W on 2026-08-09 vs ~1.66 W on 2026-08-14 — both N=5 medians; paper cites
-"~0.7–1.7 W", not a fixed number). **NOT YET COMMITTED** (wait for user): paper
-`SAQEF_PAPER_DRAFT.md` + `figures/make_figures.py` REGIMES `fourplat` + regenerated figures 2–4
-(all synced to lock4; figure1 untouched — core-count experiment unchanged). Robustness figures
+"~0.7–1.7 W", not a fixed number). **COMMITTED + PUBLISHED 2026-08-14** (`cc82979`, pushed to
+origin/main): paper `SAQEF_PAPER_DRAFT.md` + `figures/make_figures.py` REGIMES `fourplat` +
+regenerated figures 2–4 (all synced to lock4; figure1 untouched — core-count experiment
+unchanged). **Post-publication paper revision (2026-08-14, ALSO committed — see commit message):
+full A+B+C edit pass** — (A) §5 structure lead-in + per-table platform/session labels, Fn-vs-fn
+disambiguation, RQ2 generalized to "a serverless platform's control plane", §5.5 renamed
+"Core-count dependence", "energy citable?" table columns renamed to raw RAPL evidence with OW
+"estimate only (27.4–46.8%, median 42.0, structural)"; (B) abstract tightened, intro history arc,
+Background rewritten as themed prose + citations (FaasMeter/Kepler/Caribou/Wang et al./Shahrad
+et al.), RQ lead-in, §4.1 three-channel pipeline map, §6 Discussion expanded into synthesis +
+design principles C1–C3; (C) per-inv CP energy/carbon columns (mJ/µg, model-based: OF 1.90/0.09,
+Fn 2.52/0.12, Kn 3.09/0.15, OW 89.8/4.30) added to the §5.6 table + Appendix A, §11 updated,
+**new §12 Conclusion**, Appendix A absolute per-run energy/carbon row added (295.3/331.3/383.0/
+2447.4 J; 0.014/0.016/0.018/0.117 g — recomputed from committed runs.json). Robustness figures
 re-derived from raw data: KN queue-proxy→CP **24.8%** (samples.csv integration reproduces the
 harness's own 11.47 to ~0.03 pp), flat-5ms-normalized shares **9.81/12.60/15.01/83.69%**. The
 prior snapshots (2026-08-07 contaminated / 2026-08-08 morning / 2026-08-08/09 two-day stitch /
@@ -89,14 +100,14 @@ evidence lives in samples.csv only); unclassified 0.5 s threshold could tighten 
 unclassified was ~0.15 s; impact ~0.06 pp, not the reviewer's 0.5–1 pp); RAPL periodic sampling =
 legit future work.
 
-**Review 2 (12 issues) — verification result + the six REAL fixes now applied (UNCOMMITTED).**
+**Review 2 (12 issues) — verification result + the six REAL fixes applied (COMMITTED 2026-08-14 as `4e395b2`).**
 Verified: the Status line overclaimed (fixed); the abstract's "18.7% Fn / 8.2% OpenFaaS" is
 CORRECT (8.2% IS the OpenFaaS median; reviewer misread); OW standalone-only + not-citable are
 already disclosed in §5.6 + abstract ("we make no claim about OpenWhisk's distributed/production
 deployment mode"); lock-session idle-w was N≥3 (default) or N=5 per state with raw reads
 committed (`results/idle_w_calibration/lock_lock2/*.txt`, 13 lines each), NOT single-sample
 (reviewer's claim false for citable numbers). **The six fixes applied to `SAQEF_PAPER_DRAFT.md`
-(see `git diff`, NOT yet committed — wait for user):** (1) Status line now: CPU-time shares
+were COMMITTED 2026-08-14 as `4e395b2`:** (1) Status line now: CPU-time shares
 RAPL-validated for Fn/OpenFaaS/Knative; OW energy "model-estimated only, not RAPL-validated".
 (2) §5.5 cross-core "independent sessions" → "repeated sessions on the same instrument"
 (abstract, Contribution 3, figure1 caption, table row, prose). (3) §5.5 adds the a-priori 5 pp
