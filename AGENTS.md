@@ -1179,6 +1179,18 @@ under the sustainability+QoS umbrella, minimum effort/scripts/code/troubleshooti
 shell with agents quit (the ambient quiet gate self-certifies). Quick-tier = TOTAL=3000, REPEAT=3,
 outdir gets `_quick` automatically and is never published until gates pass and it is promoted.
 
+**QUICK-TIER FRAMING (agreed 2026-08-15 — read before writing any paper prose for items 2–4):**
+quick-tier runs are a DIFFERENT protocol from lock4 (REPEAT=3/TOTAL=3000 vs N=5/10000). The paper
+must NEVER say "all runs N=5/10000" while quick-tier JSONs (run_1..run_3, `_quick` outdirs,
+`ambient`) sit in the repo — a hostile reviewer re-derives from the committed data. The honest,
+cheap pattern already exists in §5.5 ("Concurrency sensitivity (c=8, REPEAT=2, quick check)").
+**Rules: (1)** sweep values are reported as a self-consistent within-sweep trend, labeled once at
+the sweep's presentation point ("c=1/2/8/16, REPEAT=3/TOTAL=3000, quick-tier trend-only, same-day;
+c=4 anchor from lock4 N=5"); **(2)** c=4 is the only point directly comparable to lock4 (it IS the
+lock4 N=5 point — the sweep is anchored by it, and saying so strengthens it); **(3)** no blanket
+N=5/10000 claim covering the sweep; **(4)** freeze-ablation is a diagnostic (fnserver CP variance),
+never a headline. Driver: `tools/run_sweep_and_freeze.sh` (bare shell, agents quit).
+
 **AGREED ORDER OF WORK (all cheap):**
 1. **Idle bare-vs-loaded ΔW table for ALL FOUR platforms — DONE 2026-08-15 (reporting only, no run).**
    `results/idle_w_calibration/lock_lock4/` has N=5 medians for bare (4.084 W) plus every
