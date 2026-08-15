@@ -28,7 +28,12 @@ run mtimes form a single monotonic pass and `run_lock_session.sh` refuses to clo
 outdir. Box left clean (no swarm services, no fnserver/openwhisk/hello, only the k3s/Knative substrate).
 Do NOT reorganize the flat `results/` layout: the `_quick` suffix + per-stamp outdirs ARE the
 provenance mechanism, and moving dirs would orphan `lock_session_*/lock_summary.json` paths and the
-figure5 REGIMES references.
+figure5 REGIMES references. Scratch cleanup 2026-08-15: the sweep's pre-flight
+`results/{fn,knative,openwhisk}_verify/` dirs (100-call `saqef verify` smoke, budget MATCHES) and the
+2026-08-13 driver-debug fixture `results/lock_session_smoketest/` + `*_lock_smoketest_quick/`
+(gates_ok=false by design, never citable) were deleted — nothing references them; a future session
+should not re-flag these as missing. `results/openfaas_verify/verify.json` + `results/verify.json`
+remain tracked working artifacts (standing rule: revert before commit, do not delete).
 
 **Freeze ablation result (fnproject semantics: NEGATIVE disables freeze; `0` = freeze WITHOUT delay,
 maximum churn, NOT "off" — the morning `=0` leg was invalid, share 26.49%, never cite it):** baseline

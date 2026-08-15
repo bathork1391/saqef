@@ -1305,7 +1305,8 @@ now carries its own `ambient` field and fresh idle-w.
 `runs.json` + `summary.json` + per-run `samples.csv`), `results/idle_w_calibration/lock_lock4/`
 (N=5 raw RAPL reads per stack state, medians), `results/lock_session_lock4/lock_summary.json`
 (session-level gate report). Driver smoke-test artifacts (`results/lock_session_smoketest/`,
-`*_cpubound_lock_smoketest_quick/`) are REPEAT<5 `_quick` never-publish working artifacts.
+`*_cpubound_lock_smoketest_quick/`) were REPEAT<5 `_quick` never-publish working artifacts; they
+were removed in the 2026-08-15 scratch cleanup (nothing referenced them).
 
 **Headline medians (`cp_dynamic_share_pct`):** OpenFaaS **7.58** (CI 6.78–7.66, CV 5.41%) < Fn
 **11.29** (CI 9.82–11.50, CV 6.39%) ≈ Knative **11.47** (CI 10.94–12.31, CV 4.39%) < OpenWhisk
