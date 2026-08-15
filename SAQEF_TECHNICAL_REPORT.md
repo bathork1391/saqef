@@ -151,8 +151,9 @@ python3 saqef_harness.py \
     --warmup 20 --repeat 5 --sampler cgroup \
     --outdir results/fn_cpubound_v6
 # freeze ablation (NOTE: docker update has NO --env-add flag -- env is fixed at container
-# creation. Use the run_saqef.sh hook instead: FN_FREEZE_IDLE_MSECS=0 bash run_saqef.sh all):
-FN_FREEZE_IDLE_MSECS=0 bash run_saqef.sh all   # then rerun with the var unset; record difference
+# creation. Use the run_saqef.sh hook instead: FN_FREEZE_IDLE_MSECS=-1 bash run_saqef.sh all;
+# fnproject semantics: NEGATIVE disables freeze, 0 = freeze WITHOUT delay (max churn, not "off")):
+FN_FREEZE_IDLE_MSECS=-1 bash run_saqef.sh all   # then rerun with the var unset; record difference
 ```
 Then follow `OPENFAAS_SETUP.md` with `--auth admin:<pw>` and `--verify` before measuring.
 
@@ -224,7 +225,7 @@ python3 saqef_harness.py --url http://localhost:8080/t/app1/hello --platform fn 
     --outdir results/fn_coldstart
 #   ...then compare against the warm run above -> "carbon cost of elasticity"
 
-# 4. freeze ablation: FN_FREEZE_IDLE_MSECS=0 bash run_saqef.sh all  (env set at container creation; see line 153)
+# 4. freeze ablation: FN_FREEZE_IDLE_MSECS=-1 bash run_saqef.sh all  (NEGATIVE disables freeze; 0 = freeze immediately; env set at container creation; see line 153)
 ```
 
 ---
@@ -1347,9 +1348,45 @@ Flat-5ms-normalized shares (share = cp_ms/(cp_ms+5)): **9.81 / 12.60 / 15.01 / 8
 no re-anchor needed.
 
 **Sync applied (2026-08-14, this commit):** `figures/make_figures.py` REGIMES `fourplat` →
-lock4 dirs (figure1 untouched; its PNG byte-identical, PDF metadata-only per the 2026-08-13
-wording fix); figures 2–4 regenerated; `SAQEF_PAPER_DRAFT.md` abstract, §3, §4.1/§4.5, §5.6
-(table, fig captions, convention + function-cost-normalized views, idle-baseline day-state note,
-reproducibility, QoS), §8.1 G6, §10, §11, Appendices A/B re-anchored; `AGENTS.md` current-state
-block rewritten to lock4. `SAQEF_TECHNICAL_REPORT.md` prior sections remain the durable history;
-lock2/lock3 stay retired-but-documented (Appendix evolution note).
+ lock4 dirs (figure1 untouched; its PNG byte-identical, PDF metadata-only per the 2026-08-13
+ wording fix); figures 2–4 regenerated; `SAQEF_PAPER_DRAFT.md` abstract, §3, §4.1/§4.5, §5.6
+ (table, fig captions, convention + function-cost-normalized views, idle-baseline day-state note,
+ reproducibility, QoS), §8.1 G6, §10, §11, Appendices A/B re-anchored; `AGENTS.md` current-state
+ block rewritten to lock4. `SAQEF_TECHNICAL_REPORT.md` prior sections remain the durable history;
+ lock2/lock3 stay retired-but-documented (Appendix evolution note).
+
+## 34. Concurrency sweep + Fn freeze ablation (2026-08-15) — quick-tier trend + diagnostic
+
+Ran via `tools/run_sweep_and_freeze.sh` from a bare shell (quiet gate active). Quick-tier protocol
+(REPEAT=3/TOTAL=3000, outdirs `_quick`, gitignored; the durable aggregate record is the committed
+`results/lock_session_*/lock_summary.json`).
+
+**Concurrency sweep (c=1/2/8/16, OF/Fn/Kn + OW spot-check c=4/c=8).** `cp_dynamic_share_pct` is flat
+within ~1–2 pp across all c on every platform — CP overhead does NOT amortize with concurrency,
+consistent with per-invocation CP cost (CP ms/inv OF 0.40–0.49, Fn 0.52–0.83, Kn 0.72–1.09, OW ~30).
+Ordering OF < Fn ≈ Kn << OW survives every c. Full table + flags in the paper §5.5 (Table 8a,
+Figure 5). All legs `gates_ok=True`; quiet gate 11.8%/8.4% (<15%). Flags: c=8/16 host_sat 88–94%
+(share citable, QoS/energy not); c=16 INCOMPLETE-RUN 2992/3000 = benign sampler truncation on ~3 s
+runs (hey, no fallback — NOT the OW duration bug); Fn c=16 run_1 17.43 (CV 23.9%, noisiest point);
+OF c=2 5.82 all-time low, non-monotonic (don't hang claims on it); RAPL DEGRADED on ~3–4 s runs
+(idle-term dominance) → energy/carbon not citable from the sweep.
+
+**Fn freeze ablation.** Hook `FN_FREEZE_IDLE_MSECS` set at container creation (`run_saqef.sh`
+`setup_fn()`; the old `docker update --env-add` recipe was wrong). **Knob semantics: fnproject docs —
+a NEGATIVE value disables freezing; `0` = "freeze without any delay" (maximum churn), NOT "off".**
+The morning leg that ran `=0` was therefore invalid (fnserver log still showed continuous
+`docker pause`/`unpause`, share 26.49%) and is NOT cited — only the corrected `=-1` leg is.
+Result: baseline (default freeze) **10.85** (10.84–11.04, CV 1.03%, cp_cpu_s 2.05–2.09) vs freeze
+disabled `=-1` **9.82** (9.69–9.82, CV 0.77%, cp_cpu_s 1.79–1.82); non-overlapping run ranges,
+~1.0 pp, all gates green. Pause/unpause churn is real but modest — a footnote-closer for fnserver
+per-request CP variance, never a headline. (The driver's `run_freeze` had no `|| die` and the
+script no `set -e`, so a silent failure previously just moved on — both added in this session.)
+
+**Sync applied (2026-08-15, this commit):** `figures/make_figures.py` gained `figure5_
+concurrency_invariance` (data source = committed `lock_session_*/lock_summary.json`, NOT the
+gitignored `_quick` outdirs; figures 1–4 content unchanged — their PDFs reverted from the working
+tree to avoid metadata churn); `SAQEF_PAPER_DRAFT.md` §3 RQ3, §5.5 (Table 8a + Figure 5 +
+concurrency-invariance paragraph + freeze-ablation note, quick-tier-labeled), §6 mechanism
+synthesis, §10 item 7 (marked DONE), §12 Conclusion claim 2 updated; `AGENTS.md` current-state +
+DECIDED-PLAN items updated. The sweep does not touch `metrics/cpubound.json` — regression refs
+(11.49/7.61) remain valid (lock4 dev 0.20/0.03 pp).

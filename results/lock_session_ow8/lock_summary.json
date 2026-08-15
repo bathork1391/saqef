@@ -1,0 +1,34 @@
+{
+  "session": {
+    "stamp": "ow8",
+    "platforms": {
+      "openfaas": "OpenFaaS",
+      "fn": "Fn",
+      "knative": "Knative",
+      "openwhisk": "OpenWhisk"
+    },
+    "idle_w_by_platform": {
+      "openfaas": "4.3",
+      "fn": "4.3",
+      "knative": "4.561",
+      "openwhisk": "4.882"
+    },
+    "notes": [
+      "single box state, back-to-back legs, quiet gate active (precondition only)",
+      "idle-w recalibrated this session (results/idle_w_calibration/lock_ow8)"
+    ]
+  },
+  "platforms": {
+    "openwhisk": {
+      "label": "OpenWhisk",
+      "cp_dynamic_share_pct": 81.16,
+      "outdir": "results/openwhisk_cpubound_lock_ow8_quick",
+      "idle_w_used": "4.882",
+      "cv_pct": 5.21,
+      "host_saturation_pct": 55.5,
+      "ambient_present": true,
+      "gates_ok": true
+    }
+  },
+  "all_gates_ok": true
+}
