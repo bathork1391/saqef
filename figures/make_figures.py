@@ -345,7 +345,9 @@ def figure5_concurrency_invariance():
     ow_lo, ow_hi = min(ow_vals), max(ow_vals)
 
     xs = list(range(len(CONC_C)))
-    fig, ax = plt.subplots(figsize=(7.2, 4.2), dpi=150)
+    fig, (ax, ax_ow) = plt.subplots(1, 2, figsize=(9.4, 4.2), dpi=150,
+                                    gridspec_kw={"width_ratios": [3.0, 1.35],
+                                                 "wspace": 0.28})
     for p in CONC_PLAT:
         pts = sorted(by_plat[p].items())
         cx = [xs[CONC_C.index(c)] for c, _ in pts]
@@ -359,52 +361,48 @@ def figure5_concurrency_invariance():
                         mec="black", mew=0.6)
             ax.text(xs[CONC_C.index(c)], v + 0.45, f"{v:.1f}", ha="center",
                     va="bottom", fontsize=7.5, color="0.2")
-    # OpenWhisk inset (its ~81% would flatten the 0-18% main axis): zoomed strip
-    # showing the spot-check flatness across c=4/8.
-    ow_stamps = [CONC_ANCHOR] + list(CONC_OW_STAMPS)
-    ow_c = [4] + list(CONC_OW_STAMPS.values())
-    ow_s = [ow_vals[2]] + ow_vals[:2]  # lock4 anchor first, then ow4, ow8
-    ow_color = PLATFORMS["openwhisk"]["color"]
-    ow_med = (ow_lo + ow_hi) / 2
-    ins = ax.inset_axes([0.13, 0.60, 0.30, 0.32])
-    for i, (c, v) in enumerate(zip(ow_c, ow_s)):
-        if c == 4:
-            x = 3.9 if v == ow_s[0] else 4.1
-        else:
-            x = 8.0
-        marker, mfc, ms = ("D", ow_color, 6.5) \
-            if i == 0 else ("o", "white", 5.5)
-        ins.plot(x, v, marker=marker, ms=ms, zorder=4,
-                 color=ow_color, mfc=mfc, mec=ow_color, mew=1.2)
-        ins.text(x, v + (0.5 if v < ow_med else 1.2), f"{v:.1f}",
-                 ha="center", va="bottom", fontsize=7, color="0.2")
-    ins.axhline(ow_med, color=ow_color, ls=":", lw=1.2, zorder=1)
-    ins.text(8.55, ow_med, f" median {ow_med:.1f}", ha="right", va="center",
-             fontsize=7, color=ow_color, style="italic")
-    ins.set_xlim(3.4, 8.6)
-    ins.set_ylim(ow_lo - 2.0, ow_hi + 2.0)
-    ins.set_xticks([4, 8])
-    ins.set_yticks([ow_lo, ow_hi])
-    ins.tick_params(labelsize=7.5)
-    ins.set_title("OpenWhisk (standalone) — inset: c=4/c=8 spot-check", fontsize=8.5,
-                  fontweight="bold")
-    ins.set_xticklabels(["4*", "8"])
     ax.set_xticks(xs)
     ax.set_xticklabels(["1", "2", "4*", "8", "16"], fontsize=10)
     ax.set_xlabel("load concurrency c (4* = lock4 N=5 anchor; others quick-tier "
                   "REPEAT=3/TOTAL=3000)", fontsize=9)
     ax.set_ylabel("control-plane share of dynamic CPU (%)", fontsize=10)
     style_ax(ax, 19, None)
+    # OpenWhisk side panel: its ~81% share would flatten the main 0-18% axis, so
+    # it gets a dedicated zoomed strip on the right (c=4/c=8 spot-check). The
+    # dotted line marks the lock4 N=5 anchor median (81.8), the citable reference.
+    ow_stamps = [CONC_ANCHOR] + list(CONC_OW_STAMPS)
+    ow_c = [4] + list(CONC_OW_STAMPS.values())
+    ow_s = [ow_vals[2]] + ow_vals[:2]  # lock4 anchor first, then ow4, ow8
+    ow_color = PLATFORMS["openwhisk"]["color"]
+    ow_ref = ow_s[0]                   # 81.78, the N=5 lock4 anchor median
+    ow_x = [4.0, 4.15, 8.0]
+    for i, v in enumerate(ow_s):
+        marker, mfc, ms = ("D", ow_color, 6.5) if i == 0 else ("o", "white", 5.5)
+        ax_ow.plot(ow_x[i], v, marker=marker, ms=ms, zorder=4,
+                   color=ow_color, mfc=mfc, mec=ow_color, mew=1.2)
+        ax_ow.text(ow_x[i], v + 0.55, f"{v:.1f}", ha="center", va="bottom",
+                   fontsize=7.5, color="0.2")
+    ax_ow.axhline(ow_ref, color=ow_color, ls=":", lw=1.2, zorder=1)
+    ax_ow.text(8.55, ow_ref, " median 81.8", ha="right", va="bottom", fontsize=7,
+               color=ow_color, style="italic")
+    ax_ow.set_xlim(3.3, 8.7)
+    ax_ow.set_ylim(ow_lo - 2.0, ow_hi + 2.0)
+    ax_ow.set_xticks([4, 8])
+    ax_ow.set_xticklabels(["4*", "8"], fontsize=9)
+    ax_ow.set_yticks([ow_lo, ow_hi])
+    ax_ow.tick_params(labelsize=7.5)
+    ax_ow.grid(axis="y", ls=":", alpha=0.4, zorder=0)
+    for s in ("top", "right"):
+        ax_ow.spines[s].set_visible(False)
+    ax_ow.set_title("OpenWhisk (standalone)\nc=4/c=8 spot-check", fontsize=9,
+                    fontweight="bold")
     handles = [plt.Line2D([0], [0], color=PLATFORMS[p]["color"], lw=1.5, marker="o",
                           ms=5.5, mfc="white") for p in CONC_PLAT]
     handles.append(plt.Line2D([0], [0], marker="D", ls="", ms=6.5, color="black"))
-    handles.append(plt.Line2D([0], [0], color=ow_color, lw=1.5, ls=":", marker="o",
-                              ms=5.5, mfc="white"))
-    labels = ([PLATFORMS[p]["label"] for p in CONC_PLAT]
-              + ["c=4 lock4 anchor (N=5)", "OpenWhisk (standalone) — inset"])
-    ax.legend(handles, labels, loc="upper center", bbox_to_anchor=(0.5, 1.15),
+    labels = [PLATFORMS[p]["label"] for p in CONC_PLAT] + ["c=4 lock4 anchor (N=5)"]
+    ax.legend(handles, labels, loc="upper center", bbox_to_anchor=(0.5, 1.12),
               frameon=False, fontsize=8.5, ncol=2, handlelength=1.4, columnspacing=1.4)
-    fig.tight_layout()
+    fig.subplots_adjust(top=0.88)
     for ext in ("png", "pdf"):
         fig.savefig(os.path.join(OUTDIR, f"figure5_concurrency_invariance.{ext}"),
                     bbox_inches="tight")
