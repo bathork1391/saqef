@@ -5,11 +5,12 @@
 **Repo:** `github.com/bathork1391/saqef` (Codespaces-backed)
 **Date range:** 2026-08-03 (Day 1 of the 20-day sprint)
 
-> **Status (2026-08-14): this file is a chronological session log — the CURRENT authoritative
-> state, the citable four-platform publication-lock session (2026-08-13/14: OF 7.29 / Fn 11.16 /
-> Kn 11.82 / OW 81.88) and what remains before submission live in `AGENTS.md` (read it first),
-> `SAQEF_PAPER_DRAFT.md`, and `results/*_cpubound_lock_lock{2,3}`. Sections below are historical
-> and may be superseded by those sources.
+> **Status (2026-08-15): this file is a chronological session log — the CURRENT authoritative
+> state, the citable four-platform publication-lock session (2026-08-14 lock4: OF 7.58 / Fn 11.29 /
+> Kn 11.47 / OW 81.78) and what remains before submission live in `AGENTS.md` (read it first),
+> `SAQEF_PAPER_DRAFT.md`, and `results/*_cpubound_lock_lock4`. Sections below are historical
+> and may be superseded by those sources. Recent quick-tier sessions (concurrency sweep, Fn freeze
+> ablation, I/O-bound variant — all 2026-08-15) are logged in §34–§35.
 
 ---
 
@@ -1391,3 +1392,56 @@ concurrency-invariance paragraph + freeze-ablation note, quick-tier-labeled), §
 synthesis, §10 item 7 (marked DONE), §12 Conclusion claim 2 updated; `AGENTS.md` current-state +
 DECIDED-PLAN items updated. The sweep does not touch `metrics/cpubound.json` — regression refs
 (11.49/7.61) remain valid (lock4 dev 0.20/0.03 pp).
+
+## 35. I/O-bound workload variant (2026-08-15) — quick-tier trend + methodology note
+
+Ran via `tools/run_io_bound.sh` from a bare shell (quiet gate active, self-certified each leg:
+ambient 4.9–10.0% of a 15% ceiling). The driver swaps all four handlers to `time.sleep(0.005)`
+(the same 5 ms wall duration as the spin, no busy CPU), rebuilds the OF/Kn images (and clears the
+k3s containerd image cache so the next Knative deploy pulls the fresh build), runs one quick-tier
+lock session (REPEAT=3/TOTAL=3000/c=4, lock4 idle-w medians via `--skip-idle-calib`), then
+git-restores the four handler sources and rebuilds both images from the restored source so the box
+returns to the spin-workload state. Durable aggregate: `results/lock_session_iobound/
+lock_summary.json` (committed); the `_quick` per-platform outdirs are gitignored.
+
+**Results (medians of 3; lock4 spin baseline in parentheses):**
+
+| platform | share % (lock4→I/O) | CP ms/inv (lock4→I/O) | fn ms/inv (lock4→I/O) |
+|---|---|---|---|
+| OpenFaaS | 7.58→24.67 | 0.54→0.45 | 6.62→1.33 |
+| Fn | 11.29→47.12 | 0.72→0.53 | 5.66→0.59 |
+| Knative | 11.47→30.69 | 0.88→0.67 | 6.82→1.50 |
+| OpenWhisk | 81.78→96.87 | 25.66→24.89 | 5.72→0.81 |
+
+**Two findings (both quick-tier trend-only in the paper — §5.5 Table 8b + §6 + §12):**
+(a) **CP ms/inv is workload-invariant** — the per-invocation control-plane cost does not scale
+with the workload change. OpenWhisk's 24.89 vs 25.66 is the tightest of the four (smallest
+relative deviation, within the same ~3% box-drift band as the other three — deliberately NOT
+described as "byte-identical" per expert pushback); OF/Fn/Kn sit ~17–26% *lower* under I/O,
+consistent with the quieter host (host_sat 33–55% vs 69–75% in lock4). (b) **The share ordering
+is NOT workload-invariant** — OF < Fn ≈ Kn (7.58/11.29/11.47) becomes OF 24.67 < Kn 30.69 <
+Fn 47.12. Mechanism: the §4.1 denominator caveat at its extreme. Fn's fn-side floor is the leanest
+(0.59 ms/inv) because its fdk serves the request path directly with no always-on per-replica proxy
+in the fn cgroup; OF's of-watchdog and Kn's queue-proxy forward each request on the function side.
+**Freeze is NOT the driver** — verified against the committed §34 ablation: its whole effect is
+CP-side churn (cp ms/inv 0.68→0.60), fn-side CPU invariant to freeze under spin, and a sleeping
+`time.sleep` accrues ~0 CPU whether paused or not.
+
+Third observation: OW p50 improves 110.7→65.6 ms and rps ~35→58 under I/O — its bottleneck is the
+standalone control plane, not function execution. QoS citable all legs (host_sat 33–55%, p50
+6.3–7.1 ms OF/Fn/Kn ≈ spin — the 5 ms wall-time match is real). **Energy/carbon NOT citable**
+(rapl_err 71–77% container platforms, 25–41% OW — idle-term dominance on ~5 s runs). OW run_1
+CP transient 145.4 s vs ~72 s steady (median used). The discriminating freeze-off I/O leg
+(`FN_FREEZE_IDLE_MSECS=-1 bash tools/run_io_bound.sh --stamp iobound_nofreeze --platforms fn`) was
+NOT run — the mechanism predicts it would confirm the proxy-floor explanation, and the paper
+wording is evidence-backed either way.
+
+**Sync applied (2026-08-15, committed `f729520`):** `SAQEF_PAPER_DRAFT.md` §5.5 retitled "Regime
+dependence — core count, concurrency, freeze policy, and workload" + I/O-bound paragraph + Table 8b;
+§4.3 notes the variant as the empirical version of the workload-anchoring rationale; §6 ordering
+claim scoped to the CPU-bound regime + workload axis added to the mechanism synthesis; §12 claim 2
+updated. `tools/emit_verified_results.py` gained §10 (I/O-bound, emitted live from runs.json);
+`VERIFIED_RESULTS.md` regenerated. `AGENTS.md` current-state + Remaining-item-1 updated. lock4 fn
+ms/inv corrected to the canonical 6.62/5.72 in the I/O tables. Regression refs
+(`metrics/cpubound.json`) untouched — the I/O run shares are quick-tier trend-only, not
+headline-comparable.
