@@ -8,7 +8,7 @@ python3 tools/emit_verified_results.py
 
 Every number below is computed at emit time from the committed result files. Figures are built from these numbers: `figures/make_figures.py` reads the same committed result sets. A figure or table that disagrees with this document is wrong by construction.
 
-Provenance: matched lock4 session 2026-08-14 (`results/*_cpubound_lock_lock4/`), all four platforms back-to-back same day under the self-certifying quiet gate (ambient 5.9-7.4% of a 15% ceiling); core-count experiment 2026-08-05/06 (`results/*_cpubound_baremetal`, `results/*_cpubound_2core{,_session2}`); idle-w N=5 calibration `results/idle_w_calibration/lock_lock4/*.txt`; contamination A/B `results/{fn,openfaas}_contamination_ab/contamination_ab.json`.
+Provenance: matched lock4 session 2026-08-14 (`results/*_cpubound_lock_lock4/`), all four platforms back-to-back same day under the self-certifying quiet gate (ambient 5.9-7.4% of a 15% ceiling); core-count experiment 2026-08-05/06 (`results/*_cpubound_baremetal`, `results/*_cpubound_2core{,_session2}`); idle-w N=5 calibration `results/idle_w_calibration/lock_lock4/*.txt`; contamination A/B `results/{fn,openfaas}_contamination_ab/contamination_ab.json`; concurrency sweep 2026-08-15 (quick-tier, `results/lock_session_conc*/` + `results/lock_session_ow*/`; c=4 anchored by lock4); Fn freeze ablation 2026-08-15 (quick-tier diagnostic, `results/fn_freeze_{baseline,off}_quick_quick/`).
 
 ## 1. Matched lock4 session — headline numbers (all medians of N=5)
 
@@ -83,3 +83,27 @@ Flat-5ms normalization keeps the denominator's function term identical across pl
 | Fn | 11.16, 11.29, 10.46, 12.92 |
 | Knative | 11.82, 11.47, 12.44 |
 | OpenWhisk (standalone) | 81.88, 81.78, 82.36 |
+
+## 8. Concurrency sweep — CP share does NOT amortize with load concurrency (quick-tier trend, 2026-08-15)
+
+`cp_dynamic_share_pct` (%) vs load concurrency c. Same-day quick-tier protocol (REPEAT=3/TOTAL=3000 per leg, quiet-gated); c=4 column is the lock4 N=5 anchor. Source: `results/lock_session_conc{1,2,8,16}/lock_summary.json`, OW spot-check `results/lock_session_ow{4,8}/lock_summary.json`, anchor `results/lock_session_lock4/lock_summary.json`.
+
+| platform | c=1 | c=2 | c=8 | c=16 | c=4 anchor (lock4 N=5) |
+|---|---|---|---|---|---|
+| OpenFaaS | 7.00 | 5.82 | 6.51 | 7.75 | 7.58 |
+| Fn | 12.66 | 11.06 | 9.92 | 11.01 | 11.29 |
+| Knative | 14.08 | 11.97 | 12.10 | 12.08 | 11.47 |
+| OpenWhisk (standalone) | — | — | 81.16 (c=8 spot) | — | 81.78 (c=4 spot 81.96) |
+
+Flags (quick-tier trend-only framing, paper §5.5): c=8/16 host_sat 88-94% -> QoS/energy not citable there (share is); c=16 legs print INCOMPLETE-RUN (2992/3000) = benign sampler truncation on ~3 s runs, NOT the OpenWhisk duration bug; Fn c=16 run_1 = 17.43 (CV 23.9%) is the sweep's noisiest point; OF c=2 = 5.82 is an all-time low and non-monotonic (leg-level box state, not a trend). Ordering OF < Fn ≈ Kn << OW survives every c; mechanism = per-invocation CP cost (CP ms/inv OF 0.40-0.49, Fn 0.52-0.83, Kn 0.72-1.09, OW ~30) does not amortize with wall-clock concurrency.
+
+## 9. Fn freeze ablation (quick-tier diagnostic, 2026-08-15; never a headline)
+
+Fn's hot-container pause/unpause churn vs disabled freezing (`FN_FREEZE_IDLE_MSECS=-1`; fnproject semantics — a NEGATIVE value disables freeze, `0` = freeze without any delay, i.e. MAXIMUM churn, NOT 'off'; the morning `=0` leg is invalid, share 26.49%, never cited). Source: gitignored quick-tier outdirs `results/fn_freeze_{baseline,off}_quick_quick/` (present on the measurement box).
+
+| leg | median share % | run values % | CP s/run |
+|---|---|---|---|
+| baseline (default freeze) | 10.85 | 10.85, 11.04, 10.84 | 2.05–2.09 |
+| freeze disabled (-1) | 9.82 | 9.82, 9.69, 9.82 | 1.79–1.82 |
+
+Result: baseline 10.85 (10.84-11.04) vs freeze disabled 9.82 (9.69-9.82), REPEAT=3, non-overlapping run ranges, ~1.0 pp, all gates green — pause/unpause churn is real but modest, consistent with Fn drift being scheduling-dominated.
