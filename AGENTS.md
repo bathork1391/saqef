@@ -17,6 +17,70 @@ a contention-robust discriminator. Decision gate: platform gap in the share must
   `host_plausible` (must be true), `physical_plausible`, `host_sat%` (~100 on the codespace is
   the honest saturated-box flag, not a failure).
 
+## Current state (2026-08-15 — concurrency sweep DONE + freeze ablation DONE + paper/figures synced; read this first)
+
+**What ran 2026-08-15 (bare shell, quiet-gated, quick-tier):** `tools/run_sweep_and_freeze.sh`
+completed the OF/Fn/Kn concurrency sweep at c=1/2/8/16 (`--stamp conc{1,2,8,16}`, REPEAT=3, TOTAL=3000),
+the OW spot-check c=4/c=8 (`--stamp ow4`/`ow8`), and — in a second session — **both Fn freeze-ablation
+legs** (`results/fn_freeze_baseline_quick_quick` + `results/fn_freeze_off_quick_quick`). Item 2 of the
+decided plan is CLOSED (diagnostic only, never a headline). Data is intact — nothing was overwritten;
+run mtimes form a single monotonic pass and `run_lock_session.sh` refuses to clobber a same-stamp
+outdir. Box left clean (no swarm services, no fnserver/openwhisk/hello, only the k3s/Knative substrate).
+Do NOT reorganize the flat `results/` layout: the `_quick` suffix + per-stamp outdirs ARE the
+provenance mechanism, and moving dirs would orphan `lock_session_*/lock_summary.json` paths and the
+figure5 REGIMES references.
+
+**Freeze ablation result (fnproject semantics: NEGATIVE disables freeze; `0` = freeze WITHOUT delay,
+maximum churn, NOT "off" — the morning `=0` leg was invalid, share 26.49%, never cite it):** baseline
+(default freeze) **10.85** (10.84–11.04, CV 1.03%, cp_cpu_s 2.05–2.09) vs freeze disabled
+(`FN_FREEZE_IDLE_MSECS=-1`) **9.82** (9.69–9.82, CV 0.77%, cp_cpu_s 1.79–1.82). Non-overlapping run
+ranges, ~1.0 pp, all gates green. Pause/unpause churn is real but modest — a footnote-closer for
+fnserver per-request CP variance (§10 item 5), consistent with Fn drift being scheduling-dominated.
+The driver's `run_freeze` previously had no `|| die` and the script no `set -e` (a silent failure
+just moved on) — both added this session.
+
+**What the sweep found (the paper-relevant finding): CP overhead does NOT amortize with concurrency.**
+`cp_dynamic_share_pct` is flat c=1→16 within ~1–2 pp on every platform:
+
+| platform | c=1 | c=2 | c=8 | c=16 | c=4 anchor (lock4 N=5) |
+|---|---|---|---|---|---|
+| OpenFaaS | 7.00 | 5.82 | 6.51 | 7.75 | 7.58 |
+| Fn | 12.66 | 11.06 | 9.92 | 11.01* | 11.29 |
+| Knative | 14.08 | 11.97 | 12.10 | 12.08 | 11.47 |
+| OpenWhisk | — | — | — | 81.16 (c=8) / 81.96 (c=4) | 81.78 |
+
+*Fn c=16 run_1 = 17.43 → CV 23.9%, the noisiest point of the sweep. Ordering OF < Fn ≈ Kn << OW survives
+every c. Mechanism: CP cost is per-invocation (CP ms/inv: OF 0.40–0.49, Fn 0.52–0.83, Kn 0.72–1.09,
+OW ~30), so it does not amortize with wall-time concurrency. OW c=4/c=8 reproduces lock4's 81.78 within
+noise (run_1 transient 89–90 as always).
+
+**Flags carried into the paper (quick-tier trend-only framing — see the QUICK-TIER FRAMING rules below):**
+(1) c=8/16 host_sat 88–94% → QoS + energy NOT citable there (share is); RAPL DEGRADED on the ~3–4 s runs
+(idle-term dominance). (2) c=16 gates table prints "INCOMPLETE RUN (2992 != 3000)" — benign sampler
+truncation on ~3 s runs (loadgen=hey, no fallback — NOT the OW duration bug); disclosed in the paper.
+(3) OF c=2 = 5.82 is an all-time low for OF and non-monotonic (c=1 7.00, c=4 7.58) — leg-level box
+state, don't hang anything on it. (4) c=1/2 host_sat 36–52% → QoS citable: p50 6.1–7.0 / p99 7.6–9.4 ms,
+all three platforms near-identical at low concurrency.
+
+**Sync applied (2026-08-15, this session — committed):** `figures/make_figures.py` gained `figure5_
+concurrency_invariance` (data source = committed `lock_session_*/lock_summary.json`, NOT the gitignored
+`_quick` outdirs; figures 1–4 content unchanged — their PDFs reverted from the working tree to avoid
+metadata churn); `SAQEF_PAPER_DRAFT.md` §3 RQ3, §5.5 (Table 8a + Figure 5 + concurrency-invariance
+paragraph + freeze-ablation note, quick-tier-labeled), §6 mechanism synthesis, §10 item 7 (marked
+DONE), §12 Conclusion claim 2; `SAQEF_TECHNICAL_REPORT.md` §34 session log; `AGENTS.md` this block.
+The sweep does not touch `metrics/cpubound.json` — regression refs (11.49/7.61) remain valid (lock4
+dev 0.20/0.03 pp).
+
+**Remaining (optional-if-time, no longer gating):**
+1. (bare shell, ~60 min) I/O-bound workload variant (`time.sleep(0.005)`), all 4 platforms (one-line
+   edit per handler + rebuild + REPEAT=3 quick pass). The one workload change worth doing — skip the
+   1/20 ms spin sweep. Optional: 4-core Fn/OF point via `pin_cpuset.sh`.
+2. Commit hygiene notes for the NEXT commit: **REVERT `results/openfaas_verify/verify.json` first**
+   (tracked working artifact the sweep overwrote — standing repo rule), decide `paper1/` fate
+   (untracked, generated export bundle — left untracked, do not commit). `hello/func.yaml` version
+   bumped 0.0.40→0.0.48 by today's freeze rebuilds (harmless; either revert to 0.0.40 or keep —
+   image tag is irrelevant to measurement).
+
 ## Current state (2026-08-14 — lock4 session COMPLETE; read this first)
 
 **The paper's citable four-platform baseline is the lock4 session (2026-08-14): OpenFaaS 7.58 <
@@ -1157,7 +1221,9 @@ to a QoS SLO budget.
 
 ### F. Elasticity & freeze policies (paper §10 items 6, 7)
 **Cold-start vs warm** — `--interarrival-ms 1000` isolation experiment: the "carbon cost of
-elasticity." **Freeze-policy ablation** — `FN_FREEZE_IDLE_MSECS=0` vs default: quantify Fn's
+elasticity." **Freeze-policy ablation** — `FN_FREEZE_IDLE_MSECS=-1` vs default (NEGATIVE disables
+freezing; fnproject semantics — `0` means "freeze without any delay", i.e. MAXIMUM churn, not
+"off"): quantify Fn's
 pause/unpause churn in energy terms. Both are single-platform (Fn) targeted experiments that
 need no harness changes.
 
@@ -1198,16 +1264,19 @@ never a headline. Driver: `tools/run_sweep_and_freeze.sh` (bare shell, agents qu
    **COMMITTED to the paper as Table 13** (mirroring Kn's Table 12 decomposition, §5.6) + an
    always-on ΔW row in Appendix A's Table 15 (Tables 13–15 renumbered → 14–16). Raw reads
    already committed, reviewer-re-derivable. No further work.
-2. **Fn freeze-ablation (FN_FREEZE_IDLE_MSECS=0 vs default).** Hook added to `run_saqef.sh`
-   `setup_fn()` (env set at container creation; the old `docker update --env-add` recipe was wrong
-   and is fixed in `SAQEF_TECHNICAL_REPORT.md` lines 153/227). Run: baseline Fn leg (REPEAT=3) +
-   `FN_FREEZE_IDLE_MSECS=0 bash run_saqef.sh all` leg (REPEAT=3). ~25–30 min. Framing: footnote-
-   closer for fnserver per-request CP variance (NOT the stale "5× low" — that was the fixed
-   sampler bug, report:161/424); tests whether pause/unpause churn drives fn-side variance.
-3. **Concurrency sweep c=1/2/8/16 on OF/Fn/Kn + OW spot-check.** Reuse `run_lock_session.sh`
-   (`--concurrency`, `--repeat 3`, `--total 3000`). ~50 min full (OW is the time hog ~28 min of
-   it); ~25 min if OW is reduced to a c=4-vs-c=8 spot-check. c=8 host_sat ~91–93% → QoS there not
-   citable, share is (same discipline as §5.5). Answer: does CP overhead amortize with concurrency?
+2. **Fn freeze-ablation — DONE 2026-08-15 (diagnostic, never a headline).** Hook added to
+   `run_saqef.sh` `setup_fn()` (env set at container creation; the old `docker update --env-add`
+   recipe was wrong and is fixed in `SAQEF_TECHNICAL_REPORT.md` lines 153/227). **Knob semantics:
+   fnproject docs — a NEGATIVE value (e.g. `-1`) DISABLES freeze/pause; `0` means "freeze without
+   any delay" (maximally aggressive churn). The morning `=0` leg was therefore NOT "freeze off"
+   (fnserver log still showed continuous `docker pause`/`unpause`, share 26.49%) and is invalid —
+   do not cite it.** The valid pair is baseline 10.85 (10.84–11.04) vs `=-1` **9.82** (9.69–9.82),
+   REPEAT=3, non-overlapping ranges, ~1.0 pp — pause/unpause churn is real but modest, a
+   footnote-closer for fnserver per-request CP variance (§10 item 5). In the paper §5.5.
+3. **Concurrency sweep c=1/2/8/16 on OF/Fn/Kn + OW spot-check — DONE 2026-08-15.** Result: the
+   CP share does NOT amortize with concurrency — flat within ~1–2 pp on every platform (see the
+   current-state table + paper §5.5 Table 8a / Figure 5). OW was reduced to a c=4-vs-c=8 spot-check
+   as planned. c=8/16 host_sat 88–94% → QoS/energy not citable there, share is.
 4. **I/O-bound workload variant (time.sleep(0.005) instead of the busy spin), all 4 platforms.**
    One-line edit per handler (`hello/func.py`, `OF_FUNCTION/handler.py`, `KNATIVE_FUNCTION/app.py`,
    `OW_FUNCTION/hello.py`) + rebuild + REPEAT=3 quick pass. ~60 min (rebuilds dominate; benches

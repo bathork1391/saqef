@@ -23,6 +23,8 @@
 #   --dry-run      -> print the plan only
 set -uo pipefail
 
+die() { echo "ERROR: $*" >&2; exit 1; }
+
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DRY_RUN=0
 DO_FREEZE=1 DO_SWEEP=1 DO_OW=1
@@ -48,23 +50,25 @@ echo "  NOTE   : bare shell, agents QUIT. Each leg self-certifies quiet (15% gat
 [ "$DRY_RUN" = 1 ] && echo "  MODE   : DRY-RUN -- print plan only"
 
 # ---------------------------------------------------------------------------
-# Fn freeze ablation (run_saqef.sh: FN_FREEZE_IDLE_MSECS=0 hook, container creation)
+# Fn freeze ablation (run_saqef.sh: FN_FREEZE_IDLE_MSECS=-1 hook, container creation;
+# NOTE: fnproject semantics -- 0 = freeze WITHOUT delay, NEGATIVE = disable freeze)
 # ---------------------------------------------------------------------------
 run_freeze() {
     banner "Fn freeze ablation (quick-tier, REPEAT=3)"
     local env_base=(SAQEF_CONCURRENCY=4 SAQEF_TOTAL=3000 SAQEF_REPEAT=3 SAQEF_IDLE_W=$W_FN)
     echo "  leg 1/2: baseline (default freeze)"
     if [ "$DRY_RUN" = 0 ]; then
-        env "${env_base[@]}" SAQEF_OUT=results/fn_freeze_baseline_quick bash run_saqef.sh all
+        env "${env_base[@]}" SAQEF_OUT=results/fn_freeze_baseline_quick \
+            bash "$REPO/run_saqef.sh" all || die "freeze baseline leg failed"
     else
-        echo "  DRY-RUN: env ${env_base[*]} SAQEF_OUT=results/fn_freeze_baseline_quick bash run_saqef.sh all"
+        echo "  DRY-RUN: env ${env_base[*]} SAQEF_OUT=results/fn_freeze_baseline_quick bash $REPO/run_saqef.sh all"
     fi
-    echo "  leg 2/2: freeze OFF (FN_FREEZE_IDLE_MSECS=0)"
+    echo "  leg 2/2: freeze OFF (FN_FREEZE_IDLE_MSECS=-1, negative disables per fnproject docs)"
     if [ "$DRY_RUN" = 0 ]; then
         env "${env_base[@]}" SAQEF_OUT=results/fn_freeze_off_quick \
-            FN_FREEZE_IDLE_MSECS=0 bash run_saqef.sh all
+            FN_FREEZE_IDLE_MSECS=-1 bash "$REPO/run_saqef.sh" all || die "freeze OFF leg failed"
     else
-        echo "  DRY-RUN: env ${env_base[*]} SAQEF_OUT=results/fn_freeze_off_quick FN_FREEZE_IDLE_MSECS=0 bash run_saqef.sh all"
+        echo "  DRY-RUN: env ${env_base[*]} SAQEF_OUT=results/fn_freeze_off_quick FN_FREEZE_IDLE_MSECS=-1 bash $REPO/run_saqef.sh all"
     fi
 }
 

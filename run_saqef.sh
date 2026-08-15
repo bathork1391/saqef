@@ -93,10 +93,12 @@ setup_fn() {
   reset_fn
   echo "=== [setup] Fn server ==="
   mkdir -p /tmp/iofs /tmp/data
-  # Freeze-ablation hook: FN_FREEZE_IDLE_MSECS=0 disables Fn's hot-container
-  # pause/unpause. Must be set at container CREATION (docker update cannot change
-  # env on a live container -- the old report recipe was wrong). Unset by default
-  # => default freeze behavior, byte-identical to any prior citable run.
+  # Freeze-ablation hook: a NEGATIVE FN_FREEZE_IDLE_MSECS (e.g. -1) disables Fn's
+  # hot-container pause/unpause. Per fnproject docs, 0 means "freeze WITHOUT any
+  # delay" (max aggressiveness), NOT "off" -- a negative integer disables freezing.
+  # Must be set at container CREATION (docker update cannot change env on a live
+  # container -- the old report recipe was wrong). Unset by default => default
+  # freeze behavior, byte-identical to any prior citable run.
   FN_RUN_ENV=()
   if [ -n "${FN_FREEZE_IDLE_MSECS:-}" ]; then
     FN_RUN_ENV+=(-e "FN_FREEZE_IDLE_MSECS=$FN_FREEZE_IDLE_MSECS")

@@ -18,6 +18,12 @@ lives in the paper captions):
   Figure 3 — attribution split (CP / fn / unclassified CPU-time) for the
              same four platforms.
   Figure 4 — control-plane CPU per invocation (ms), all four platforms.
+  Figure 5 — concurrency invariance: CP share vs load concurrency c=1/2/4/8/16
+             (OF/Fn/Kn), the same-day quick-tier sweep (2026-08-15,
+             REPEAT=3/TOTAL=3000, quiet-gated) with the c=4 point anchored by
+             the lock4 N=5 session; OpenWhisk annotated flat at c=4/8.
+             Data source = the committed lock_session_*/lock_summary.json files
+             (the gitignored _quick outdirs hold the per-run detail).
 
 Requires: matplotlib (figures only; the measurement harness stays stdlib-only).
 Usage:    python3 figures/make_figures.py [outdir]   (default: figures/)
@@ -82,6 +88,15 @@ CORE_COUNT_PLAT = ("fn", "openfaas")
 # core-count experiment and are intentionally unchanged.
 FOURPLAT_REGS = ("fourplat",)
 FOURPLAT_PLAT = ("openfaas", "fn", "knative", "openwhisk")
+# Figure 5 (concurrency invariance): the c=1/2/4/8/16 quick-tier sweep
+# (2026-08-15, REPEAT=3/TOTAL=3000, quiet-gated) with the c=4 point anchored by
+# the lock4 N=5 session. Provenance = committed lock_session_*/lock_summary.json
+# (the gitignored _quick outdirs hold per-run detail); do not point at those.
+CONC_STAMPS = ("conc1", "conc2", "conc8", "conc16")  # OF/Fn/Kn, quick-tier
+CONC_OW_STAMPS = {"ow4": 4, "ow8": 8}                # OW spot-check
+CONC_ANCHOR = "lock4"                                # c=4, N=5
+CONC_C = (1, 2, 4, 8, 16)
+CONC_PLAT = ("openfaas", "fn", "knative")
 
 
 def load_result_dir(d):
@@ -300,6 +315,94 @@ def figure4_cp_cost_per_inv(agg):
     print("wrote figure4_cp_cost_per_inv.{png,pdf}")
 
 
+def load_lock_summary(stamp):
+    """Return the lock-session driver's committed aggregate for one stamp."""
+    p = os.path.join("results", f"lock_session_{stamp}", "lock_summary.json")
+    return json.load(open(p))
+
+
+def figure5_concurrency_invariance():
+    """CP share vs load concurrency (c=1/2/4/8/16), OF/Fn/Kn + OW annotation.
+
+    Quick-tier trend (REPEAT=3/TOTAL=3000, 2026-08-15, quiet-gated); the c=4
+    point is the lock4 N=5 anchor (diamond markers), everything else the same-day
+    sweep. OW is drawn as a flat reference band (81.2-82.0 across c=4/8) so the
+    main axis stays readable at 0-18%. See paper §5.5 for the full table + flags.
+    """
+    by_plat = {p: {} for p in CONC_PLAT}
+    for stamp in CONC_STAMPS:
+        c = int(stamp[4:])
+        s = load_lock_summary(stamp)
+        for p in CONC_PLAT:
+            by_plat[p][c] = s["platforms"][p]["cp_dynamic_share_pct"]
+    anchor = load_lock_summary(CONC_ANCHOR)
+    for p in CONC_PLAT:
+        by_plat[p][4] = anchor["platforms"][p]["cp_dynamic_share_pct"]
+
+    ow_vals = [load_lock_summary(st)["platforms"]["openwhisk"]["cp_dynamic_share_pct"]
+               for st in CONC_OW_STAMPS]
+    ow_vals.append(anchor["platforms"]["openwhisk"]["cp_dynamic_share_pct"])
+    ow_lo, ow_hi = min(ow_vals), max(ow_vals)
+
+    xs = list(range(len(CONC_C)))
+    fig, ax = plt.subplots(figsize=(7.2, 4.2), dpi=150)
+    for p in CONC_PLAT:
+        pts = sorted(by_plat[p].items())
+        cx = [xs[CONC_C.index(c)] for c, _ in pts]
+        cy = [v for _, v in pts]
+        ax.plot(cx, cy, color=PLATFORMS[p]["color"], lw=1.5, marker="o", ms=5.5,
+                zorder=4, mfc="white", mew=1.4)
+        for c, v in pts:
+            if c == 4:  # lock4 N=5 anchor
+                ax.plot(xs[CONC_C.index(c)], v, marker="D", ms=7.0, zorder=6,
+                        color=PLATFORMS[p]["color"], mfc=PLATFORMS[p]["color"],
+                        mec="black", mew=0.6)
+            ax.text(xs[CONC_C.index(c)], v + 0.45, f"{v:.1f}", ha="center",
+                    va="bottom", fontsize=7.5, color="0.2")
+    # OpenWhisk inset (its ~81% would flatten the 0-18% main axis): zoomed strip
+    # showing the spot-check flatness across c=4/8.
+    ow_stamps = [CONC_ANCHOR] + list(CONC_OW_STAMPS)
+    ow_c = [4] + list(CONC_OW_STAMPS.values())
+    ow_s = [ow_vals[2]] + ow_vals[:2]  # lock4 anchor first, then ow4, ow8
+    ins = ax.inset_axes([0.13, 0.60, 0.30, 0.32])
+    for i, (c, v) in enumerate(zip(ow_c, ow_s)):
+        if c == 4:
+            x = 3.9 if v == ow_s[0] else 4.1
+        else:
+            x = 8.0
+        marker, mfc, ms = ("D", PLATFORMS["openwhisk"]["color"], 6.5) \
+            if i == 0 else ("o", "white", 5.5)
+        ins.plot(x, v, marker=marker, ms=ms, zorder=4,
+                 color=PLATFORMS["openwhisk"]["color"], mfc=mfc,
+                 mec=PLATFORMS["openwhisk"]["color"], mew=1.2)
+    ins.axhline((ow_lo + ow_hi) / 2, color=PLATFORMS["openwhisk"]["color"],
+                ls=":", lw=1.0, zorder=1)
+    ins.set_xlim(3.4, 8.6)
+    ins.set_ylim(ow_lo - 2.0, ow_hi + 2.0)
+    ins.set_xticks([4, 8])
+    ins.set_yticks([ow_lo, ow_hi])
+    ins.tick_params(labelsize=7.5)
+    ins.set_title("OpenWhisk (standalone)", fontsize=8)
+    ax.set_xticks(xs)
+    ax.set_xticklabels(["1", "2", "4*", "8", "16"], fontsize=10)
+    ax.set_xlabel("load concurrency c (4* = lock4 N=5 anchor; others quick-tier "
+                  "REPEAT=3/TOTAL=3000)", fontsize=9)
+    ax.set_ylabel("control-plane share of dynamic CPU (%)", fontsize=10)
+    style_ax(ax, 19, None)
+    handles = [plt.Line2D([0], [0], color=PLATFORMS[p]["color"], lw=1.5, marker="o",
+                          ms=5.5, mfc="white") for p in CONC_PLAT]
+    handles.append(plt.Line2D([0], [0], marker="D", ls="", ms=6.5, color="black"))
+    labels = [PLATFORMS[p]["label"] for p in CONC_PLAT] + ["c=4 lock4 anchor (N=5)"]
+    ax.legend(handles, labels, loc="upper center", bbox_to_anchor=(0.5, 1.12),
+              frameon=False, fontsize=9, ncol=2, handlelength=1.4, columnspacing=1.4)
+    fig.tight_layout()
+    for ext in ("png", "pdf"):
+        fig.savefig(os.path.join(OUTDIR, f"figure5_concurrency_invariance.{ext}"),
+                    bbox_inches="tight")
+    plt.close(fig)
+    print("wrote figure5_concurrency_invariance.{png,pdf}")
+
+
 def main():
     os.makedirs(OUTDIR, exist_ok=True)
     agg = data()
@@ -313,6 +416,7 @@ def main():
     figure2_four_platform_scatter(agg)
     figure3_attribution_split(agg)
     figure4_cp_cost_per_inv(agg)
+    figure5_concurrency_invariance()
 
 
 if __name__ == "__main__":
