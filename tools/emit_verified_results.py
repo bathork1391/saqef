@@ -293,13 +293,16 @@ def main():
     w("|---|---|")
     sessions = {
         "openfaas": ["openfaas_cpubound_lock_lock2", "openfaas_cpubound_lock_lock4",
-                     "openfaas_cpubound_baremetal", "openfaas_cpubound_crosscheck_2026-08-09"],
+                     "openfaas_cpubound_baremetal", "of_cpubound_crosscheck_2026-08-09",
+                     "regression/openfaas"],
         "fn": ["fn_cpubound_lock_lock2", "fn_cpubound_lock_lock4",
-               "fn_cpubound_baremetal", "fn_cpubound_crosscheck2"],
+               "fn_cpubound_baremetal", "fn_cpubound_crosscheck2",
+               "fn_cpubound_crosscheck", "fn_cpubound_crosscheck_2026-08-09",
+               "regression/fn"],
         "knative": ["knative_cpubound_lock_lock2", "knative_cpubound_lock_lock4",
                     "knative_cpubound_baremetal"],
         "openwhisk": ["openwhisk_cpubound_lock_lock3", "openwhisk_cpubound_lock_lock4",
-                      "openwhisk_cpubound_baremetal", "openwhisk_cpubound_baremetal_2026-08-08"],
+                      "openwhisk_cpubound_baremetal"],
     }
     for pk, dirs in sessions.items():
         cells = []
@@ -533,6 +536,34 @@ def main():
       "window makes the idle term dominate); the marginal serving cost splits ~10/90 "
       "orchestration/function on the lightweight platforms (0.54-0.88 ms CP vs 5.7-6.8 ms fn per "
       "invocation) versus a ~26 ms CP tax on the standalone.")
+    w("")
+
+    # ------------------------------------------------------------------
+    # 12. Retired snapshot history (git-only provenance, NOT citable).
+    # These sessions were overwritten in place by later re-runs of the same
+    # result dir, so their values exist only in git history (commits below).
+    # They are documented here because the paper's reproducibility narrative
+    # cites them as the arc of the study; they are NOT current results and
+    # must never be cited as such. Values are verified against `git show`.
+    # ------------------------------------------------------------------
+    w("## 12. Retired snapshot history (superseded sessions; git-only provenance, NOT citable)")
+    w("")
+    w("These sessions were overwritten in place by later re-runs of the same result dir; their "
+      "medians exist only in git history. The paper's reproducibility narrative cites them as the "
+      "study's arc, so they are documented here for cross-checking -- they are superseded, never "
+      "citable. `cp_dynamic_share_pct` medians, verified against `git show <commit>:<path>`:")
+    w("")
+    w("| retired session | median share % | why retired | git commit |")
+    w("|---|---|---|---|")
+    w("| OpenWhisk (2026-08-07) | 82.54 | agent-contaminated (opencode ~2.8 cores) | `54578bf` |")
+    w("| OpenWhisk (2026-08-08 quiet) | 80.23 | quiet-box rerun, pre-classification-fix | `898323e` |")
+    w("| Knative (2026-08-07) | 13.99 | agent-contaminated (opencode ~2.8 cores) | `ce3ec3f` |")
+    w("| Knative (2026-08-08 quiet) | 11.40 | quiet-box rerun, pre-classification-fix | `898323e` |")
+    w("")
+    w("OpenWhisk RAPL-fit error per retired session (the paper cites these as the structural "
+      "JVM/model mismatch, stable across four independent sessions): 36% (2026-08-07 contaminated, "
+      "`54578bf`), 45-58% (2026-08-08 quiet, `898323e`), 31-50% (2026-08-08 evening rerun, "
+      "`70deefd`).")
     w("")
 
     with open(args.out, "w") as fh:
