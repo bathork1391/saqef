@@ -103,18 +103,27 @@ protocol that makes every number traceable to a fully-gated session.
 
 ## 3. Research Questions
 
-We ask three questions that move from methodology, to measurement, to discrimination — each
+We ask three questions that move from methodology, to measurement, to regime dependence — each
 answerable only if the previous one is settled:
 
-- **RQ1 (methodology):** Can container-level sampling attribute marginal CPU/energy to the control plane vs the function with a *verifiable* error bound?
-- **RQ2 (measurement):** What fraction of dynamic CPU/energy does a serverless platform's control plane consume for a CPU-bound function under a realistic load? — answered first for Fn as the anchor platform (§5.1–5.4), then across all four platforms in a matched session (§5.6).
-- **RQ3 (comparison):** Does the framework discriminate between platforms (Fn vs OpenFaaS)? — **answered (2026-08-06, core-count confirmed):** yes, with a caveat. On the 8-core bare-metal box the gap is 2.8 pp (gate fails), flat with concurrency (c=1–16 quick-tier sweep, §5.5, c=4 anchored by lock4). A controlled same-instrument test (this 8-core box cpuset-pinned to 2 cores) confirms the gap is core-count-driven: it returns to 7.0 pp at 2 pinned cores. Direction is stable (Fn's share higher everywhere); the *magnitude* is a machine-pair property, and the mechanism is asymmetric — Fn's share is what inflates under core scarcity, not both platforms proportionally (see §5.5). Extended to four platforms in a matched session (2026-08-14 lock4, §5.6): the
-container-visible control-plane share spans an order of magnitude — OpenFaaS ~7.3–7.6 < Fn ≈
-Knative ~11.0–12.3 < OpenWhisk ~80.2–82.5 (attribution conventions differ; see §5.6 map).
+- **RQ1 (methodology):** Can container-level CPU sampling attribute the marginal CPU time (and
+  model-derived energy) between a serverless platform's control plane and its function, with a
+  *verifiable* error bound — checked against independent direct counters (the delta-check) and,
+  on bare metal, against RAPL?
+- **RQ2 (measurement):** For an identical, workload-anchored light CPU-bound function under one
+  matched, quiet-gated session, what fraction of dynamic CPU — and what per-invocation CPU cost —
+  does each platform's control plane consume, and how do Fn, OpenFaaS, Knative, and the OpenWhisk
+  standalone order?
+- **RQ3 (regime dependence):** How robust is that answer to machine core count, load concurrency,
+  and workload CPU profile — and is the cross-platform discrimination gate a platform constant or
+  a machine-pair property?
 
-Together, the three answers deliver a transferable, self-validating instrument (RQ1), the first
-RAPL-validated control-plane overhead numbers across four platforms (RQ2), and a
-per-machine-pair discrimination gate rather than a platform constant (RQ3).
+Together, the three answers deliver a transferable, self-validating instrument (RQ1); the first
+RAPL-validated control-plane overhead numbers across four platforms, spanning an order of
+magnitude (RQ2); and the finding that the discrimination gate is a **per-machine-pair quantity,
+not a platform constant** — the Fn–OpenFaaS gap crosses the 5 pp threshold only under core
+scarcity, while the per-invocation control-plane cost (but not the raw share) is robust to
+concurrency and to the workload's CPU profile (RQ3).
 
 ---
 
