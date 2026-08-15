@@ -107,3 +107,16 @@ Fn's hot-container pause/unpause churn vs disabled freezing (`FN_FREEZE_IDLE_MSE
 | freeze disabled (-1) | 9.82 | 9.82, 9.69, 9.82 | 1.79–1.82 |
 
 Result: baseline 10.85 (10.84-11.04) vs freeze disabled 9.82 (9.69-9.82), REPEAT=3, non-overlapping run ranges, ~1.0 pp, all gates green — pause/unpause churn is real but modest, consistent with Fn drift being scheduling-dominated.
+
+## 10. I/O-bound workload variant — CP ms/inv is workload-invariant, the share is not (quick-tier trend, 2026-08-15)
+
+All four handlers swapped for `time.sleep(0.005)` (same 5 ms wall duration, no busy CPU), identical c=4 quick-tier protocol (REPEAT=3/TOTAL=3000, quiet-gated) via `tools/run_io_bound.sh`, stamp `iobound`. Source: `results/lock_session_iobound/lock_summary.json`; spin baseline from lock4 `results/*_cpubound_lock_lock4/runs.json`.
+
+| platform | fn ms/inv (I/O → spin) | CP ms/inv (I/O → spin) | share % (I/O → spin) |
+|---|---|---|---|
+| OpenFaaS | 1.33 → 6.62 | 0.45 → 0.54 | 24.67 → 7.58 |
+| Fn | 0.59 → 5.66 | 0.53 → 0.72 | 47.12 → 11.29 |
+| Knative | 1.50 → 6.82 | 0.67 → 0.88 | 30.69 → 11.47 |
+| OpenWhisk (standalone) | 0.81 → 5.72 | 24.89 → 25.66 | 96.87 → 81.78 |
+
+Findings (paper §5.5 Table 8b + §6 + §12): (a) CP ms/inv is workload-invariant — OW 24.89 vs 25.66 (the smallest relative deviation of the four, within the same ~3% box-drift band as the other three), OF/Fn/Kn ~17-26% LOWER under I/O consistent with the quieter host (host_sat 33-55% vs 69-75% in lock4). NOT 'byte-identical'. (b) The share ordering is NOT workload-invariant: OF < Fn ≈ Kn (7.58/11.29/11.47) becomes OF 24.67 < Kn 30.69 < Fn 47.12 — the §4.1 denominator caveat at its extreme (Fn's fn-side floor 0.59 ms/inv is leanest: its fdk serves the request path with no always-on per-replica proxy in the fn cgroup, while OF's of-watchdog and Kn's queue-proxy burn per-request fn-side CPU). Freeze is NOT the driver (the §9 ablation's whole effect is CP-side churn, cp ms/inv 0.68→0.60, fn-side invariant under spin; a sleeping time.sleep accrues ~0 CPU whether paused or not). Third observation: OW p50 improves 110.7→65.6 ms and rps ~35→58 — its bottleneck is the standalone control plane, not function execution. QoS citable all legs (host_sat 33-55%, p50 6.3-7.1 OF/Fn/Kn ≈ spin — the 5 ms wall-time match is real). Energy/carbon NOT citable (rapl_err 71-77% container platforms, 25-41% OW). Quick-tier trend-only framing: REPEAT=3/TOTAL=3000, NOT lock4-comparable as a headline.

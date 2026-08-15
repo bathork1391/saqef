@@ -192,7 +192,7 @@ full in §5.6.
 
 ### 4.3 Workload
 
-`hello/func.py` is a genuine **5 ms CPU spin** (`while time.perf_counter() - t0 < 0.005: pass`). It is deliberately a **stress-test metric, not a realistic-service mix**: `cp_dynamic_share_pct` is designed to isolate orchestration tax from IO-wait masking — a function that blocks on IO spends most of its measured "fn CPU" waiting, which dilutes the control-plane signal and undercounts per-request orchestration on every platform. The 5 ms spin makes the function's marginal CPU measurable and stable, so what varies across platforms is almost entirely the orchestration around the invocation rather than the handler itself. A no-op "hello" handler was evaluated and rejected: with a near-free function, both ratio numerator and denominator become tiny and noisy (fn freeze churn between calls → 0% CPU → `cp_dynamic_share` swings ±13 pp). **The metric must be workload-anchored** — itself a reviewer-relevant methodological finding.
+`hello/func.py` is a genuine **5 ms CPU spin** (`while time.perf_counter() - t0 < 0.005: pass`). It is deliberately a **stress-test metric, not a realistic-service mix**: `cp_dynamic_share_pct` is designed to isolate orchestration tax from IO-wait masking — a function that blocks on IO spends most of its measured "fn CPU" waiting, which dilutes the control-plane signal and undercounts per-request orchestration on every platform. The 5 ms spin makes the function's marginal CPU measurable and stable, so what varies across platforms is almost entirely the orchestration around the invocation rather than the handler itself. A no-op "hello" handler was evaluated and rejected: with a near-free function, both ratio numerator and denominator become tiny and noisy (fn freeze churn between calls → 0% CPU → `cp_dynamic_share` swings ±13 pp). **The metric must be workload-anchored** — itself a reviewer-relevant methodological finding. The §5.5 I/O-bound variant (`time.sleep(0.005)`, same wall duration) is the *empirical* version of this reasoning: it drives every platform's fn-side CPU toward its runtime floor and shows the per-invocation CP cost is unchanged while the share ordering breaks — evidence that the workload-anchored spin is what makes the share a clean orchestration discriminator in the first place.
 
 Run profile (reported results, bare metal): 10000 requests, concurrency 4, warmup 20, repeat 5,
 SLO 500 ms, duration cap 300 s, 16 static OpenFaaS replicas (GIL-concurrency parity: every
@@ -425,7 +425,7 @@ attribution math; the cross-platform comparison is §5.5.
 | Total operational carbon (incl. idle base) | ≈ **1.40 µg CO₂** (idle ~25%) |
 The idle-dominance is itself a result: at this light load, **~25% of operational carbon is the always-on baseline**, and the marginal cost of serving is split ~10/90 orchestration/function (0.66 ms CP vs 5.62 ms fn per invocation). This is precisely the regime where autoscaling ("scale to zero") pays off — and where the orchestration tax is most visible per unit of useful work.
 
-### 5.5 Core-count dependence — Fn vs OpenFaaS (controlled same-instrument experiment, 2026-08-05/06)
+### 5.5 Regime dependence — core count, concurrency, freeze policy, and workload (same instrument, 2026-08-05/15)
 
 **Figure 1 — The core-count effect (Fn vs OpenFaaS, same instrument).** Median `cp_dynamic_share_pct` (bar = reported median, error bars = full per-run spread across all sessions), 8 cores vs the same box cpuset-pinned to 2 cores, all validation gates green, reproduced in two repeated sessions on the same instrument. The dashed line is the 5 pp a-priori decision gate; arrows mark the Fn−OF gap. Reading: the gap (2.79 → 7.00 pp) is core-count-driven, and the 5 pp gate is a *machine-pair* property, not a platform constant. Data: `results/{fn,openfaas}_cpubound_baremetal` and `*_2core{,,_session2}`.
 
@@ -497,6 +497,17 @@ check (2026-08-06; Fn 10.47 / OF 7.62), which was consistent but not headline-gr
 ![figure5](figures/figure5_concurrency_invariance.png)
 
 **Fn freeze-policy ablation (diagnostic, quick-tier 2026-08-15).** Fn's hot-container pause/unpause churn was probed by rerunning the Fn leg with freezing disabled (`FN_FREEZE_IDLE_MSECS=-1`; fnproject semantics — a *negative* value disables freezing, `0` means "freeze without any delay", i.e. maximum churn, and the morning `=0` leg is invalid, share 26.49%, not cited). Disabling freeze lowers the Fn share **10.85 → 9.82** (~1.0 pp, ~0.26 s fnserver CPU per run), REPEAT=3, all gates green, run ranges non-overlapping (10.84–11.04 vs 9.69–9.82). Pause/unpause is therefore a real but modest component of fnserver's per-invocation cost — consistent with the observed-not-explained Fn drift (§10 item 5) being dominated by scheduling rather than freeze mechanics. Diagnostic only, never a headline.
+
+**Workload invariance — the CP share depends on the function's CPU profile, but the per-invocation CP cost does not (I/O-bound variant, quick-tier trend, 2026-08-15).** All four handlers were swapped for `time.sleep(0.005)` — the same 5 ms wall duration, no busy CPU — and the identical c=4 quick-tier protocol rerun same-day (`tools/run_io_bound.sh`, REPEAT=3/TOTAL=3000, quiet-gated; data: `results/lock_session_iobound/lock_summary.json`). The function-side CPU collapses as expected (fn ms/inv: OF 6.62→1.33, Fn 5.66→0.59, Kn 6.82→1.50, OW 5.72→0.81), so every share inflates (Table 8b): OF 7.58→24.67, Fn 11.29→47.12, Kn 11.47→30.69, OW 81.78→96.87. The per-invocation control-plane cost is essentially unchanged — **CP ms/inv is workload-invariant** (Table 8b, lock4 in parentheses): the OpenWhisk value is within the same ~3% box-drift band as the other three and shows the *smallest* relative deviation of the four (24.89 vs 25.66), while OF/Fn/Kn sit ~17–26% *lower* under the I/O leg, consistent with the quieter host (host_sat 33–55% vs 69–75% in lock4) — in no case did CP cost scale with the workload change. This extends the §5.5 concurrency-invariance finding to a second axis: the orchestration tax is a per-invocation platform property independent of both concurrency and whether the function burns CPU or sleeps. **The share ordering is NOT workload-invariant**: OF < Fn ≈ Kn (7.58/11.29/11.47) becomes OF 24.67 < Kn 30.69 < Fn 47.12. The reason sits in the fn ms/inv column: Fn's function-side floor is the leanest of the three (0.59 ms/inv) because its fdk serves the request path directly with no always-on per-replica proxy in the fn cgroup, while OpenFaaS's of-watchdog and Knative's queue-proxy forward each request on the function side and burn CPU per invocation — the same attribution-boundary rule already documented in §4.1. (Fn's freeze policy is *not* the driver: a sleeping `time.sleep` process accrues ~0 CPU whether or not it is paused, and the freeze ablation above — the only freeze measurement — shows freeze changes fnserver's CP-side churn, cp ms/inv 0.68→0.60, while fn-side CPU is invariant to it.) The I/O run is therefore a live, extreme demonstration of the §4.1 denominator caveat: once function cost is driven toward each platform's floor instead of a matched 5 ms spin, the raw share stops being a clean orchestration discriminator, and **CP ms/inv — denominator-free — becomes the only robust cross-platform metric**, exactly as §4.1 argues. QoS is citable (host_sat 33–55%): p50 6.3–7.1 ms across OF/Fn/Kn, essentially unchanged from the spin workload — confirming the 5 ms wall-time match was real, not just a CPU-share change in isolation. OpenWhisk's p50 actually improves under I/O (65.6 vs 110.7 ms median) and its throughput rises (~58 vs ~35 rps), consistent with its bottleneck being the standalone control plane rather than function execution. **Energy/carbon NOT citable** on any leg (rapl_err 71–77% container platforms, 25–41% OW — idle-term dominance on ~5 s runs). **Quick-tier framing:** REPEAT=3/TOTAL=3000, same-day trend-only — NOT lock4-comparable as a headline; the lock4 N=5 spin values remain the citable baseline.
+
+*Table 8b — I/O-bound variant: per-invocation CPU cost (ms) and `cp_dynamic_share_pct` (%) under `time.sleep(0.005)`, quick-tier same-day, vs the lock4 spin baseline in parentheses (data: `results/lock_session_iobound/lock_summary.json` + `results/*_cpubound_lock_lock4/runs.json`).*
+
+| platform | fn ms/inv (I/O → spin) | CP ms/inv (I/O → spin) | share (I/O → spin) |
+|---|---|---|---|
+| OpenFaaS | 1.33 → 6.62 | 0.45 → 0.54 | 24.67 → 7.58 |
+| Fn | 0.59 → 5.66 | 0.53 → 0.72 | 47.12 → 11.29 |
+| Knative | 1.50 → 6.82 | 0.67 → 0.88 | 30.69 → 11.47 |
+| OpenWhisk (standalone) | 0.81 → 5.72 | 24.89 → 25.66 | 96.87 → 81.78 |
 
 **Cross-regime reading (central contribution — core-count effect CONFIRMED 2026-08-06 with a
 controlled, same-instrument experiment):**
@@ -869,15 +880,23 @@ reports host_sat alongside every QoS number rather than a bare latency figure.
 
 **What is measured vs estimated (honest line).** Measured directly: QoS, per-container CPU (validated to 0.01% against direct counters), physical plausibility, RAPL package Joules (bare metal). Modeled: absolute Joules and carbon (CPU-time proportionality, literature constants). The **relative** dynamic share is robust to the model constant (3.5 W/core scales both numerator and denominator), so `cp_dynamic_share_pct` is the most defensible number we produce.
 
-**The ordering is robust; the magnitudes are convention- and machine-sensitive.** Across four
-platforms and five sessions the container-visible control-plane share consistently spans an order
-of magnitude — OF < {Fn,Kn} << OW — and this ordering survives both of the metric's own known
-sensitivities: the CP/fn *classification* boundary (reclassifying Knative's queue-proxy as
-control plane raises Kn from 11.47% to 24.8% but leaves OF < Fn and OW untouched, §5.6) and the
-function-side *denominator* (normalizing all four platforms to a flat 5 ms function cost shifts
-absolutes by several points but preserves the ordering, §5.6). The two edges are the fragile ones:
-the Fn–Kn tie is convention-dependent, and the Fn–OF gap magnitude is machine-dependent (below
-the 5 pp gate at 8 cores, above it at 2 cores, §5.5).
+**The ordering is robust within the CPU-bound regime; the magnitudes are convention-, machine-, and
+workload-sensitive.** Across four platforms and five sessions the container-visible control-plane
+share consistently spans an order of magnitude — OF < {Fn,Kn} << OW — and this ordering survives
+the metric's two known *in-regime* sensitivities: the CP/fn *classification* boundary
+(reclassifying Knative's queue-proxy as control plane raises Kn from 11.47% to 24.8% but leaves
+OF < Fn and OW untouched, §5.6) and the function-side *denominator* (normalizing all four
+platforms to a flat 5 ms function cost shifts absolutes by several points but preserves the
+ordering, §5.6). The two edges are the fragile ones: the Fn–Kn tie is convention-dependent, and
+the Fn–OF gap magnitude is machine-dependent (below the 5 pp gate at 8 cores, above it at 2
+cores, §5.5). **Workload is a third axis the quick-tier I/O-bound variant probed (§5.5):** with
+the handler changed to `time.sleep(0.005)` (same 5 ms wall duration, no busy CPU), the per-
+invocation control-plane cost is unchanged (CP ms/inv workload-invariant — the ordering and
+magnitudes survive, OW's within ~3%) but the *share* inflates on every platform and the Fn–Kn
+tie breaks (Fn 47.1 vs Kn 30.7) purely because Fn's function-side runtime floor is the leanest —
+an extreme, live demonstration of the §4.1 denominator caveat. The robust cross-workload
+statement is therefore the **denominator-free CP ms/inv** (0.45 / 0.53 / 0.67 / 24.89), not the
+share percentage.
 
 **Mechanism synthesis — where the control-plane CPU actually goes.** The asymmetric core-scarcity
 result (§5.5: Fn's share +33% at 2 pinned cores, OpenFaaS flat-to-lower) and the asymmetric
@@ -889,7 +908,11 @@ work and insensitive to core count. The mechanism is observed-not-explained at t
 (proposed probe: `perf stat -e context-switches,migrations` on fnserver at 8 vs 2 cores — §10
 future work), but the *design* lesson is concrete regardless. **Concurrency adds nothing to this
 picture:** because CP cost is per-invocation, the share is flat c=1–16 (quick-tier sweep, §5.5) —
-concurrency scales the function throughput, not the orchestration tax. OpenWhisk's 25.66 ms/inv control
+concurrency scales the function throughput, not the orchestration tax. **The function's own CPU
+profile is equally irrelevant to the per-invocation CP cost:** the I/O-bound variant (§5.5)
+leaves CP ms/inv essentially unchanged (OF 0.45, Fn 0.53, Kn 0.67, OW 24.89 vs 0.54/0.72/0.88/
+25.66 in the spin workload) — the orchestration tax is a pure per-invocation platform property,
+independent of whether the function burns CPU or sleeps. OpenWhisk's 25.66 ms/inv control
 plane is dominated by the standalone's per-activation `docker logs` log-store read — a pure
 orchestration artifact, not request-path logic — which is why its energy model fails RAPL
 validation structurally and why its share is deployment-mode dependent (tested standalone mode
@@ -1056,14 +1079,20 @@ from which all four platforms' headline numbers are drawn.
    OpenFaaS stays at 7.7% → 7.0%. The 5 pp discrimination gate passes or fails depending on the
    host's core count — so "green function" claims and carbon-aware routing must be evaluated per
    machine pair, with a citable gate, never against a global constant.
-2. **The four-platform ordering is robust.** OpenFaaS 7.58 < Fn ≈ Knative (11.29 / 11.47) <
-   OpenWhisk 81.78, surviving both of the metric's known sensitivities (the CP/fn classification
-   boundary and the function-side denominator), the contamination A/B bound, and five independent
-   sessions of varying box-state. Control-plane orchestration is a single-digit-percent tax on
-   lean platforms and an ~4.5× multiple of function CPU on the heavyweight standalone. **The share
-   also does not amortize with load concurrency**: it is flat c=1–16 (quick-tier sweep, §5.5),
-   because the control-plane cost is charged per invocation, not per unit of wall-clock
-   concurrency.
+2. **The four-platform ordering is robust — within the CPU-bound regime.** OpenFaaS 7.58 < Fn ≈
+    Knative (11.29 / 11.47) < OpenWhisk 81.78, surviving both of the metric's known in-regime
+    sensitivities (the CP/fn classification boundary and the function-side denominator), the
+    contamination A/B bound, and five independent sessions of varying box-state. Control-plane
+    orchestration is a single-digit-percent tax on lean platforms and an ~4.5× multiple of function
+    CPU on the heavyweight standalone. **The share also does not amortize with load concurrency**:
+    it is flat c=1–16 (quick-tier sweep, §5.5), because the control-plane cost is charged per
+    invocation, not per unit of wall-clock concurrency. **The per-invocation CP cost is also
+    workload-invariant** (I/O-bound quick-tier variant, §5.5: OF 0.45, Fn 0.53, Kn 0.67, OW 24.89
+    ms vs 0.54/0.72/0.88/25.66 in the spin workload) — the orchestration tax is a pure per-
+    invocation platform property, independent of whether the function burns CPU or sleeps. The
+    *share percentage*, by contrast, inflates under I/O and the Fn–Kn tie breaks as function-side
+    runtime floors diverge — the denominator caveat (§4.1) demonstrated at its extreme, which is
+    exactly why this paper reports the denominator-free CP ms/inv as a co-headline metric.
 3. **The mechanism is asymmetric and design-relevant.** Core scarcity inflates the share only
    where a *central orchestrator* sits on the request path (Fn +33%, +2.2 pp under contamination);
    per-replica, co-located proxies (OpenFaaS) are nearly immune. The framework's own self-checks

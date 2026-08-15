@@ -17,12 +17,15 @@ a contention-robust discriminator. Decision gate: platform gap in the share must
   `host_plausible` (must be true), `physical_plausible`, `host_sat%` (~100 on the codespace is
   the honest saturated-box flag, not a failure).
 
-## Current state (2026-08-15 — concurrency sweep DONE + freeze ablation DONE + paper/figures synced; read this first)
+## Current state (2026-08-15 — concurrency sweep + freeze ablation + I/O-bound variant DONE, paper synced; read this first)
 
 **What ran 2026-08-15 (bare shell, quiet-gated, quick-tier):** `tools/run_sweep_and_freeze.sh`
 completed the OF/Fn/Kn concurrency sweep at c=1/2/8/16 (`--stamp conc{1,2,8,16}`, REPEAT=3, TOTAL=3000),
-the OW spot-check c=4/c=8 (`--stamp ow4`/`ow8`), and — in a second session — **both Fn freeze-ablation
-legs** (`results/fn_freeze_baseline_quick_quick` + `results/fn_freeze_off_quick_quick`). Item 2 of the
+the OW spot-check c=4/c=8 (`--stamp ow4`/`ow8`), — in a second session — **both Fn freeze-ablation
+legs** (`results/fn_freeze_baseline_quick_quick` + `results/fn_freeze_off_quick_quick`), and — in a
+third — **the I/O-bound workload variant** (`tools/run_io_bound.sh`, stamp `iobound`, all four
+platforms; see the "Remaining" block below for its full results + the two-findings framing now in
+paper §5.5/§6/§12). Item 2 of the
 decided plan is CLOSED (diagnostic only, never a headline). Data is intact — nothing was overwritten;
 run mtimes form a single monotonic pass and `run_lock_session.sh` refuses to clobber a same-stamp
 outdir. Box left clean (no swarm services, no fnserver/openwhisk/hello, only the k3s/Knative substrate).
@@ -79,9 +82,39 @@ The sweep does not touch `metrics/cpubound.json` — regression refs (11.49/7.61
 dev 0.20/0.03 pp).
 
 **Remaining (optional-if-time, no longer gating):**
-1. (bare shell, ~60 min) I/O-bound workload variant (`time.sleep(0.005)`), all 4 platforms (one-line
-   edit per handler + rebuild + REPEAT=3 quick pass). The one workload change worth doing — skip the
-   1/20 ms spin sweep. Optional: 4-core Fn/OF point via `pin_cpuset.sh`.
+1. **I/O-bound workload variant — DONE 2026-08-15** (`tools/run_io_bound.sh`, stamp `iobound`),
+   quick-tier REPEAT=3/TOTAL=3000/c=4, all gates green, quiet gate self-certified each leg
+   (ambient 4.9–10.0%). Box restored to the spin-workload state at the end (step 5/5).
+   **Results (`results/lock_session_iobound/lock_summary.json`; medians of 3):**
+
+   | platform | share (lock4→I/O) | CP ms/inv (lock4→I/O) | fn ms/inv (lock4→I/O) |
+   |---|---|---|---|
+   | OpenFaaS | 7.58→24.67 | 0.54→0.45 | 6.62→1.33 |
+   | Fn | 11.29→47.12 | 0.72→0.53 | 5.66→0.59 |
+   | Knative | 11.47→30.69 | 0.88→0.67 | 6.82→1.50 |
+   | OpenWhisk | 81.78→96.87 | 25.66→24.89 | 5.72→0.81 |
+
+   **Two findings, BOTH written into the paper §5.5 (Table 8b, quick-tier trend-only label) + §6 +
+   §12: (a) CP ms/inv is workload-invariant** — OW within ~3% (24.89 vs 25.66, the smallest
+   relative deviation of the four); OF/Fn/Kn sit ~17–26% LOWER under I/O, consistent with the
+   quieter host (host_sat 33–55% vs 69–75% in lock4). Do NOT call it "byte-identical" (expert
+   pushback): it's within the same ~3% box-drift band as the other three, just the tightest of
+   the four. **(b) The share ordering is NOT workload-invariant** — OF < Fn ≈ Kn becomes OF 24.67
+   < Kn 30.69 < Fn 47.12. Cause = the §4.1 denominator caveat demonstrated at its extreme: Fn's
+   fn-side floor is leanest (0.59 ms/inv) because its fdk serves the request path directly with
+   no always-on per-replica proxy in the fn cgroup, while OF's of-watchdog and Kn's queue-proxy
+   burn per-request CPU on the function side. **Freeze is NOT the driver** (expert pushback,
+   verified against the committed freeze ablation: its whole effect is CP-side churn, cp ms/inv
+   0.68→0.60, fn-side invariant 5.61→5.55 under spin, and a sleeping time.sleep process accrues
+   ~0 CPU whether paused or not). Third observation: OW p50 improves 110.7→65.6 ms and rps ~35→58
+   under I/O — its bottleneck is the standalone control plane, not function execution. QoS
+   citable all legs (host_sat 33–55%, p50 6.3–7.1 OF/Fn/Kn ≈ spin — the 5 ms wall-time match is
+   real). **Energy/carbon NOT citable** (rapl_err 71–77% container platforms, 25–41% OW). **The
+   discriminating freeze-off I/O leg is available if ever wanted** (`FN_FREEZE_IDLE_MSECS=-1 bash
+   tools/run_io_bound.sh --stamp iobound_nofreeze --platforms fn`, ~20 min bare shell; the env var
+   propagates through the adapter's run_saqef.sh setup unchanged) but the mechanism already
+   predicts it would confirm the proxy-floor explanation, so it was NOT run — paper wording is
+   evidence-backed either way. Optional remaining: 4-core Fn/OF point via `pin_cpuset.sh`.
 2. Commit hygiene notes for the NEXT commit: **REVERT `results/openfaas_verify/verify.json` first**
    (tracked working artifact the sweep overwrote — standing repo rule), decide `paper1/` fate
    (untracked, generated export bundle — left untracked, do not commit). `hello/func.yaml` version
