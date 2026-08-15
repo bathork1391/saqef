@@ -364,25 +364,31 @@ def figure5_concurrency_invariance():
     ow_stamps = [CONC_ANCHOR] + list(CONC_OW_STAMPS)
     ow_c = [4] + list(CONC_OW_STAMPS.values())
     ow_s = [ow_vals[2]] + ow_vals[:2]  # lock4 anchor first, then ow4, ow8
+    ow_color = PLATFORMS["openwhisk"]["color"]
+    ow_med = (ow_lo + ow_hi) / 2
     ins = ax.inset_axes([0.13, 0.60, 0.30, 0.32])
     for i, (c, v) in enumerate(zip(ow_c, ow_s)):
         if c == 4:
             x = 3.9 if v == ow_s[0] else 4.1
         else:
             x = 8.0
-        marker, mfc, ms = ("D", PLATFORMS["openwhisk"]["color"], 6.5) \
+        marker, mfc, ms = ("D", ow_color, 6.5) \
             if i == 0 else ("o", "white", 5.5)
         ins.plot(x, v, marker=marker, ms=ms, zorder=4,
-                 color=PLATFORMS["openwhisk"]["color"], mfc=mfc,
-                 mec=PLATFORMS["openwhisk"]["color"], mew=1.2)
-    ins.axhline((ow_lo + ow_hi) / 2, color=PLATFORMS["openwhisk"]["color"],
-                ls=":", lw=1.0, zorder=1)
+                 color=ow_color, mfc=mfc, mec=ow_color, mew=1.2)
+        ins.text(x, v + (0.5 if v < ow_med else 1.2), f"{v:.1f}",
+                 ha="center", va="bottom", fontsize=7, color="0.2")
+    ins.axhline(ow_med, color=ow_color, ls=":", lw=1.2, zorder=1)
+    ins.text(8.55, ow_med, f" median {ow_med:.1f}", ha="right", va="center",
+             fontsize=7, color=ow_color, style="italic")
     ins.set_xlim(3.4, 8.6)
     ins.set_ylim(ow_lo - 2.0, ow_hi + 2.0)
     ins.set_xticks([4, 8])
     ins.set_yticks([ow_lo, ow_hi])
     ins.tick_params(labelsize=7.5)
-    ins.set_title("OpenWhisk (standalone)", fontsize=8)
+    ins.set_title("OpenWhisk (standalone) — inset: c=4/c=8 spot-check", fontsize=8.5,
+                  fontweight="bold")
+    ins.set_xticklabels(["4*", "8"])
     ax.set_xticks(xs)
     ax.set_xticklabels(["1", "2", "4*", "8", "16"], fontsize=10)
     ax.set_xlabel("load concurrency c (4* = lock4 N=5 anchor; others quick-tier "
@@ -392,9 +398,12 @@ def figure5_concurrency_invariance():
     handles = [plt.Line2D([0], [0], color=PLATFORMS[p]["color"], lw=1.5, marker="o",
                           ms=5.5, mfc="white") for p in CONC_PLAT]
     handles.append(plt.Line2D([0], [0], marker="D", ls="", ms=6.5, color="black"))
-    labels = [PLATFORMS[p]["label"] for p in CONC_PLAT] + ["c=4 lock4 anchor (N=5)"]
-    ax.legend(handles, labels, loc="upper center", bbox_to_anchor=(0.5, 1.12),
-              frameon=False, fontsize=9, ncol=2, handlelength=1.4, columnspacing=1.4)
+    handles.append(plt.Line2D([0], [0], color=ow_color, lw=1.5, ls=":", marker="o",
+                              ms=5.5, mfc="white"))
+    labels = ([PLATFORMS[p]["label"] for p in CONC_PLAT]
+              + ["c=4 lock4 anchor (N=5)", "OpenWhisk (standalone) — inset"])
+    ax.legend(handles, labels, loc="upper center", bbox_to_anchor=(0.5, 1.15),
+              frameon=False, fontsize=8.5, ncol=2, handlelength=1.4, columnspacing=1.4)
     fig.tight_layout()
     for ext in ("png", "pdf"):
         fig.savefig(os.path.join(OUTDIR, f"figure5_concurrency_invariance.{ext}"),
