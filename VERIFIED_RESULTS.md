@@ -95,7 +95,7 @@ Flat-5ms normalization keeps the denominator's function term identical across pl
 | Knative | 14.08 | 11.97 | 12.10 | 12.08 | 11.47 |
 | OpenWhisk (standalone) | — | — | 81.16 (c=8 spot) | — | 81.78 (c=4 spot 81.96) |
 
-Flags (quick-tier trend-only framing, paper §5.3): c=8/16 host_sat 88-94% -> QoS/energy not citable there (share is); c=16 legs print INCOMPLETE-RUN (2992/3000) = benign sampler truncation on ~3 s runs, NOT the OpenWhisk duration bug; Fn c=16 run_1 = 17.43 (CV 23.9%) is the sweep's noisiest point; OF c=2 = 5.82 is an all-time low and non-monotonic (leg-level box state, not a trend). Ordering OF < Fn ≈ Kn << OW survives every c; mechanism = per-invocation CP cost (CP ms/inv OF 0.40-0.49, Fn 0.52-0.83, Kn 0.72-1.09, OW ~30) does not amortize with wall-clock concurrency.
+Flags (quick-tier trend-only framing, paper §5.5): c=8/16 host_sat 88-94% -> QoS/energy not citable there (share is); c=16 legs print INCOMPLETE-RUN (2992/3000) = benign sampler truncation on ~3 s runs, NOT the OpenWhisk duration bug; Fn c=16 run_1 = 17.43 (CV 23.9%) is the sweep's noisiest point; OF c=2 = 5.82 is an all-time low and non-monotonic (leg-level box state, not a trend). Ordering OF < Fn ≈ Kn << OW survives every c; mechanism = per-invocation CP cost (CP ms/inv OF 0.40-0.49, Fn 0.52-0.83, Kn 0.72-1.09, OW ~30) does not amortize with wall-clock concurrency.
 
 ## 9. Fn freeze ablation (quick-tier diagnostic, 2026-08-15; never a headline)
 
@@ -119,4 +119,41 @@ All four handlers swapped for `time.sleep(0.005)` (same 5 ms wall duration, no b
 | Knative | 1.50 → 6.82 | 0.67 → 0.88 | 30.69 → 11.47 |
 | OpenWhisk (standalone) | 0.81 → 5.72 | 24.89 → 25.66 | 96.87 → 81.78 |
 
-Findings (paper §5.3 Table 14 + §6 + §12): (a) CP ms/inv is workload-invariant — OW 24.89 vs 25.66 (the smallest relative deviation of the four, within the same ~3% box-drift band as the other three), OF/Fn/Kn ~17-26% LOWER under I/O consistent with the quieter host (host_sat 33-55% vs 69-75% in lock4). NOT 'byte-identical'. (b) The share ordering is NOT workload-invariant: OF < Fn ≈ Kn (7.58/11.29/11.47) becomes OF 24.67 < Kn 30.69 < Fn 47.12 — the §4.1 denominator caveat at its extreme (Fn's fn-side floor 0.59 ms/inv is leanest: its fdk serves the request path with no always-on per-replica proxy in the fn cgroup, while OF's of-watchdog and Kn's queue-proxy burn per-request fn-side CPU). Freeze is NOT the driver (the §9 ablation's whole effect is CP-side churn, cp ms/inv 0.68→0.60, fn-side invariant under spin; a sleeping time.sleep accrues ~0 CPU whether paused or not). Third observation: OW p50 improves 110.7→65.6 ms and rps ~35→58 — its bottleneck is the standalone control plane, not function execution. QoS citable all legs (host_sat 33-55%, p50 6.3-7.1 OF/Fn/Kn ≈ spin — the 5 ms wall-time match is real). Energy/carbon NOT citable (rapl_err 71-77% container platforms, 25-41% OW). Quick-tier trend-only framing: REPEAT=3/TOTAL=3000, NOT lock4-comparable as a headline.
+Findings (paper §5.5 Table 8b + §6 + §12): (a) CP ms/inv is workload-invariant — OW 24.89 vs 25.66 (the smallest relative deviation of the four, within the same ~3% box-drift band as the other three), OF/Fn/Kn ~17-26% LOWER under I/O consistent with the quieter host (host_sat 33-55% vs 69-75% in lock4). NOT 'byte-identical'. (b) The share ordering is NOT workload-invariant: OF < Fn ≈ Kn (7.58/11.29/11.47) becomes OF 24.67 < Kn 30.69 < Fn 47.12 — the §4.1 denominator caveat at its extreme (Fn's fn-side floor 0.59 ms/inv is leanest: its fdk serves the request path with no always-on per-replica proxy in the fn cgroup, while OF's of-watchdog and Kn's queue-proxy burn per-request fn-side CPU). Freeze is NOT the driver (the §9 ablation's whole effect is CP-side churn, cp ms/inv 0.68→0.60, fn-side invariant under spin; a sleeping time.sleep accrues ~0 CPU whether paused or not). Third observation: OW p50 improves 110.7→65.6 ms and rps ~35→58 — its bottleneck is the standalone control plane, not function execution. QoS citable all legs (host_sat 33-55%, p50 6.3-7.1 OF/Fn/Kn ≈ spin — the 5 ms wall-time match is real). Energy/carbon NOT citable (rapl_err 71-77% container platforms, 25-41% OW). Quick-tier trend-only framing: REPEAT=3/TOTAL=3000, NOT lock4-comparable as a headline.
+
+## 11. lock4 field-by-field attribution + validation gates (four-platform, matches paper §5.2 Tables 9-11)
+
+Medians of the matched lock4 session's 5 runs per platform; per-invocation values = median field / 10000 requests. The paper's §5.2 Tables 9-11 present the same numbers, so this document and the paper cannot disagree.
+
+| Metric | OpenFaaS | Fn | Knative | OpenWhisk (standalone) |
+|---|---|---|---|---|
+| window (`wall_s`) | 18.77 s | 16.94 s | 19.77 s | 285.27 s |
+| cpu_sec.control_plane | 5.44 s | 7.21 s | 8.83 s | 256.58 s |
+| cpu_sec.function | 66.21 s | 56.56 s | 68.15 s | 57.25 s |
+| cpu_sec_ceiling | 150.16 s | 135.48 s | 158.17 s | 2282.18 s |
+| cp_share_pct | 5.71% | 8.54% | 8.07% | 36.05% |
+| cp_dynamic_share_pct | 7.58% | 11.29% | 11.47% | 81.78% |
+| cp_peak_mem_mb | 24.1 MB | 34.0 MB | 81.2 MB | 364.8 MB |
+| Dynamic energy | 250.8 J | 223.4 J | 269.4 J | 1098.5 J |
+| Total energy (window) | 331.3 J | 295.3 J | 383.0 J | 2447.4 J |
+
+| Gate | OpenFaaS | Fn | Knative | OpenWhisk (standalone) |
+|---|---|---|---|---|
+| `cp_sampler_vs_delta_pct` (median; worst run) | 0.05% (0.07%) | -0.00% (0.02%) | 0.04% (0.06%) | 0.00% (0.00%) |
+| `cp_delta_sec` (direct counter) vs sampler CP | 5.437 ≈ 5.44 s | 7.207 ≈ 7.21 s | 8.948 ≈ 8.83 s* | 256.582 ≈ 256.58 s |
+| `physical_plausible` | true (5/5) | true (5/5) | true (5/5) | true (5/5) |
+| `host_plausible` / host_sat | true / 70.8% | true / 71.9% | true / 74.1% | true / 60.7% |
+| coverage | 100.0% (5/5) | 100.0% (5/5) | 100.0% (5/5) | 100.0% (5/5) |
+| unclassified CPU (median) | 0.30 s | 0.27 s | 0.13 s | 4.02 s |
+| Cross-session reproduction | 7.58 vs 7.29 (lock2) | 11.29 vs 11.16 (lock2) | 11.47 vs 11.82 (lock2) | 81.78 vs 81.88 (lock3) |
+
+\* Knative's `cp_delta_sec` median (8.948 s) pairs with its sampler CP median (8.83 s) on run_4, the pod-churn run; the per-run gate value there is -1.36% and the cross-run median is 0.04% - all within the single-digit-% pass threshold.
+
+| Per-invocation quantity | OpenFaaS | Fn | Knative | OpenWhisk (standalone) |
+|---|---|---|---|---|
+| Control-plane CPU / invocation | 5.44 s/10k = **0.54 ms** | 7.21 s/10k = **0.72 ms** | 8.83 s/10k = **0.88 ms** | 256.58 s/10k = **25.66 ms** |
+| Control-plane dynamic energy / invocation | **1.90 mJ** | **2.52 mJ** | **3.09 mJ** | **89.80 mJ** |
+| Control-plane carbon (dynamic) / invocation | **0.09 µg** | **0.12 µg** | **0.15 µg** | **4.30 µg** |
+| Total operational carbon / invocation (incl. idle base) | **1.6 µg** (idle ~24%) | **1.4 µg** (idle ~24%) | **1.8 µg** (idle ~30%) | **11.7 µg** (idle ~55%) |
+
+Idle-dominance: at this light load 24-55% of operational carbon is the always-on baseline (lowest on the short-window lightweight platforms, highest on OpenWhisk, whose ~285 s wall window makes the idle term dominate); the marginal serving cost splits ~10/90 orchestration/function on the lightweight platforms (0.54-0.88 ms CP vs 5.7-6.8 ms fn per invocation) versus a ~26 ms CP tax on the standalone.

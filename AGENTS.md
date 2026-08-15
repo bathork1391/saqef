@@ -24,6 +24,22 @@ Cross-platform measurement study: Fn vs OpenFaaS serving an identical CPU-bound 
 metric: `cp_dynamic_share_pct` = control-plane container CPU / dynamic (load-created) CPU —
 a contention-robust discriminator. Decision gate: platform gap in the share must exceed 5 pp.
 
+## Single point of reference — VERIFIED_RESULTS.md (governance rule, standing)
+`VERIFIED_RESULTS.md` is **the** uniform reference for every verified result in this study. It is
+machine-generated (`python3 tools/emit_verified_results.py`) from the committed result files, and
+the paper's tables/figures must never disagree with it (figures already read the same committed
+data). Standing rules:
+- **Any result that is newly verified — or re-confirmed/changed by a later run — must be added to
+  `tools/emit_verified_results.py` and re-emitted at that moment.** Do not leave a citable number
+  in the paper that is not in this document, and do not hand-edit the document (the generator is
+  the only writer).
+- When an experiment confirms an existing number (e.g. a regression pass), re-run the emitter so
+  the provenance block stays current; when an experiment changes one, update the generator + emit,
+  then re-check the paper's cited value matches the new document.
+- Section §11 mirrors paper §5.2's four-platform Tables 9–11 (attribution fields, validation
+  gates, per-invocation overhead incl. total op-carbon and its idle share), so paper tables and
+  this document are cross-checked by construction.
+
 ## How to run
 - Fn: `./run_saqef.sh all` -> `results/fn_cpubound*`. See header of run_saqef.sh.
 - OpenFaaS: `./run_openfaas.sh [stack|scale|check|verify|bench|gates|all]` -> `results/openfaas_cpubound*`.
@@ -96,6 +112,22 @@ paragraph + freeze-ablation note + I/O-bound variant Table 8b, all quick-tier-la
 ablation) + §10 (I/O-bound variant); `AGENTS.md` this block.
 The sweep does not touch `metrics/cpubound.json` — regression refs (11.49/7.61) remain valid (lock4
 dev 0.20/0.03 pp).
+
+**Follow-up edit session (2026-08-16 — §5.2 tables made four-platform; VERIFIED_RESULTS §11;
+single-point-of-reference governance):** per user direction (single uniform reference for every
+result; no Fn-only tables that duplicate four-platform data), §5.2 Tables 9–11 in
+`SAQEF_PAPER_DRAFT.md` were converted from Fn-only worked-example tables to four-platform tables
+(Fn stays the worked-example/reading-key column) using the same lock4 medians; §5.2 heading +
+intro updated, Table 11 Fn CP-carbon corrected 0.10→0.12 µg (matches VERIFIED_RESULTS §1), and the
+closing idle-dominance paragraph now reads 24–55% idle share across platforms. Matching §11 (same
+four-platform attribution fields, validation gates incl. cross-session reproduction, and
+per-invocation overhead incl. total op-carbon + idle share) was added to
+`tools/emit_verified_results.py` + re-emitted `VERIFIED_RESULTS.md`, so paper Tables 9–11 and the
+verified-results document are cross-checked by construction. Kn/OW were never 2-core-pinned
+(`pin_cpuset.sh` uses `docker update --cpuset-cpus`, which fights kubelet for k3s pods and loses
+to per-activation churn for OW's ephemeral action containers; 2-core energy/carbon is non-citable
+anyway at RAPL err 43–60%) — the 8-core/2-core curve is Fn/OF-only, documented in AGENTS.md's
+core-restricted-variant section.
 
 **Remaining (optional-if-time, no longer gating):**
 1. **I/O-bound workload variant — DONE 2026-08-15** (`tools/run_io_bound.sh`, stamp `iobound`),

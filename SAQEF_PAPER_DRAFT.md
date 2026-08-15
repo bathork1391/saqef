@@ -682,13 +682,16 @@ run-to-run throughput variance larger (35.0 rps median; run_5 dipped to ~28 rps)
 illustration of why the framework
 reports host_sat alongside every QoS number rather than a bare latency figure.
 
-### 5.2 Worked example: the measurement pipeline end-to-end on one platform (Fn, lock4 session)
+### 5.2 Worked example: the measurement pipeline end-to-end (Fn as the reading key; matched lock4 session)
 
 This section walks the measurement pipeline on a single platform — Fn — using the matched lock4
 session (the same session that produced Fn's row in §5.1's Table 3). Every number below is the
 median of the session's 5 runs; the validation gates and attribution math are identical on every
-platform, so this one worked example is the reading key for the whole paper. Cross-platform QoS
-and energy are reported in §5.1.
+platform, so this worked example is the reading key for the whole paper. Tables 9–11 also show
+the same fields for all four platforms from the same matched session (Fn in the second column),
+so no number in this walkthrough is Fn-only: cross-platform QoS is reported in §5.1's citability
+note and Appendix A, and the attribution, validation, and per-invocation tables below are
+four-platform.
 
 *Table 8 — QoS (Fn worked example, matched lock4 session).*
 
@@ -699,39 +702,46 @@ and energy are reported in §5.1.
 | Latency p50 / p90 / p99 / max | 6.5 / 7.3 / 9.4 / 41.2 ms |
 | SLO compliance (500 ms) | 100% |
 
-*Table 9 — Energy & CPU attribution (Fn worked example, matched lock4 session, median run).*
+*Table 9 — Energy & CPU attribution by platform (matched lock4 session, median of 5 runs per platform). Fn is the worked example of this section; the other columns are from the same matched session and are shown so the full comparison lives in one table.*
 
-| Metric | Value | Meaning |
-|---|---|---|
-| `cpu_sec.control_plane` | 7.21 s | fnserver CPU over 16.94 s window |
-| `cpu_sec.function` | 56.56 s | function containers (lower bound — see §7) |
-| `cpu_sec_ceiling` | 135.48 s | 8 cores × 16.94 s (physical max) |
-| `cp_share_pct` | 8.54% | CP / total machine energy |
-| **`cp_dynamic_share_pct`** | **11.29%** | CP / (function + CP) dynamic energy |
-| Dynamic energy | 223.4 J | CP 25.2 J + function 198.0 J |
-| Total energy (window) | 295.3 J | 4.249 W idle × 16.94 s + 223.4 J dynamic |
-| `cp_peak_mem_mb` | 34.0 MB | fnserver peak RSS (cgroup mode) |
+| Metric | OpenFaaS | Fn | Knative | OpenWhisk (standalone) | Meaning |
+|---|---|---|---|---|---|
+| window (`wall_s`) | 18.77 s | 16.94 s | 19.77 s | 285.27 s | per-run measurement window |
+| `cpu_sec.control_plane` | 5.44 s | 7.21 s | 8.83 s | 256.58 s | control-plane CPU over the window |
+| `cpu_sec.function` | 66.21 s | 56.56 s | 68.15 s | 57.25 s | function containers (lower bound — see §7) |
+| `cpu_sec_ceiling` | 150.16 s | 135.48 s | 158.17 s | 2282.18 s | 8 cores × window (physical max) |
+| `cp_share_pct` | 5.71% | 8.54% | 8.07% | 36.05% | CP / total machine energy |
+| **`cp_dynamic_share_pct`** | **7.58%** | **11.29%** | **11.47%** | **81.78%** | CP / (function + CP) dynamic energy |
+| Dynamic energy | 250.8 J | 223.4 J | 269.4 J | 1098.5 J | (CP + fn CPU) × 3.5 W/busy-core |
+| Total energy (window) | 331.3 J | 295.3 J | 383.0 J | 2447.4 J | idle_w × window + dynamic (per-run model) |
+| `cp_peak_mem_mb` | 24.1 MB | 34.0 MB | 81.2 MB | 364.8 MB | control-plane peak RSS (cgroup mode) |
 
-*Table 10 — Validation results (Fn worked example, matched lock4 session; the same gates are asserted on every run of every platform in §5.1).*
+*Table 10 — Validation results by platform (matched lock4 session; the same gates are asserted on every run of every platform in §5.1, see §4.7).*
 
-| Gate | Result |
-|---|---|
-| `cp_sampler_vs_delta_pct` | **−0.00%** (sampler = direct counter) |
-| `cp_delta_sec` vs sampler CP | 7.207 ≈ 7.21 s (exact) |
-| `physical_plausible` | true on all 5 runs |
-| `host_plausible` / host_sat | true / 71.9% (`host_saturated=false`) |
-| coverage | 100.0% on all 5 runs |
-| Reproduction | within-session spread 9.82–11.50 (CI, CV 6.39%); cross-session 11.29 vs 11.16 on the publication-lock session (§5.1) |
+| Gate | OpenFaaS | Fn | Knative | OpenWhisk (standalone) |
+|---|---|---|---|---|
+| `cp_sampler_vs_delta_pct` (median; worst run) | 0.05% (0.07%) | −0.00% (0.02%) | 0.04% (0.06%) | 0.00% (0.00%) |
+| `cp_delta_sec` (direct counter) vs sampler CP | 5.437 ≈ 5.44 s | 7.207 ≈ 7.21 s | 8.948 ≈ 8.83 s\* | 256.582 ≈ 256.58 s |
+| `physical_plausible` | true (5/5) | true (5/5) | true (5/5) | true (5/5) |
+| `host_plausible` / host_sat | true / 70.8% | true / 71.9% | true / 74.1% | true / 60.7% |
+| coverage | 100.0% (5/5) | 100.0% (5/5) | 100.0% (5/5) | 100.0% (5/5) |
+| unclassified CPU (median) | 0.30 s | 0.27 s | 0.13 s | 4.02 s |
+| Cross-session reproduction | 7.58 vs 7.29 (lock2) | 11.29 vs 11.16 (lock2) | 11.47 vs 11.82 (lock2) | 81.78 vs 81.88 (lock3) |
 
-*Table 11 — Absolute per-invocation overhead (model-based; Fn worked example, matched lock4 session).*
+\* Knative's `cp_delta_sec` median (8.948 s) pairs with its sampler CP median (8.83 s) on run_4, the
+pod-churn run; the per-run gate value there is −1.36% and the cross-run median is 0.04% — all
+within the single-digit-% pass threshold.
 
-| Quantity | Per invocation |
-|---|---|
-| Control-plane CPU | 7.21 s / 10000 = **0.72 ms CPU** |
-| Control-plane dynamic energy | 25.2 J / 10000 = **2.52 mJ** |
-| Control-plane carbon (dynamic) | ≈ **0.10 µg CO₂** |
-| Total operational carbon (incl. idle base) | ≈ **1.40 µg CO₂** (idle ~24%) |
-The idle-dominance is itself a result: at this light load, **~24% of operational carbon is the always-on baseline**, and the marginal cost of serving is split ~10/90 orchestration/function (0.72 ms CP vs 5.66 ms fn per invocation). This is precisely the regime where autoscaling ("scale to zero") pays off — and where the orchestration tax is most visible per unit of useful work.
+*Table 11 — Absolute per-invocation overhead (model-based; matched lock4 session). Values are the median field ÷ 10 000 requests per platform.*
+
+| Quantity | OpenFaaS | Fn | Knative | OpenWhisk (standalone) |
+|---|---|---|---|---|
+| Control-plane CPU / invocation | 5.44 s / 10k = **0.54 ms** | 7.21 s / 10k = **0.72 ms** | 8.83 s / 10k = **0.88 ms** | 256.58 s / 10k = **25.66 ms** |
+| Control-plane dynamic energy / invocation | **1.90 mJ** | **2.52 mJ** | **3.09 mJ** | **89.8 mJ** |
+| Control-plane carbon (dynamic) / invocation | ≈ **0.09 µg CO₂** | ≈ **0.12 µg CO₂** | ≈ **0.15 µg CO₂** | ≈ **4.30 µg CO₂** |
+| Total operational carbon / invocation (incl. idle base) | ≈ **1.6 µg CO₂** (idle ~24%) | ≈ **1.4 µg CO₂** (idle ~24%) | ≈ **1.8 µg CO₂** (idle ~30%) | ≈ **11.7 µg CO₂** (idle ~55%) |
+
+The idle-dominance is itself a result: at this light load, **24–55% of operational carbon is the always-on baseline** (lowest on the short-window lightweight platforms, highest on OpenWhisk, whose ~285 s wall window makes the idle term dominate), and the marginal cost of serving is split ~10/90 orchestration/function on the lightweight platforms (0.54–0.88 ms CP vs 5.7–6.8 ms fn per invocation) versus a ~26 ms CP tax on the standalone. This is precisely the regime where autoscaling ("scale to zero") pays off — and where the orchestration tax is most visible per unit of useful work.
 
 ### 5.3 Regime dependence — core count, concurrency, freeze policy, and workload (same instrument)
 
@@ -805,7 +815,7 @@ check (Fn 10.47 / OF 7.62), which was consistent but not headline-grade.
 
 \*Fn c=16 run_1 = 17.43 → CV 23.9%, the sweep's noisiest point.
 
-**Figure 5 — Concurrency invariance: CP share vs load concurrency c=1/2/4/8/16 (OF/Fn/Kn).** Open markers = same-day quick-tier sweep points; filled diamonds = the c=4 lock4 N=5 anchors. The OpenWhisk inset shows its spot-check flatness (81.2–82.0 at c=4/8). Reading: none of the platforms' shares move with concurrency — the ~1–2 pp wobble is day-state noise, and per-invocation CP cost is invariant to how many requests run concurrently.
+**Figure 5 — Concurrency invariance: CP share vs load concurrency c=1/2/4/8/16 (OF/Fn/Kn).** Open markers = same-day quick-tier sweep points; filled diamonds = the c=4 lock4 N=5 anchors. The OpenWhisk side panel (right; its ~81% share would flatten the main 0–18% axis) shows the c=4/c=8 spot-check flatness (81.2–82.0; dotted line = the lock4 N=5 median 81.8). Reading: none of the platforms' shares move with concurrency — the ~1–2 pp wobble is day-state noise, and per-invocation CP cost is invariant to how many requests run concurrently.
 
 ![figure5](figures/figure5_concurrency_invariance.png)
 
