@@ -1,0 +1,64 @@
+{
+  "session": {
+    "stamp": "iobound",
+    "platforms": {
+      "openfaas": "OpenFaaS",
+      "fn": "Fn",
+      "knative": "Knative",
+      "openwhisk": "OpenWhisk"
+    },
+    "idle_w_by_platform": {
+      "openfaas": "4.235",
+      "fn": "4.249",
+      "knative": "5.739",
+      "openwhisk": "4.882"
+    },
+    "notes": [
+      "single box state, back-to-back legs, quiet gate active (precondition only)",
+      "idle-w recalibrated this session (results/idle_w_calibration/lock_iobound)"
+    ]
+  },
+  "platforms": {
+    "openfaas": {
+      "label": "OpenFaaS",
+      "cp_dynamic_share_pct": 24.67,
+      "outdir": "results/openfaas_cpubound_lock_iobound_quick",
+      "idle_w_used": "4.235",
+      "cv_pct": 1.53,
+      "host_saturation_pct": 39.9,
+      "ambient_present": true,
+      "gates_ok": true
+    },
+    "fn": {
+      "label": "Fn",
+      "cp_dynamic_share_pct": 47.12,
+      "outdir": "results/fn_cpubound_lock_iobound_quick",
+      "idle_w_used": "4.249",
+      "cv_pct": 0.62,
+      "host_saturation_pct": 32.9,
+      "ambient_present": true,
+      "gates_ok": true
+    },
+    "knative": {
+      "label": "Knative",
+      "cp_dynamic_share_pct": 30.69,
+      "outdir": "results/knative_cpubound_lock_iobound_quick",
+      "idle_w_used": "5.739",
+      "cv_pct": 1.73,
+      "host_saturation_pct": 40.5,
+      "ambient_present": true,
+      "gates_ok": true
+    },
+    "openwhisk": {
+      "label": "OpenWhisk",
+      "cp_dynamic_share_pct": 96.87,
+      "outdir": "results/openwhisk_cpubound_lock_iobound_quick",
+      "idle_w_used": "4.882",
+      "cv_pct": 0.77,
+      "host_saturation_pct": 54.9,
+      "ambient_present": true,
+      "gates_ok": true
+    }
+  },
+  "all_gates_ok": true
+}

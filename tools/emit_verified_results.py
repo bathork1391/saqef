@@ -376,6 +376,52 @@ def main():
       "modest, consistent with Fn drift being scheduling-dominated.")
     w("")
 
+    # ------------------------------------------------------------------
+    w("## 10. I/O-bound workload variant — CP ms/inv is workload-invariant, the share is not (quick-tier trend, 2026-08-15)")
+    w("")
+    w("All four handlers swapped for `time.sleep(0.005)` (same 5 ms wall duration, no busy CPU), "
+      "identical c=4 quick-tier protocol (REPEAT=3/TOTAL=3000, quiet-gated) via "
+      "`tools/run_io_bound.sh`, stamp `iobound`. Source: `results/lock_session_iobound/"
+      "lock_summary.json`; spin baseline from lock4 `results/*_cpubound_lock_lock4/runs.json`.")
+    w("")
+    w("| platform | fn ms/inv (I/O → spin) | CP ms/inv (I/O → spin) | share % (I/O → spin) |")
+    w("|---|---|---|---|")
+    io = json.load(open(os.path.join(REPO, "results/lock_session_iobound/lock_summary.json")))
+    for key in LOCK4:
+        io_p = io["platforms"][key]
+        sub = f"results/{key}_cpubound_lock_lock4"
+        runs = load_runs(sub)
+        io_runs = load_runs(io_p["outdir"])
+        req = io_runs[0]["requests"]
+        cp_sec_spin = med([r["cpu_sec"]["control_plane"] for r in runs])
+        fn_sec_spin = med([r["cpu_sec"]["function"] for r in runs])
+        cp_sec_io = med([r["cpu_sec"]["control_plane"] for r in io_runs])
+        fn_sec_io = med([r["cpu_sec"]["function"] for r in io_runs])
+        cp_ms_spin = cp_sec_spin / 10000.0 * 1000.0
+        fn_ms_spin = fn_sec_spin / 10000.0 * 1000.0
+        cp_ms_io = cp_sec_io / req * 1000.0
+        fn_ms_io = fn_sec_io / req * 1000.0
+        share_spin = med([r["cp_dynamic_share_pct"] for r in runs])
+        w(f"| {PLATFORM_LABEL[key]} | {fmt(fn_ms_io)} → {fmt(fn_ms_spin)} | "
+          f"{fmt(cp_ms_io)} → {fmt(cp_ms_spin)} | {fmt(io_p['cp_dynamic_share_pct'])} → {fmt(share_spin)} |")
+    w("")
+    w("Findings (paper §5.5 Table 8b + §6 + §12): (a) CP ms/inv is workload-invariant — OW "
+      "24.89 vs 25.66 (the smallest relative deviation of the four, within the same ~3% box-drift "
+      "band as the other three), OF/Fn/Kn ~17-26% LOWER under I/O consistent with the quieter host "
+      "(host_sat 33-55% vs 69-75% in lock4). NOT 'byte-identical'. (b) The share ordering is NOT "
+      "workload-invariant: OF < Fn ≈ Kn (7.58/11.29/11.47) becomes OF 24.67 < Kn 30.69 < Fn 47.12 "
+      "— the §4.1 denominator caveat at its extreme (Fn's fn-side floor 0.59 ms/inv is leanest: "
+      "its fdk serves the request path with no always-on per-replica proxy in the fn cgroup, "
+      "while OF's of-watchdog and Kn's queue-proxy burn per-request fn-side CPU). Freeze is NOT "
+      "the driver (the §9 ablation's whole effect is CP-side churn, cp ms/inv 0.68→0.60, fn-side "
+      "invariant under spin; a sleeping time.sleep accrues ~0 CPU whether paused or not). "
+      "Third observation: OW p50 improves 110.7→65.6 ms and rps ~35→58 — its bottleneck is the "
+      "standalone control plane, not function execution. QoS citable all legs (host_sat 33-55%, "
+      "p50 6.3-7.1 OF/Fn/Kn ≈ spin — the 5 ms wall-time match is real). Energy/carbon NOT citable "
+      "(rapl_err 71-77% container platforms, 25-41% OW). Quick-tier trend-only framing: "
+      "REPEAT=3/TOTAL=3000, NOT lock4-comparable as a headline.")
+    w("")
+
     with open(args.out, "w") as fh:
         fh.write("\n".join(L))
     print(f"wrote {args.out}")
