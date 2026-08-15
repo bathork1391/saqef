@@ -79,8 +79,8 @@ Flat-5ms normalization keeps the denominator's function term identical across pl
 
 | platform | session median shares % |
 |---|---|
-| OpenFaaS | 7.29, 7.58, 7.67 |
-| Fn | 11.16, 11.29, 10.46, 12.92 |
+| OpenFaaS | 7.29, 7.58, 7.67, 7.61, 7.40 |
+| Fn | 11.16, 11.29, 10.46, 12.92, 11.60, 11.49, 11.27 |
 | Knative | 11.82, 11.47, 12.44 |
 | OpenWhisk (standalone) | 81.88, 81.78, 82.36 |
 
@@ -157,3 +157,16 @@ Medians of the matched lock4 session's 5 runs per platform; per-invocation value
 | Total operational carbon / invocation (incl. idle base) | **1.6 µg** (idle ~24%) | **1.4 µg** (idle ~24%) | **1.8 µg** (idle ~30%) | **11.7 µg** (idle ~55%) |
 
 Idle-dominance: at this light load 24-55% of operational carbon is the always-on baseline (lowest on the short-window lightweight platforms, highest on OpenWhisk, whose ~285 s wall window makes the idle term dominate); the marginal serving cost splits ~10/90 orchestration/function on the lightweight platforms (0.54-0.88 ms CP vs 5.7-6.8 ms fn per invocation) versus a ~26 ms CP tax on the standalone.
+
+## 12. Retired snapshot history (superseded sessions; git-only provenance, NOT citable)
+
+These sessions were overwritten in place by later re-runs of the same result dir; their medians exist only in git history. The paper's reproducibility narrative cites them as the study's arc, so they are documented here for cross-checking -- they are superseded, never citable. `cp_dynamic_share_pct` medians, verified against `git show <commit>:<path>`:
+
+| retired session | median share % | why retired | git commit |
+|---|---|---|---|
+| OpenWhisk (2026-08-07) | 82.54 | agent-contaminated (opencode ~2.8 cores) | `54578bf` |
+| OpenWhisk (2026-08-08 quiet) | 80.23 | quiet-box rerun, pre-classification-fix | `898323e` |
+| Knative (2026-08-07) | 13.99 | agent-contaminated (opencode ~2.8 cores) | `ce3ec3f` |
+| Knative (2026-08-08 quiet) | 11.40 | quiet-box rerun, pre-classification-fix | `898323e` |
+
+OpenWhisk RAPL-fit error per retired session (the paper cites these as the structural JVM/model mismatch, stable across four independent sessions): 36% (2026-08-07 contaminated, `54578bf`), 45-58% (2026-08-08 quiet, `898323e`), 31-50% (2026-08-08 evening rerun, `70deefd`).
