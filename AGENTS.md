@@ -184,7 +184,7 @@ four (host_sat 60.7–74.1%); energy/carbon citable OF/Fn/Kn (fresh N=5 per-leg 
 27.4–46.8%, median 42.0%, structural JVM/linear-model mismatch). lock4's N=5 idle calibration
 re-confirmed the Knative idle premium's *direction* but showed its *magnitude* is day-state
 dependent (0.690 W on 2026-08-09 vs ~1.66 W on 2026-08-14 — both N=5 medians; paper cites
-"~0.7–1.7 W", not a fixed number). **COMMITTED + PUBLISHED 2026-08-14** (`cc82979`, pushed to
+"~0.7–1.7 W", not a fixed number). **COMMITTED + PUBLISHED 2026-08-14** (`98aa729`, pushed to
 origin/main): paper `SAQEF_PAPER_DRAFT.md` + `figures/make_figures.py` REGIMES `fourplat` +
 regenerated figures 2–4 (all synced to lock4; figure1 untouched — core-count experiment
 unchanged). **Post-publication paper revision (2026-08-14, ALSO committed — see commit message):
@@ -223,7 +223,7 @@ fine there.
 (ambient-load) baked into the harness 2026-08-09; contamination A/B (Fn +2.2 pp / OF +0.3 pp
 under an emulated agent profile) and regression re-anchor (11.49/7.61) and Knative idle-w
 (0.690 W premium) all completed on the quiet box 2026-08-08/09; lock2/lock3 run via
-`tools/run_lock_session.sh` with the OW `--duration` bug fixed (`7f7bad5`, INCOMPLETE-RUN +
+`tools/run_lock_session.sh` with the OW `--duration` bug fixed (`b9d0204`, INCOMPLETE-RUN +
 LOADGEN-FALLBACK gate checks added); lock4 (the matched single-day four-platform replacement,
 2026-08-14) run via the same driver. 55/55 tests pass.
 
@@ -252,14 +252,14 @@ evidence lives in samples.csv only); unclassified 0.5 s threshold could tighten 
 unclassified was ~0.15 s; impact ~0.06 pp, not the reviewer's 0.5–1 pp); RAPL periodic sampling =
 legit future work.
 
-**Review 2 (12 issues) — verification result + the six REAL fixes applied (COMMITTED 2026-08-14 as `4e395b2`).**
+**Review 2 (12 issues) — verification result + the six REAL fixes applied (COMMITTED 2026-08-14 as `91c63ae`).**
 Verified: the Status line overclaimed (fixed); the abstract's "18.7% Fn / 8.2% OpenFaaS" is
 CORRECT (8.2% IS the OpenFaaS median; reviewer misread); OW standalone-only + not-citable are
 already disclosed in §5.6 + abstract ("we make no claim about OpenWhisk's distributed/production
 deployment mode"); lock-session idle-w was N≥3 (default) or N=5 per state with raw reads
 committed (`results/idle_w_calibration/lock_lock2/*.txt`, 13 lines each), NOT single-sample
 (reviewer's claim false for citable numbers). **The six fixes applied to `SAQEF_PAPER_DRAFT.md`
-were COMMITTED 2026-08-14 as `4e395b2`:** (1) Status line now: CPU-time shares
+were COMMITTED 2026-08-14 as `91c63ae`:** (1) Status line now: CPU-time shares
 RAPL-validated for Fn/OpenFaaS/Knative; OW energy "model-estimated only, not RAPL-validated".
 (2) §5.5 cross-core "independent sessions" → "repeated sessions on the same instrument"
 (abstract, Contribution 3, figure1 caption, table row, prose). (3) §5.5 adds the a-priori 5 pp
@@ -318,7 +318,7 @@ is log-store artifact vs real CP). Wording stays until one of those lands.
 no context from this session (per reviewer-#5's discipline, a reviewer who knows the codebase
 pattern-matches and defeats the purpose); (3) hand the reviewer the honest lock2/lock3 framing,
 NOT the concealment. (The six review-2 fixes and the review-3 presentation pass are BOTH committed
-and pushed — `4e395b2` and the presentation-pass commit below — so there is no longer any
+and pushed — `91c63ae` and the presentation-pass commit below — so there is no longer any
 uncommitted paper state to decide on.)
 
 ## Expert review #5 (2026-08-09) — disposition
@@ -1552,7 +1552,7 @@ silently fell back to the slower Python loadgen, and the run completed only **19
 requests — while the gate table still printed "OK" because nothing checked
 request-count-completed or loadgen-match. This is a regression of an already-fixed bug
 (runbook item 6) that didn't survive the move to the consolidated 4-platform driver. **Fixed**
-in `7f7bad5`: OpenWhisk now gets `--duration 300` (others keep 60), and `gates_for()` gained
+in `b9d0204`: OpenWhisk now gets `--duration 300` (others keep 60), and `gates_for()` gained
 two new per-run checks — INCOMPLETE RUN (`requests != total_requested`) and LOADGEN FALLBACK —
 that would have caught this the first time. Canonical bug ledger is `TROUBLESHOOTING_RUNBOOK.md`
 (retrofitted in the same commit, items 12–18) — read it before assuming something is a new

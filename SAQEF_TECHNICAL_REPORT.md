@@ -1295,7 +1295,7 @@ short contamination A/B legs (TOTAL=3000, ~5 s wall) with the same `idle_w=4.3`.
 
 The publication-lock pair (§32 context; lock2 + lock3, 2026-08-13/14) was clean but still
 stitched OpenWhisk across to a second day (its lock2 leg was corrupted by the loadgen-timeout
-bug — 1,993/10,000 — fixed in `7f7bad5`; lock3 re-ran OW only). **lock4 replaces it as the
+bug — 1,993/10,000 — fixed in `b9d0204`; lock3 re-ran OW only). **lock4 replaces it as the
 paper's citable four-platform baseline**: all four platforms back-to-back the SAME day
 (2026-08-14) via `tools/run_lock_session.sh` (dry-run first, then the real session), under the
 self-certifying quiet gate, count-complete, zero loadgen fallbacks, all gates green. This closes
@@ -1436,7 +1436,7 @@ CP transient 145.4 s vs ~72 s steady (median used). The discriminating freeze-of
 NOT run — the mechanism predicts it would confirm the proxy-floor explanation, and the paper
 wording is evidence-backed either way.
 
-**Sync applied (2026-08-15, committed `f729520`):** `SAQEF_PAPER_DRAFT.md` §5.5 retitled "Regime
+**Sync applied (2026-08-15, committed `493b1ff`):** `SAQEF_PAPER_DRAFT.md` §5.5 retitled "Regime
 dependence — core count, concurrency, freeze policy, and workload" + I/O-bound paragraph + Table 8b;
 §4.3 notes the variant as the empirical version of the workload-anchoring rationale; §6 ordering
 claim scoped to the CPU-bound regime + workload axis added to the mechanism synthesis; §12 claim 2
