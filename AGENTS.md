@@ -74,10 +74,11 @@ all three platforms near-identical at low concurrency.
 concurrency_invariance` (data source = committed `lock_session_*/lock_summary.json`, NOT the gitignored
 `_quick` outdirs; figures 1–4 content unchanged — their PDFs reverted from the working tree to avoid
 metadata churn); `SAQEF_PAPER_DRAFT.md` §3 RQ3, §5.5 (Table 8a + Figure 5 + concurrency-invariance
-paragraph + freeze-ablation note, quick-tier-labeled), §6 mechanism synthesis, §10 item 7 (marked
-DONE), §12 Conclusion claim 2; `SAQEF_TECHNICAL_REPORT.md` §34 session log; `VERIFIED_RESULTS.md`
-+ `tools/emit_verified_results.py` gained §8 (concurrency sweep) + §9 (freeze ablation); `AGENTS.md`
-this block.
+paragraph + freeze-ablation note + I/O-bound variant Table 8b, all quick-tier-labeled; §5.5 retitled
+"Regime dependence"), §6 mechanism synthesis, §10 item 7 (marked DONE), §12 Conclusion claim 2;
+`SAQEF_TECHNICAL_REPORT.md` §34 (sweep+freeze) + §35 (I/O-bound variant) session logs;
+`VERIFIED_RESULTS.md` + `tools/emit_verified_results.py` gained §8 (concurrency sweep) + §9 (freeze
+ablation) + §10 (I/O-bound variant); `AGENTS.md` this block.
 The sweep does not touch `metrics/cpubound.json` — regression refs (11.49/7.61) remain valid (lock4
 dev 0.20/0.03 pp).
 
