@@ -3,6 +3,21 @@
 Durable memory for this project. Any opencode/agent session should start here, then read the
 report sections referenced below. **The git repo IS the memory** — not any chat or account.
 
+## Paper §5 structure (2026-08-15 — RESTRUCTURED; old numbering in this file refers to the pre-restructure layout)
+The paper's Results section was reorganized so the four-platform comparison leads. **Current §5:**
+§5.1 four-platform comparison (the lock4 session — Figures 1–3, Tables 3–7: main comparison,
+convention-normalized, function-cost-normalized, Knative idle calibration, lock4 idle
+decomposition, attribution map, energy-citability note); §5.2 single worked example (Fn, lock4
+session — Tables 8–11); §5.3 regime dependence (core count, concurrency, freeze, I/O-bound —
+Tables 12–15, Figures 4 & 5). **Old→new map:** old §5.1–5.4 (worked example) → §5.2; old §5.5
+(regime) → §5.3; old §5.6 (four-platform) → §5.1. Figures renumbered: old fig2/3/4 → new
+fig1/2/3 (§5.1), old fig1 core-count → fig4, fig5 unchanged (§5.3); files were `git mv`'d.
+Tables renumbered: old T9–T13 (§5.6) → T3–T7; old T3–T6 (worked example) → T8–T11; old T7/T8a/
+T8b/T8 (§5.5) → T12–T15; old T14 (cross-check ledger) → T16; old T15 (Appendix A) → T17; old T16
+(Appendix B) → T18. Whenever this file says "§5.5" or "§5.6" in a dated log entry it means the
+*pre-restructure* numbering (respectively regime-dependence and four-platform-comparison
+content); the current-numbers-first rule above is authoritative.
+
 ## What this is
 Cross-platform measurement study: Fn vs OpenFaaS serving an identical CPU-bound function
 (handler busy-spins ~5 ms per invocation; 3000 requests, concurrency 20, 5 runs). Headline

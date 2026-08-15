@@ -6,24 +6,24 @@ Data-driven: every figure is derived from committed result sets
 one) or a regime, add one entry to REGIMES below and rerun — no script edits.
 
 Single-story figures (no two-panel confusion, no dates on axes — provenance
-lives in the paper captions):
-  Figure 1 — core-count effect (Fn vs OpenFaaS): the controlled same-instrument
-             experiment, 8 cores vs the same box cpuset-pinned to 2 cores.
-             This is the machine-dependence contribution.
-   Figure 2 — per-run shares, four platforms (8-core box, same instrument):
+lives in the paper captions). Numbered in order of appearance in §5:
+  Figure 1 — per-run shares, four platforms (8-core box, same instrument):
               every per-run value shown honestly (n=5 per platform, one
               matched session set -- the lock4 session (2026-08-14): all four
               platforms back-to-back the same day under the quiet gate; see
               the data-source note in the paper's Appendix A / figure caption).
-  Figure 3 — attribution split (CP / fn / unclassified CPU-time) for the
-             same four platforms.
-  Figure 4 — control-plane CPU per invocation (ms), all four platforms.
+   Figure 2 — attribution split (CP / fn / unclassified CPU-time) for the
+              same four platforms.
+  Figure 3 — control-plane CPU per invocation (ms), all four platforms.
+  Figure 4 — core-count effect (Fn vs OpenFaaS): the controlled same-instrument
+              experiment, 8 cores vs the same box cpuset-pinned to 2 cores.
+              This is the machine-dependence contribution.
   Figure 5 — concurrency invariance: CP share vs load concurrency c=1/2/4/8/16
-             (OF/Fn/Kn), the same-day quick-tier sweep (2026-08-15,
-             REPEAT=3/TOTAL=3000, quiet-gated) with the c=4 point anchored by
-             the lock4 N=5 session; OpenWhisk annotated flat at c=4/8.
-             Data source = the committed lock_session_*/lock_summary.json files
-             (the gitignored _quick outdirs hold the per-run detail).
+              (OF/Fn/Kn), the same-day quick-tier sweep (2026-08-15,
+              REPEAT=3/TOTAL=3000, quiet-gated) with the c=4 point anchored by
+              the lock4 N=5 session; OpenWhisk annotated flat at c=4/8.
+              Data source = the committed lock_session_*/lock_summary.json files
+              (the gitignored _quick outdirs hold the per-run detail).
 
 Requires: matplotlib (figures only; the measurement harness stays stdlib-only).
 Usage:    python3 figures/make_figures.py [outdir]   (default: figures/)
@@ -78,13 +78,13 @@ REGIMES = {
     },
 }
 
-# Figure 1 (core-count): the controlled Fn-vs-OF experiment
+# Figure 4 (core-count): the controlled Fn-vs-OF experiment
 CORE_COUNT_REGS = ("8core_quiet", "2core")
 CORE_COUNT_PLAT = ("fn", "openfaas")
-# Figures 2-4 (four-platform, 8-core box, same instrument): the matched lock4
+# Figures 1-3 (four-platform, 8-core box, same instrument): the matched lock4
 # session -- all four platforms back-to-back on 2026-08-14 under the quiet gate,
 # each leg with a freshly calibrated idle-w (see the paper's data-source note in
-# Appendix A). figure1's 8core_quiet/2core dirs are the separate controlled
+# Appendix A). figure4's 8core_quiet/2core dirs are the separate controlled
 # core-count experiment and are intentionally unchanged.
 FOURPLAT_REGS = ("fourplat",)
 FOURPLAT_PLAT = ("openfaas", "fn", "knative", "openwhisk")
@@ -155,7 +155,7 @@ def style_ax(ax, ymax, ylabel):
     ax.grid(axis="y", ls=":", alpha=0.4, zorder=0)
 
 
-def figure1_core_count(agg):
+def figure4_core_count(agg):
     """The machine-dependence contribution: Fn vs OF, 8 cores vs 2 cores (pinned)."""
     fig, ax = plt.subplots(figsize=(6.6, 4.2), dpi=150)
     n_plat = len(CORE_COUNT_PLAT)
@@ -202,12 +202,12 @@ def figure1_core_count(agg):
               frameon=False, fontsize=9.5, ncol=2, handlelength=1.4, columnspacing=1.2)
     fig.tight_layout()
     for ext in ("png", "pdf"):
-        fig.savefig(os.path.join(OUTDIR, f"figure1_core_count.{ext}"), bbox_inches="tight")
+        fig.savefig(os.path.join(OUTDIR, f"figure4_core_count.{ext}"), bbox_inches="tight")
     plt.close(fig)
-    print("wrote figure1_core_count.{png,pdf}")
+    print("wrote figure4_core_count.{png,pdf}")
 
 
-def figure2_four_platform_scatter(agg):
+def figure1_four_platform_scatter(agg):
     """Per-run shares, all four platforms (8-core box, same instrument; matched
     lock4 session 2026-08-14 -- see module docstring)."""
     fig, ax = plt.subplots(figsize=(7.2, 4.4), dpi=150)
@@ -237,12 +237,12 @@ def figure2_four_platform_scatter(agg):
               frameon=False, fontsize=8.5, ncol=3, handlelength=1.2, columnspacing=1.0)
     fig.tight_layout()
     for ext in ("png", "pdf"):
-        fig.savefig(os.path.join(OUTDIR, f"figure2_four_platform_scatter.{ext}"), bbox_inches="tight")
+        fig.savefig(os.path.join(OUTDIR, f"figure1_four_platform_scatter.{ext}"), bbox_inches="tight")
     plt.close(fig)
-    print("wrote figure2_four_platform_scatter.{png,pdf}")
+    print("wrote figure1_four_platform_scatter.{png,pdf}")
 
 
-def figure3_attribution_split(agg):
+def figure2_attribution_split(agg):
     """Attribution split (CP / fn / unclassified CPU-time), four platforms."""
     fig, ax = plt.subplots(figsize=(7.2, 4.4), dpi=150)
     xs = list(range(len(FOURPLAT_PLAT)))
@@ -274,12 +274,12 @@ def figure3_attribution_split(agg):
               frameon=False, fontsize=8, ncol=3, handlelength=1.2, columnspacing=1.0)
     fig.tight_layout()
     for ext in ("png", "pdf"):
-        fig.savefig(os.path.join(OUTDIR, f"figure3_attribution_split.{ext}"), bbox_inches="tight")
+        fig.savefig(os.path.join(OUTDIR, f"figure2_attribution_split.{ext}"), bbox_inches="tight")
     plt.close(fig)
-    print("wrote figure3_attribution_split.{png,pdf}")
+    print("wrote figure2_attribution_split.{png,pdf}")
 
 
-def figure4_cp_cost_per_inv(agg):
+def figure3_cp_cost_per_inv(agg):
     """Control-plane CPU cost per invocation (ms CPU / inv), all four platforms.
 
     cp_cpu_s median per run / 10000 inv * 1000. This is the per-request
@@ -306,13 +306,13 @@ def figure4_cp_cost_per_inv(agg):
     ax.grid(axis="x", ls=":", alpha=0.4, zorder=0)
     fig.text(0.01, 0.01,
              "* OW is the standalone emulator's single JVM (orchestrator + per-activation docker-log "
-             "log-store); Kn includes the kourier gateway + activator on the request path — see §5.6.",
+             "log-store); Kn includes the kourier gateway + activator on the request path — see §5.1.",
              fontsize=7, color="0.35", ha="left")
     fig.tight_layout(rect=(0, 0.07, 1, 1))
     for ext in ("png", "pdf"):
-        fig.savefig(os.path.join(OUTDIR, f"figure4_cp_cost_per_inv.{ext}"), bbox_inches="tight")
+        fig.savefig(os.path.join(OUTDIR, f"figure3_cp_cost_per_inv.{ext}"), bbox_inches="tight")
     plt.close(fig)
-    print("wrote figure4_cp_cost_per_inv.{png,pdf}")
+    print("wrote figure3_cp_cost_per_inv.{png,pdf}")
 
 
 def load_lock_summary(stamp):
@@ -327,7 +327,7 @@ def figure5_concurrency_invariance():
     Quick-tier trend (REPEAT=3/TOTAL=3000, 2026-08-15, quiet-gated); the c=4
     point is the lock4 N=5 anchor (diamond markers), everything else the same-day
     sweep. OW is drawn as a flat reference band (81.2-82.0 across c=4/8) so the
-    main axis stays readable at 0-18%. See paper §5.5 for the full table + flags.
+    main axis stays readable at 0-18%. See paper §5.3 for the full table + flags.
     """
     by_plat = {p: {} for p in CONC_PLAT}
     for stamp in CONC_STAMPS:
@@ -412,10 +412,10 @@ def main():
             print(f"{PLATFORMS[pk]['label']:9s} {REGIMES[rk]['label']:26s} "
                   f"reported={a['reported']:.2f} range={a['spread_min']:.2f}-{a['spread_max']:.2f} "
                   f"n={len(a['per_run'])} cp={a['cp_sec']:.2f}s fn={a['fn_sec']:.2f}s")
-    figure1_core_count(agg)
-    figure2_four_platform_scatter(agg)
-    figure3_attribution_split(agg)
-    figure4_cp_cost_per_inv(agg)
+    figure1_four_platform_scatter(agg)
+    figure2_attribution_split(agg)
+    figure3_cp_cost_per_inv(agg)
+    figure4_core_count(agg)
     figure5_concurrency_invariance()
 
 
