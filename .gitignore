@@ -2,3 +2,17 @@ __pycache__/
 old-working code/
 vendor/
 results/*_quick*/
+
+# Paper + results (private repo: saqef-paper)
+SAQEF_PAPER_DRAFT.md
+VERIFIED_RESULTS.md
+AGENTS.md
+SAQEF_TECHNICAL_REPORT.md
+EXPERT_REVIEW_PROMPT.md
+EXPERT_REVIEW_PROMPT_COLD.md
+Milestone-1_SAQEF_Methodology_and_Fn_Results.docx
+results/
+figures/
+paper1/
+papers/
+tools/emit_verified_results.py
