@@ -2287,24 +2287,265 @@ class TestLegacyReattribution(unittest.TestCase):
             json.dump(summary, f)
         return d
 
+    def _summary(self, cp, fn, unclass=0.0, platform="openfaas"):
+        """summary.json whose cpu_sec is consistent with the sample set."""
+        labels = {"hello.1.aaa": {"image": "hello:latest"},
+                  "openfaas_gateway.1.bbb": {"image": "of-gw:latest"}}
+        if unclass:
+            labels["k8s_coredns_coredns-1_kube-system_2_ccc"] = {"image": "coredns:1"}
+        return {"platform": platform, "container_labels": labels,
+                "cpu_sec": {"control_plane": cp, "function": fn},
+                "unclassified_cpu_s": unclass,
+                "cp_dynamic_share_pct": (100.0 * cp / (cp + fn)) if (cp + fn) else None}
+
+    def test_unclassified_cpu_excluded_from_both_share_terms(self):
+        """Unclassified CPU must appear in NEITHER term of the share.
+
+        This is the regression for a real +1.12 pp error on OpenFaaS c=1. The
+        two-bucket version of _integrate() did `if fn: fn else: cp`, so every
+        unclassified container landed in the CP NUMERATOR while the caller
+        subtracted unclassified_cpu_s from the DENOMINATOR only. The total was
+        still right, so the sum-only verify gate passed and 160 tests were
+        green while the reported share was inflated by the whole unclassified
+        bucket. This fixture has 0.2 cpu-s of unclassified CPU against 1.2 of
+        cp: enough that any leak moves the share by ~1 pp.
+        """
+        lr = self.lr
+        with tempfile.TemporaryDirectory() as td:
+            # 1 s cadence; each sample covers the interval ending at it.
+            samples = []
+            for t in (1000.0, 1001.0, 1002.0):
+                samples.append([t, "hello.1.aaa", 100.0, 1.0])      # fn: 3.0
+                samples.append([t, "openfaas_gateway.1.bbb", 40.0, 1.0])  # cp: 1.2
+                samples.append([t, "k8s_coredns_coredns-1_kube-system_2_ccc",
+                                6.666666666666667, 1.0])             # unclass: 0.2
+            leg = self._write_leg(td, samples,
+                                  self._summary(cp=1.2, fn=3.0, unclass=0.2))
+            r = lr.reconstruct(leg, tol=1e-6)
+            self.assertEqual(r["status"], "ok", r.get("reason"))
+            # All three buckets are separated.
+            self.assertAlmostEqual(r["raw_cp"], 1.2, places=6)
+            self.assertAlmostEqual(r["raw_fn"], 3.0, places=6)
+            self.assertAlmostEqual(r["raw_unclass"], 0.2, places=6)
+            # The share reproduces the stored definition: cp / (cp + fn).
+            self.assertAlmostEqual(r["share_before"], r["share_stored"], places=6)
+            self.assertAlmostEqual(r["share_before"], 100.0 * 1.2 / 4.2, places=6)
+
+    def test_share_denominator_ignores_unclassified(self):
+        """The denominator is cp+fn. Folding unclassified in would read 33.3%
+        where the stored definition gives 28.6%."""
+        lr = self.lr
+        with tempfile.TemporaryDirectory() as td:
+            samples = []
+            for t in (1000.0, 1001.0, 1002.0):
+                samples.append([t, "hello.1.aaa", 100.0, 1.0])
+                samples.append([t, "openfaas_gateway.1.bbb", 40.0, 1.0])
+                samples.append([t, "k8s_coredns_coredns-1_kube-system_2_ccc",
+                                20.0, 1.0])
+            leg = self._write_leg(td, samples, self._summary(cp=1.2, fn=3.0, unclass=0.6))
+            r = lr.reconstruct(leg, tol=1e-6)
+            self.assertEqual(r["status"], "ok", r.get("reason"))
+            self.assertAlmostEqual(r["share_before"], 28.571428571428573, places=6)
+            # Explicitly NOT cp/(cp+fn+unclass) = 25.0%.
+            self.assertNotAlmostEqual(r["share_before"], 25.0, places=3)
+
+    def test_gate_rejects_bucket_misassignment_with_correct_total(self):
+        """A wrong bucket must fail even when cp+fn sums correctly.
+
+        This is the exact blind spot that hid the +1.12 pp bug: the stored total
+        was right while the split was wrong, so a sum-only gate passed. Here the
+        run claims ZERO unclassified CPU, but samples.csv shows 0.3 cpu-s in a
+        container that is neither fn nor cp. cp+fn still reconciles to the
+        stored 4.2 -- only the per-bucket check can catch it.
+        """
+        lr = self.lr
+        with tempfile.TemporaryDirectory() as td:
+            samples = []
+            for t in (1000.0, 1001.0, 1002.0):
+                samples.append([t, "hello.1.aaa", 100.0, 1.0])       # fn 3.0
+                samples.append([t, "openfaas_gateway.1.bbb", 40.0, 1.0])  # cp 1.2
+                samples.append([t, "k8s_coredns_coredns-1_ks_2_ccc", 10.0, 1.0])  # 0.3
+            # Stored says there is no unclassified CPU at all.
+            leg = self._write_leg(td, samples, self._summary(cp=1.2, fn=3.0, unclass=0.0))
+            r = lr.reconstruct(leg, tol=0.01)
+            # cp + fn are individually correct...
+            self.assertAlmostEqual(r["cp_err"], 0.0, places=9)
+            self.assertAlmostEqual(r["fn_err"], 0.0, places=9)
+            # ...the total reconciles...
+            self.assertAlmostEqual(r["recon_err"], 0.0, places=9)
+            # ...but a sum-only gate would call this leg fine, while the third
+            # bucket disagrees with the run's own record.
+            self.assertAlmostEqual(r["raw_unclass"], 0.3, places=6)
+            self.assertGreater(r["unclass_abs_err"], lr.UNCLASS_ABS_TOL)
+            self.assertEqual(r["status"], "verify_failed")
+
+    def test_clipping_does_not_fail_the_gate(self):
+        """Clipping is a deliberate correction, so it must NOT be gated.
+
+        Gating the clipped figure against the unclipped stored total reported 9
+        correct legs as verify_failed at 1.0-2.3% 'error' purely because the
+        clip removed that much overhang -- the correction working as intended.
+        """
+        lr = self.lr
+        with tempfile.TemporaryDirectory() as td:
+            # fn runs flat; cp is only busy early, then idles. Clipping away the
+            # idle tail therefore REMOVES fn and cp at different rates, so the
+            # share genuinely moves -- which is what makes this a real test of
+            # "the gate judges the unclipped figure, the report shows the clip".
+            samples = []
+            for t, gw in ((1000.0, 100.0), (1001.0, 100.0), (1002.0, 10.0)):
+                samples.append([t, "hello.1.aaa", 100.0, 1.0])
+                samples.append([t, "openfaas_gateway.1.bbb", gw, 1.0])
+            # unclipped: fn 3.0, cp 2.1 -> share 41.18%
+            leg = self._write_leg(td, samples, self._summary(cp=2.1, fn=3.0))
+            unclipped = lr.reconstruct(leg, tol=0.01)
+            self.assertEqual(unclipped["status"], "ok", unclipped.get("reason"))
+            # Clip to (1000, 1002]: the first sample has no predecessor so its interval
+            # is dropped, leaving fn 2.0 and cp 1.1 (1.0 + 0.1 idle) -> 35.48%.
+            clipped = lr.reconstruct(leg, window=(1000.0, 1002.0), tol=0.01)
+            self.assertEqual(clipped["status"], "ok",
+                             "clipping must not fail the reconstruction gate")
+            # The gate judged the unclipped integration (perfect agreement)...
+            self.assertAlmostEqual(clipped["cp_err"], 0.0, places=9)
+            self.assertAlmostEqual(clipped["fn_err"], 0.0, places=9)
+            # ...while the reported value is the clipped one, and it differs.
+            self.assertAlmostEqual(clipped["recon_fn"], 2.0, places=6)
+            self.assertAlmostEqual(clipped["recon_cp"], 1.1, places=6)
+            self.assertAlmostEqual(clipped["share_before"],
+                                   100.0 * 1.1 / 3.1, places=6)
+            self.assertAlmostEqual(clipped["share_unclipped"],
+                                   unclipped["share_before"], places=6)
+
+    def test_unclass_abs_tol_exceeds_worst_real_discrepancy(self):
+        """UNCLASS_ABS_TOL must have headroom over the measured floor.
+
+        The value is only defensible if it sits above what correct legs actually
+        produce and below what a wrong split would produce. Measured over the
+        264 reconstructable committed legs: max 0.0060 cpu-s. So the threshold
+        is asserted against that number rather than left as a bare literal.
+        """
+        import glob
+        import importlib.util as _u
+        results = os.path.join(REPO, "..", "saqef-paper", "results")
+        if not os.path.isdir(results):
+            self.skipTest("committed results not present")
+        spec = _u.spec_from_file_location("lr2",
+                                           os.path.join(REPO, "tools",
+                                                        "legacy_reattribute.py"))
+        lr = _u.module_from_spec(spec)
+        spec.loader.exec_module(lr)
+        errs = []
+        for leg in lr.iter_legs(results):
+            r = lr.reconstruct(leg, tol=lr.RECON_TOL)
+            if r and r["status"] == "ok" and r.get("unclass_abs_err") is not None:
+                errs.append(r["unclass_abs_err"])
+        self.assertGreater(len(errs), 200, "expected most legs to reconstruct")
+        self.assertLess(max(errs), lr.UNCLASS_ABS_TOL,
+                        "UNCLASS_ABS_TOL would reject a correct leg")
+        # And it must still be tight enough to matter: a split wrong by more
+        # than a hundredth of a cpu-second has to fail.
+        self.assertGreater(lr.UNCLASS_ABS_TOL, 0.0)
+        self.assertLessEqual(lr.UNCLASS_ABS_TOL, 0.02,
+                             "UNCLASS_ABS_TOL is too loose to detect a wrong split")
+
+    def test_terminal_escapes_do_not_double_count(self):
+        """Escape-laden container names must not inflate the fn total.
+
+        The 5 pre-containerization fn_cpubound legs recorded the SAME container
+        under two names, '\x1b[H01KZ...' and '\x1b[J\x1b[H01KZ...', because an
+        escape-laden `docker ps` header bled into the field. Unscrubbed they are
+        distinct keys and the CPU is counted twice.
+        """
+        lr = self.lr
+        with tempfile.TemporaryDirectory() as td:
+            a, b = "\x1b[H01KZ3TRR1NG8G00GZJ00016F7", "\x1b[J\x1b[H01KZ3TRR1NG8G00GZJ00016F7"
+            rows = []
+            for t in (1000.0, 1001.0, 1002.0):
+                rows.append([t, "hello.1.aaa", 100.0, 1.0])
+                rows.append([t, "fnserver", 40.0, 1.0])
+                rows.append([t, a, 10.0, 1.0])
+                rows.append([t, b, 10.0, 1.0])
+            d = os.path.join(td, "samples.csv")
+            with open(d, "w", newline="") as f:
+                w = csv.writer(f)
+                w.writerow(["t", "container", "cpu_pct", "mem_mb"])
+                for r in rows:
+                    w.writerow(r)
+            by_t = lr.load_samples(d)
+            names = {n for t in by_t for n in by_t[t]}
+            self.assertEqual(names, {"hello.1.aaa", "fnserver", "01KZ3TRR1NG8G00GZJ00016F7"},
+                             "escape-laden names must collapse to one container")
+
+    def test_name_only_legs_reported_not_silently_accepted(self):
+        """No container_labels => name-only, and it must stay visible.
+
+        These 5 legs carry no labels, so fn is inferred as "everything that is
+        not the adapter's cp container". That cannot be checked independently,
+        so the tool reports it AND refuses to accept a loose fit -- the samples
+        span 8.48 s where wall_s is 14.24 s, so the stored totals came from a
+        span the samples no longer cover.
+        """
+        lr = self.lr
+        with tempfile.TemporaryDirectory() as td:
+            samples = []
+            for t in (1000.0, 1001.0, 1002.0):
+                samples.append([t, "hello.1.aaa", 100.0, 1.0])
+                samples.append([t, "fnserver", 40.0, 1.0])
+            summary = {"platform": "fn", "wall_s": 10.0,
+                       "cpu_sec": {"control_plane": 9.0, "function": 3.0},
+                       "cp_dynamic_share_pct": 75.0,
+                       "container_labels": {}, "unclassified_cpu_s": 0.0}
+            leg = self._write_leg(td, samples, summary)
+            r = lr.reconstruct(leg, tol=lr.RECON_TOL)
+            self.assertEqual(r["status"], "verify_failed")
+            self.assertTrue(r.get("name_only"))
+            self.assertIn("name-only", r["reason"])
+            self.assertIn("span", r["reason"])
+
+    def test_cp_allowlists_match_adapters(self):
+        """CP_CONTAINER_HINTS must equal each adapter's own cp_containers.
+
+        Hand-kept tables drift. That drift is the documented OpenFaaAS 'gateway'
+        substring bug, and a stale table mis-attributes CP without failing any
+        total-based check.
+        """
+        import importlib
+        lr = self.lr
+        for name in ("fn", "openfaas", "knative", "openwhisk"):
+            mod = importlib.import_module("platforms.%s" % name)
+            # Each module also exposes a bare `Adapter` ABC with an empty
+            # cp_containers; only the concrete adapter carries the real list.
+            cls = [getattr(mod, k) for k, v in vars(mod).items()
+                   if isinstance(v, type) and getattr(v, "cp_containers", ())
+                   and not k == "Adapter"]
+            self.assertEqual(len(cls), 1,
+                             "expected one concrete adapter in platforms/%s.py" % name)
+            self.assertEqual(set(lr.CP_CONTAINER_HINTS[name]),
+                             set(cls[0].cp_containers),
+                             "CP_CONTAINER_HINTS[%r] has drifted from platforms/%s.py"
+                             % (name, name))
+
     def test_reconstruction_reproduces_stored_totals_exactly(self):
         """The core claim: integrating stored pct over forward intervals
         rebuilds the cpu_sec the old harness recorded."""
         with tempfile.TemporaryDirectory() as td:
-            # 2 containers, 1 s cadence. 'hello' is fn, 'gateway' is cp.
+            # 2 containers, 1 s cadence. 'hello' is fn, 'fnserver' is cp.
             # Each carries 1.0 cpu-s per second => pct=100 per interval.
             samples = []
             for t in (1000.0, 1001.0, 1002.0):
                 samples.append([t, "fn-a", 100.0, 1.0])
-                samples.append([t, "gw", 50.0, 1.0])
+                samples.append([t, "fnserver.1.gw", 50.0, 1.0])
             # 3 samples -> 3 forward intervals (last gets the SAMPLE_S tail).
             # fn-a at 100% => 1.0 cpu-s per interval => 3.0. gw at 50% => 1.5.
             summary = {
                 "platform": "fn", "wall_s": 2.0,
                 "cpu_sec": {"control_plane": 1.5, "function": 3.0},
                 "cp_dynamic_share_pct": 33.333333,
+                # 'gw' must be a real fn-server container name: cp membership
+                # is by NAME via CP_CONTAINER_HINTS, and an unmatched name is
+                # unclassified, not control plane.
                 "container_labels": {"fn-a": {"image": "hello:0.0.40"},
-                                     "gw": {"image": "gateway:1"}},
+                                     "fnserver.1.gw": {"image": "gateway:1"}},
                 "unclassified_cpu_s": 0.0,
             }
             leg = self._write_leg(os.path.join(td, "run_1"), samples, summary)
@@ -2314,24 +2555,28 @@ class TestLegacyReattribution(unittest.TestCase):
             self.assertAlmostEqual(r["recon_fn"], 3.0, places=6)
             self.assertLess(r["recon_err"], 1e-9)
 
-    def test_unclassified_cpu_is_subtracted_before_the_gate(self):
-        """Integrating samples.csv sweeps up the unclassified bucket, but
-        cpu_sec holds only cp+fn. Comparing the raw sum to cp+fn shows a ~1%
-        phantom 'error' that is really just unclassified CPU -- this is exactly
-        what made 48 legs fail the gate before it was handled."""
+    def test_unclassified_bucket_is_reconstructed_not_subtracted(self):
+        """Unclassified CPU is its OWN bucket, not a subtraction to paper over
+        the gate.
+
+        The earlier fix subtracted `unclassified_cpu_s` from a two-bucket total,
+        which made the SUM reconcile while every unclassified container stayed
+        in the cp numerator. This pins the three-bucket behaviour: the
+        unclassified total is reconstructed and checked on its own terms.
+        """
         with tempfile.TemporaryDirectory() as td:
             samples = []
             for t in (1000.0, 1001.0):
-                samples.append([t, "fn-a", 100.0, 1.0])
-                samples.append([t, "gw", 50.0, 1.0])
-                samples.append([t, "stray", 10.0, 1.0])
+                samples.append([t, "fn-a", 100.0, 1.0])       # fn  2.0
+                samples.append([t, "fnserver.1.gw", 50.0, 1.0])  # cp 1.0
+                samples.append([t, "stray", 10.0, 1.0])      # unclass 0.2
             summary = {
                 "platform": "fn", "wall_s": 1.0,
                 # cp+fn as stored. stray's CPU is NOT in here.
                 "cpu_sec": {"control_plane": 1.0, "function": 2.0},
                 "cp_dynamic_share_pct": 33.333333,
                 "container_labels": {"fn-a": {"image": "hello:0.0.40"},
-                                     "gw": {"image": "gateway:1"},
+                                     "fnserver.1.gw": {"image": "gateway:1"},
                                      "stray": {"image": "stray:1"}},
                 "unclassified_cpu_s": 0.2,
             }
@@ -2341,6 +2586,12 @@ class TestLegacyReattribution(unittest.TestCase):
                              "unclassified CPU must not be counted as "
                              "reconstruction error")
             self.assertLess(r["recon_err"], 0.02)
+            # Each bucket reproduced separately.
+            self.assertAlmostEqual(r["raw_cp"], 1.0, places=6)
+            self.assertAlmostEqual(r["raw_fn"], 2.0, places=6)
+            self.assertAlmostEqual(r["raw_unclass"], 0.2, places=6)
+            # And cp stayed OUT of the stray CPU: the share is cp/(cp+fn).
+            self.assertAlmostEqual(r["share_before"], 100.0 / 3.0, places=6)
 
     def test_window_clip_never_adds_cpu(self):
         """Clipping to the load window can only remove overhang, never invent
