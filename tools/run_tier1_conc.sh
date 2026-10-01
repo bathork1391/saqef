@@ -89,8 +89,13 @@ echo "  protocol: TOTAL=$TOTAL REPEAT=$REPEAT (full protocol, NO _quick)  light 
 echo "  c=16     : EXCLUDED (8-core oversubscription changes the regime; legacy reads retracted)"
 echo "  model   : cp_cpu_s = a*requests + b*wall  (background-CPU; per-leg --idle-probe = direct b)"
 echo "  idle-w : lock4 medians OF=$W_OF FN=$W_FN KN=$W_KN OW=$W_OW (--skip-idle-calib)"
-echo "  OW     : c=1 duration 420 s (pilot + full leg); c=4,8 added for a same-day 3-point curve"
-[ "$DO_OW" = 1 ] && echo "  NOTE   : bare shell, agents QUIT. Each leg self-certifies quiet (15% gate)."
+[ "$DO_OW" = 1 ] && echo "  OW     : c=1 duration 420 s (pilot + full leg); c=4,8 added for a same-day 3-point curve"
+[ "$DO_OW" = 0 ] && echo "  OW     : SKIPPED (--skip-ow) -- NOT a four-platform result set"
+# FIXED 2026-10-01 (expert review): these two conditions were swapped -- the
+# bare-shell warning was gated on --skip-ow being OFF (so --skip-ow runs lost the
+# one warning that matters most, and printed an OpenWhisk line for a platform it
+# was not running).
+echo "  NOTE   : bare shell, agents QUIT. Each leg self-certifies quiet (15% gate)."
 [ "$DRY_RUN" = 1 ] && echo "  MODE   : DRY-RUN -- print plan only"
 
 # ---------------------------------------------------------------------------
@@ -129,10 +134,65 @@ run_ow() {
         echo "            --concurrency 1 --platforms ow --skip-idle-calib --idle-w-ow $W_OW \\"
         echo "            --deploy-only --requests-per-run $TOTAL --ow-duration 420"
     else
-        bash "$REPO/tools/run_lock_session.sh" --stamp "${stamp}_pilot" --repeat 1 --total "$TOTAL" \
-            --concurrency 1 --platforms ow --skip-idle-calib --idle-w-ow "$W_OW" \
-            --deploy-only --requests-per-run "$TOTAL" --ow-duration 420 \
-            || die "OW c=1 pilot failed"
+    bash "$REPO/tools/run_lock_session.sh" --stamp "${stamp}_pilot" --repeat 1 --total "$TOTAL" \
+        --concurrency 1 --platforms ow --skip-idle-calib --idle-w-ow "$W_OW" \
+        --deploy-only --requests-per-run "$TOTAL" --ow-duration 420 \
+        || die "OW c=1 pilot failed"
+        # FIXED 2026-10-01 (expert review): the pilot's whole purpose is to learn
+        # the TRUE wall time before committing 5 runs, so "an outdir appeared" is
+        # not a sufficient check -- a pilot truncated by the duration cap (or one
+        # that fell back to the python loadgen) still produces a folder, and would
+        # silently authorise a full leg that hits the same kill-switch. Read the
+        # pilot's summary and refuse on: short count, killed by the cap, or
+        # loadgen fallback.
+        pilot_summary() {
+            for d in "$REPO/results/openwhisk_cpubound_lock_${stamp}_pilot" \
+                     "$REPO/results/openwhisk_cpubound_lock_${stamp}_pilot_quick"; do
+                [ -f "$d/summary.json" ] && { echo "$d/summary.json"; return 0; }
+            done
+            return 1
+        }
+        if ! pj="$(pilot_summary)"; then
+            die "OW c=1 pilot produced no summary.json -- refusing to run the full leg blind"
+        fi
+        if ! python3 - "$pj" 420 "$TOTAL" <<'PY'
+import json, sys
+p, cap, total = sys.argv[1], float(sys.argv[2]), int(sys.argv[3])
+s = json.load(open(p))
+req, want = s.get("requests"), s.get("total_requested")
+wall = s.get("wall_s")
+env = s.get("env") or {}
+bad = []
+if req is not None and want is not None and req != want:
+    bad.append("INCOMPLETE RUN %s/%s" % (req, want))
+if req is None or int(req) < total:
+    bad.append("requests=%s < requested %d" % (req, total))
+if wall is None:
+    bad.append("no wall_s")
+elif wall >= cap:
+    bad.append("wall_s=%.1f >= duration cap %.0fs -> hey was killed mid-run" % (wall, cap))
+if env.get("loadgen_fallback"):
+    bad.append("LOADGEN FALLBACK (loadgen=%s != requested=%s)"
+               % (env.get("loadgen"), env.get("loadgen_requested")))
+print("    pilot: wall_s=%.1f cap=%.0f requests=%s/%s loadgen=%s" % (
+    wall if wall is not None else float("nan"), cap, req, want, env.get("loadgen")))
+if bad:
+    print("    PILOT REJECTED: " + "; ".join(bad))
+    sys.exit(1)
+frac = 100.0 * wall / cap
+# A pilot that only just fits is NOT a pass -- the full leg runs the same TOTAL
+# and any per-run variance tips it over the cap into the silent loadgen
+# fallback this pilot exists to prevent. 80% is the working margin.
+if frac > 80.0:
+    print("    pilot MARGINAL: %.0f%% of the %.0fs cap. It passes, but raise "
+          "--ow-duration (e.g. %d) before the n=5 leg or a slow run will trip the "
+          "kill-switch." % (frac, cap, int(cap * 1.5 / 60 + 1) * 60))
+else:
+    print("    pilot OK -- %.0f%% of the cap; a full leg fits with margin" % frac)
+PY
+        then
+            die "OW c=1 pilot did not complete cleanly (see PILOT REJECTED above) -- raise --ow-duration or fix the loadgen before the n=5 leg"
+        fi
     fi
     for c in 1 4 8; do
         stamp="tier1ow$c"
@@ -145,9 +205,6 @@ run_ow() {
             echo "            --idle-w-ow $W_OW --ow-duration $dur"
             continue
         fi
-        [ "$c" = 1 ] && [ ! -d "$REPO/results/openwhisk_cpubound_lock_${stamp}_pilot" ] \
-            && [ ! -d "$REPO/results/openwhisk_cpubound_lock_${stamp}_pilot_quick" ] \
-            && die "OW c=1 pilot did not produce an outdir -- refusing to run the full leg blind"
         bash "$REPO/tools/run_lock_session.sh" --stamp "$stamp" --repeat "$REPEAT" --total "$TOTAL" \
             --concurrency "$c" --platforms ow --skip-idle-calib --cpu-probe 60 \
             --idle-w-ow "$W_OW" --ow-duration "$dur" \
@@ -194,14 +251,35 @@ def probe_rate(repo, stamp, plat):
     d = os.path.join(repo, "results", "idle_probe_%s" % stamp, plat)
     if not os.path.isdir(d) and os.path.isdir(d + "_quick"):
         d = d + "_quick"
-    f = os.path.join(d, "runs.json")
-    if not os.path.isfile(f):
+    if not os.path.isdir(d):
+        return None                      # leg genuinely ran without --cpu-probe
+    # FIXED 2026-10-01 (expert review): this used to return None whenever
+    # runs.json was absent -- which is exactly what a --repeat 1 probe produced
+    # before the harness was fixed. That made the whole independent cross-check a
+    # SILENT no-op: every corrected column printed "--" and the flatness check
+    # said "no probe data" while the script still exited 0. Prefer runs.json,
+    # fall back to the single-run summary.json, and if neither is readable, SAY
+    # SO loudly instead of degrading quietly.
+    src = None
+    for name, wrap in (("runs.json", list), ("summary.json", lambda v: [v])):
+        f = os.path.join(d, name)
+        if os.path.isfile(f):
+            try:
+                src = (wrap(json.load(open(f))), name)
+                break
+            except Exception as e:
+                print("  !! %s c-probe: %s present but unreadable (%s)"
+                      % (plat, name, type(e).__name__))
+    if src is None:
+        print("  !! %s: probe dir %s has NO readable runs.json/summary.json --"
+              " background correction IMPOSSIBLE for this leg" % (plat, os.path.basename(d)))
         return None
-    r = json.load(open(f))[0]
+    r = src[0][0]
     wall = r.get("wall_s") or 1.0
     cp = r.get("cpu_sec", {}).get("control_plane", 0.0)
     fn = r.get("cpu_sec", {}).get("function", 0.0)
-    return {"cp_per_s": cp / wall, "fn_per_s": fn / wall, "wall": wall}
+    return {"cp_per_s": cp / wall, "fn_per_s": fn / wall, "wall": wall,
+            "src": src[1], "cp_cpu_s": cp, "fn_cpu_s": fn}
 
 def fn_container_count(s):
     labels = s.get("container_labels") or {}
@@ -210,7 +288,14 @@ def fn_container_count(s):
         return None
     plat = s.get("platform")
     if plat == "openwhisk":
-        return sum(1 for n in inven if n.startswith("wsk0_"))
+        # FIXED 2026-10-01 (expert review): a bare "wsk0_" prefix counted the two
+        # invoker warmup containers (wsk0_1/2_prewarm_nodejs20) as functions and
+        # returned 4 instead of 2 on every OW leg. Verified across all six
+        # committed OW datasets (lock2/3/4, ow4/ow8, iobound): the action
+        # containers are the *_guest_hello pair, and the count is 2 at EVERY
+        # concurrency (the invoker reuses them), so this column is NOT a
+        # replica-count signal for OW.
+        return sum(1 for n in inven if "_guest_" in n)
     if plat == "knative":
         # k8s fn containers are named user-container (queue-proxy is the sidecar);
         # image is a digest, so match by name.
@@ -228,14 +313,24 @@ for plat, (label, cs) in short2plat.items():
             print("  (missing %s c=%d -> skipped)" % (label, c)); continue
         legs[(plat, c)] = {"bg": probe_rate(repo, stamp, plat), "d": d}
         runs = json.load(open(os.path.join(d, "runs.json")))
+        ndrop = 0
         for runnr, r in enumerate(runs, 1):
             req = r.get("requests") or r.get("total_requested") or 3000
+            # FIXED 2026-10-01 (expert review): an incomplete run used to be warned
+            # about and then still APPENDED to raw[], so a truncated leg silently
+            # fed the fit and Table 1. A short count means the run was cut off
+            # before its own steady state, so its per-invocation numbers are not
+            # comparable -- exclude it and say how many were dropped.
             if r.get("requests") != r.get("total_requested"):
-                print("  WARN %s c=%d run_%d requests=%s != total_requested=%s -- INCOMPLETE!"
+                print("  WARN %s c=%d run_%d requests=%s != total_requested=%s -- INCOMPLETE, EXCLUDED from fit"
                       % (label, c, runnr, r.get("requests"), r.get("total_requested")))
+                ndrop += 1
+                continue
             cp_s = r["cpu_sec"]["control_plane"]; fn_s = r["cpu_sec"]["function"]
             wall = r.get("wall_s") or 1.0
             raw.setdefault(plat, []).append((c, req, wall, cp_s, fn_s, r["cp_dynamic_share_pct"]))
+        if ndrop:
+            print("       -> %s c=%d: %d/%d runs excluded from the fit" % (label, c, ndrop, len(runs)))
 
 def med(arr):
     return statistics.median(arr) if arr else float("nan")

@@ -1724,7 +1724,17 @@ def main():
     else:
         summary, all_snaps, reqs, ld = run_once(args, cp_sub)
         summary["ambient"] = ambient
+        # FIXED 2026-10-01 (expert review): a single-run bench must write the SAME
+        # artifact shape as a repeat>1 bench. Only write_run() ran here, so
+        # runs.json was never created -- the lock-session pilot gate read it
+        # unguarded (FileNotFoundError -> the whole session died ~2h in) and the
+        # tier-1 --idle-probe reader silently returned None, which would have
+        # printed "--" for every corrected column and quietly skipped the entire
+        # independent cross-check. Write runs.json = [summary] here.
+        summary["repetitions"] = 1
         write_run(args.outdir, summary, all_snaps, reqs)
+        with open(os.path.join(args.outdir, "runs.json"), "w") as f:
+            json.dump(clean_json([summary]), f, indent=2)
         if ld is not None:
             with open(os.path.join(args.outdir, "hey.csv"), "w") as f:
                 f.write(ld["raw"])

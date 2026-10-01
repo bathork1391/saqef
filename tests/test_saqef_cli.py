@@ -825,5 +825,198 @@ class TestHeyRateLimit(unittest.TestCase):
         self.assertIn("per worker", src.lower())
 
 
+class TestSingleRunArtifactShape(unittest.TestCase):
+    """A --repeat 1 bench must write the SAME artifact shape as --repeat 5.
+
+    Found by expert review 2026-10-01 and it broke the Tier-1 sweep two ways at
+    once. saqef_harness.py only wrote runs.json inside its `if repeat > 1:`
+    branch, so a single-run bench produced just summary.json + samples.csv +
+    requests.csv in the outdir. Both Tier-1 consumers of a single-run bench
+    then broke:
+      * run_lock_session.sh's gate block read runs.json UNGUARDED -> with the
+        --repeat 1 OpenWhisk duration pilot it raised FileNotFoundError outside
+        any try, so the whole session died ~2h in with "OW c=1 pilot failed".
+      * run_tier1_conc.sh's probe_rate() returned None on a missing runs.json
+        -> SILENT no-op: every background-corrected column printed "--" and the
+        flatness check reported "no probe data", while the script exited 0.
+        A silent no-op on the study's only independent cross-check is worse
+        than a crash.
+    These tests EXEC the embedded python blocks against synthetic inputs, so
+    they fail if the guards are reverted -- a source-regex check would not.
+    """
+
+    HARNESS = os.path.join(REPO, "saqef_harness.py")
+    LOCK = os.path.join(REPO, "tools", "run_lock_session.sh")
+    TIER1 = os.path.join(REPO, "tools", "run_tier1_conc.sh")
+
+    def _blocks(self, path):
+        text = open(path).read()
+        return re.findall(r"<<'PY'\n(.*?)\nPY", text, re.S)
+
+    def _block(self, path, needle):
+        for b in self._blocks(path):
+            if needle in b:
+                return b
+        self.fail("no embedded python block containing %r in %s" % (needle, path))
+
+    def _base_summary(self):
+        return {
+            "platform": "openwhisk", "wall_s": 412.3, "requests": 3000,
+            "total_requested": 3000, "host_plausible": True,
+            "delta_check_map": {"openwhisk": "ok"}, "rapl_wrap": "none",
+            "cp_dynamic_share_pct": 81.0, "host_saturation_pct": 40.0,
+            "throughput_rps": 7.3, "latency_ms": {"p50": 60.0, "p99": 90.0},
+            "cpu_sec": {"control_plane": 300.0, "function": 60.0},
+            "ambient": {"load_pct": 6.0, "threshold_pct": 15},
+            "env": {"loadgen": "hey", "loadgen_requested": "hey",
+                    "loadgen_fallback": False},
+        }
+
+    def _run(self, code, *args):
+        import subprocess
+        p = subprocess.run([sys.executable, "-c", code] + list(args),
+                           capture_output=True, text=True)
+        return p.returncode, p.stdout + p.stderr
+
+    # ---- the harness contract -------------------------------------------
+    def test_harness_writes_runs_json_on_the_single_run_path(self):
+        src = open(self.HARNESS).read()
+        # Anchor on the repeat dispatch, then take the `else:` that follows it.
+        # A bare r"\n    else:\n" search is WRONG: saqef_harness.py has three
+        # top-level `else:` blocks, so the lazy match runs from an unrelated one
+        # all the way to `if __name__`, swallows the repeat>1 branch, and passes
+        # even with the fix reverted (verified by mutation 2026-10-01).
+        disp = re.search(r"if args\.repeat > 1:", src)
+        self.assertIsNotNone(disp, "could not locate the repeat dispatch")
+        tail = src[disp.start():]
+        els = re.search(r"\n    else:\n", tail)
+        self.assertIsNotNone(els, "the repeat dispatch has no single-run else branch")
+        branch = re.split(r"\nif __name__", tail[els.end():])[0]
+        # Strip comments before asserting: the fix carries an explanatory comment
+        # that NAMES runs.json, so a naive substring check passes even with the
+        # write deleted (found by mutation 2026-10-01, same class of false
+        # negative as the over-branching regex above).
+        code = "\n".join(ln for ln in branch.splitlines()
+                         if not ln.lstrip().startswith("#"))
+        self.assertIn("write_run", code,
+                      "captured the wrong region -- this is not the "
+                      "single-run branch")
+        self.assertIn("runs.json", code,
+                      "the single-run branch must write runs.json; without it "
+                      "every repeat==1 consumer (pilot gate, idle-probe reader) "
+                      "either crashes or silently no-ops")
+        self.assertIn("repetitions", code,
+                      "single-run summaries should record repetitions=1 so "
+                      "consumers can tell the shape they are reading")
+
+    # ---- the pilot gate must degrade, not crash -------------------------
+    def test_lock_gate_reports_missing_runs_json_as_a_gate_failure(self):
+        block = self._block(self.LOCK, "lock summary written")
+        with tempfile.TemporaryDirectory() as td:
+            out = os.path.join(td, "results", "openwhisk_cpubound_lock_X_quick")
+            os.makedirs(out)
+            os.makedirs(os.path.join(td, "results", "lock_session_X"))
+            # deliberately NO runs.json -- the pre-fix single-run shape
+            with open(os.path.join(out, "summary.json"), "w") as f:
+                json.dump(self._base_summary(), f)
+            rc, txt = self._run(block, td, "X", "ow", "1",
+                                "4.235", "4.249", "5.739", "4.882")
+            self.assertNotIn("Traceback", txt,
+                             "a missing runs.json must be a reported gate "
+                             "problem, never an unhandled traceback")
+            self.assertIn("FAIL", txt)
+            self.assertNotEqual(rc, 0,
+                                "a leg whose runs.json cannot be read must not "
+                                "pass the gate")
+
+    def test_lock_gate_accepts_the_fixed_single_run_shape(self):
+        block = self._block(self.LOCK, "lock summary written")
+        with tempfile.TemporaryDirectory() as td:
+            out = os.path.join(td, "results", "openwhisk_cpubound_lock_X_quick")
+            os.makedirs(out)
+            os.makedirs(os.path.join(td, "results", "lock_session_X"))
+            s = self._base_summary()
+            with open(os.path.join(out, "summary.json"), "w") as f:
+                json.dump(s, f)
+            with open(os.path.join(out, "runs.json"), "w") as f:   # new shape
+                json.dump([s], f)
+            rc, txt = self._run(block, td, "X", "ow", "1",
+                                "4.235", "4.249", "5.739", "4.882")
+            self.assertEqual(rc, 0, "the fixed shape must pass: %s" % txt)
+            self.assertIn("OK", txt)
+
+    # ---- the pilot validator -------------------------------------------
+    def _pilot_rc(self, **over):
+        block = self._block(self.TIER1, "PILOT REJECTED")
+        s = self._base_summary()
+        s.update(over)
+        with tempfile.TemporaryDirectory() as td:
+            p = os.path.join(td, "summary.json")
+            with open(p, "w") as f:
+                json.dump(s, f)
+            rc, txt = self._run(block, p, "420", "3000")
+            return rc, txt
+
+    def test_pilot_accepts_a_clean_run(self):
+        rc, txt = self._pilot_rc()
+        self.assertEqual(rc, 0, "a complete, hey-driven pilot must pass: %s" % txt)
+
+    def test_pilot_rejects_a_run_killed_by_the_duration_cap(self):
+        rc, txt = self._pilot_rc(wall_s=455.0)
+        self.assertNotEqual(rc, 0, "wall_s past the cap means hey was killed")
+        self.assertIn("PILOT REJECTED", txt)
+
+    def test_pilot_rejects_a_short_count(self):
+        # the lock2 OpenWhisk incident: 1993/10000 with the gate still printing OK
+        rc, txt = self._pilot_rc(requests=1993, total_requested=3000)
+        self.assertNotEqual(rc, 0, "an incomplete pilot must not authorise the leg")
+        self.assertIn("INCOMPLETE", txt)
+
+    def test_pilot_rejects_a_loadgen_fallback(self):
+        rc, txt = self._pilot_rc(
+            env={"loadgen": "py", "loadgen_requested": "hey", "loadgen_fallback": True})
+        self.assertNotEqual(rc, 0, "a python-loadgen fallback pilot is worthless")
+        self.assertIn("LOADGEN FALLBACK", txt)
+
+    def test_pilot_flags_a_marginal_fit_rather_than_reassuring(self):
+        # a pilot at 98% of the cap passes but must warn: the n=5 leg runs the
+        # same TOTAL and any per-run variance tips it into the fallback this
+        # pilot exists to prevent.
+        rc, txt = self._pilot_rc(wall_s=412.0)
+        self.assertEqual(rc, 0)
+        self.assertIn("MARGINAL", txt)
+
+
+class TestTier1AggregatorHygiene(unittest.TestCase):
+    """Two aggregator bugs from the same expert review: the OpenWhisk function
+    container count matched the invoker's warmup pool, and an incomplete run was
+    warned about and then still fed the regression."""
+
+    TIER1 = os.path.join(REPO, "tools", "run_tier1_conc.sh")
+
+    def test_openwhisk_fn_count_excludes_prewarm_containers(self):
+        src = open(self.TIER1).read()
+        fn = re.search(r"def fn_container_count.*?\n(?=\S)", src, re.S)
+        self.assertIsNotNone(fn, "fn_container_count not found")
+        body = fn.group(0)
+        ow = re.search(r'plat == "openwhisk":(.*?)\n\s{4}if plat', body, re.S)
+        self.assertIsNotNone(ow, "no openwhisk branch in fn_container_count")
+        self.assertIn("_guest_", ow.group(1),
+                      "OW action containers are the *_guest_hello pair; a bare "
+                      "'wsk0_' prefix also matches wsk0_1/2_prewarm_nodejs20 "
+                      "and returned 4 instead of 2 on every OW leg")
+        self.assertNotRegex(ow.group(1), r'startswith\("wsk0_"\)')
+
+    def test_incomplete_runs_are_excluded_from_the_fit(self):
+        src = open(self.TIER1).read()
+        m = re.search(r"for runnr, r in enumerate\(runs, 1\):(.*?)\n\s+cp_s =", src, re.S)
+        self.assertIsNotNone(m, "per-run loop not found")
+        body = m.group(1)
+        self.assertIn("continue", body,
+                      "an incomplete run must `continue` -- warning about it and "
+                      "then appending it anyway silently feeds a truncated run "
+                      "into the background fit and Table 1")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

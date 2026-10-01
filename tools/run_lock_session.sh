@@ -472,13 +472,24 @@ for plat in [p for p in ("openfaas", "fn", "knative", "openwhisk") if short[p] i
             r = json.load(open(os.path.join(p, "summary.json")))
         except Exception:
             problems.append("%s unreadable" % os.path.basename(p)); continue
+        nm = os.path.basename(p)
         if r.get("host_plausible") is not True:
-            problems.append("%s host_plausible" % os.path.basename(p))
+            problems.append("%s host_plausible" % nm)
         dm = r.get("delta_check_map") or {}
         if dm and any(v != "ok" for v in dm.values()):
-            problems.append("%s delta_check" % os.path.basename(p))
+            problems.append("%s delta_check" % nm)
         if r.get("rapl_wrap") not in (None, "none"):
-            problems.append("%s rapl_wrap=%s" % (os.path.basename(p), r.get("rapl_wrap")))
+            problems.append("%s rapl_wrap=%s" % (nm, r.get("rapl_wrap")))
+        # runbook #6/#12: a run cut short by the loadgen kill-switch completes
+        # fewer requests than asked for and/or silently falls back to the python
+        # loadgen. Both used to print OK (nothing checked either) -- see the
+        # lock2 OpenWhisk 1993/10000 incident.
+        req, want = r.get("requests"), r.get("total_requested")
+        if req is not None and want is not None and req != want:
+            problems.append("%s INCOMPLETE %s/%s" % (nm, req, want))
+        env = r.get("env") or {}
+        if env.get("loadgen_fallback"):
+            problems.append("%s LOADGEN FALLBACK (%s!=%s)" % (nm, env.get("loadgen"), env.get("loadgen_requested")))
     # ambient/quiet-gate is measured once per leg, before the whole --repeat
     # batch starts (saqef_harness.py main(), not run_once()), so it only ever
     # lands on the leg-level merged summary.json -- never on run_N/summary.json.
@@ -487,7 +498,17 @@ for plat in [p for p in ("openfaas", "fn", "knative", "openwhisk") if short[p] i
         problems.append("leg ambient %.1f%%" % amb["load_pct"])
     elif not amb:
         problems.append("NO ambient field on leg summary.json (quiet gate not in measurement path)")
-    shares = [r["cp_dynamic_share_pct"] for r in json.load(open(os.path.join(out, "runs.json")))]
+    # FIXED 2026-10-01 (expert review): this read was unguarded, so a --repeat 1
+    # invocation (the tier-1 OpenWhisk duration pilot) had no runs.json at all and
+    # raised FileNotFoundError here -- outside any try -- killing the whole
+    # session ~2h in with "OW c=1 pilot failed". A missing/short runs.json is a
+    # GATE PROBLEM to report, never a traceback.
+    try:
+        shares = [r["cp_dynamic_share_pct"]
+                  for r in json.load(open(os.path.join(out, "runs.json")))]
+    except Exception as e:
+        shares = []
+        problems.append("no readable runs.json (%s)" % type(e).__name__)
     cv = (statistics.pstdev(shares) / statistics.mean(shares) * 100.0) if shares else float("nan")
     sat = s.get("host_saturation_pct")
     qos = s.get("latency_ms") or {}
