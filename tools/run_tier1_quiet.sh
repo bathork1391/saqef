@@ -221,12 +221,41 @@ info "log kept at: $LOG"
 # unnoticed contaminated leg is a real threat to the headline.
 say "Post-run audit -- was the box actually quiet?"
 python3 - "$REPO" <<'PY'
-import glob, json, os, sys
+import glob, json, os, re, sys
 repo = sys.argv[1]
-SUSPECT = ("opencode", "claude", "cursor", "code ", "pycharm", "intellij",
-           "nvim", "vim", "emacs", "firefox", "chrome", "chromium",
-           "ptyxis", "gnome-shell", "libreoffice", "gimp", "slack", "zoom",
-           "teams", "obs", "ffmpeg", "tor")
+# Matching is on the EXECUTABLE, not on the whole ps line. The previous version
+# substring-matched the raw line and so matched its own harness:
+#   "tor"          -> "--working-directory" in ptyxis's cmdline
+#   "gnome-shell"  -> the desktop compositor, resident in every run by design
+#   "ptyxis"       -> the terminal that is running THIS driver
+# All three are present identically in the contamination A/B baseline, so every
+# leg was flagged CONTAMINATED unconditionally and the audit could never
+# discriminate a real agent session from a clean one. Desktop/compositor jitter
+# is what the per-leg 15% load ceiling is for; process-name bans are for
+# software that can actually be quit.
+#
+# Two tiers, because agents do not always exec under their own name: a node
+# wrapper is basename "node", so high-signal names are matched anywhere in the
+# command line, while short/ambiguous ones must match the executable itself.
+# Word-boundary anchored: without \b, "code " also fires inside "opencode".
+SUBSTR = (r"\bopencode\b", r"\bclaude\b", r"\bcode\b", r"\bpycharm\b",
+          r"\bintellij\b", r"\blibreoffice\b", r"\bchromium\b",
+          r"\bfirefox\b", r"\bxdg-open\b")
+EXE = {"code", "code-insiders", "codium", "cursor", "nvim", "vim", "vi",
+       "emacs", "nano", "gimp", "inkscape", "slack", "zoom", "teams", "obs",
+       "tor", "ffmpeg", "chrome", "google-chrome", "brave"}
+
+
+def suspects(line):
+    """Return the suspect tokens this ps line trips, else []."""
+    f = line.split(None, 10)
+    cmd = f[10].lower() if len(f) > 10 else line.lower()
+    exe = cmd.split()[0] if cmd.split() else ""
+    base = exe.rsplit("/", 1)[-1]
+    hits = [s.strip("\\b") for s in SUBSTR if re.search(s, cmd)]
+    if base in EXE and base not in hits:
+        hits.append(base)
+    return hits
 dirs = sorted(glob.glob(os.path.join(repo, "results", "*tier1*")))
 summ = [d for d in dirs if os.path.isfile(os.path.join(d, "summary.json"))]
 if not summ:
@@ -242,9 +271,13 @@ for d in summ:
         flagged += 1
         continue
     lp = a.get("load_pct")
-    hits = [l for l in (a.get("top_cpu") or []) if any(s in l.lower() for s in SUSPECT)]
+    hits = []
+    for l in (a.get("top_cpu") or []):
+        for tok in suspects(l):
+            if tok not in hits:
+                hits.append(tok)
     if hits:
-        verdict = "CONTAMINATED: " + hits[0].split()[-1][:28]
+        verdict = "CONTAMINATED: " + ",".join(hits[:4])
         flagged += 1
     elif lp is not None and lp > (a.get("threshold_pct") or 15.0):
         verdict = "OVER threshold"

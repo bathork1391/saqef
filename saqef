@@ -154,8 +154,24 @@ def gates_for(out):
         # figure for Fn/OpenFaaS being 4.2-8.2%, from a DIFFERENT, older session.
         # Flag loud instead of letting a fresh session silently inherit a stale
         # citability claim from an unrelated run.
-        raplflag = ("  <-- RAPL FIT DEGRADED (>15%): recalibrate --idle-w for "
-                   "THIS box-state before citing energy/carbon from this run"
+        #
+        # CORRECTED 2026-10-01 (Tier-1 Experiment B, 70 runs): the advice below was
+        # WRONG for the failure mode actually observed, and following it would waste a
+        # calibration cycle. Re-deriving the implied per-core power over the whole
+        # Tier-1 sweep gives (RAPL - idle_w*wall)/cpu_s = 0.35-3.27 W/core against the
+        # harness's flat P_BUSY_CORE_W=3.5, and the value is strongly load-dependent
+        # (median 0.82 W/core below 1.5 busy cores vs 2.27 above). A stale idle_w
+        # would show up as a CONSTANT offset; a load-correlated factor-of-4 spread
+        # cannot be fixed by any idle_w. Cause is that the model is linear in cpu_s
+        # while real package power is superlinear in active cores under DVFS (the
+        # governor here is `powersave` and per-leg frequency swings 517-3800 MHz).
+        # idle_w only supplies 4.2-5.7 W of a 3.1-101 s window, so it cannot account
+        # for a 25-60% gap. So: still flag loud, but point at busy_core_w's linearity
+        # and say explicitly that recalibrating idle_w is NOT the remedy.
+        raplflag = ("  <-- RAPL FIT DEGRADED (>15%): energy/carbon from this run "
+                   "are NOT citable. Do NOT just recalibrate --idle-w: check whether "
+                   "the error tracks load (superlinear power vs the linear "
+                   "busy_core_w model) before spending a calibration cycle"
                    ) if rapl_err is not None and rapl_err > 15.0 else ""
         # Neither of the next two existed before the 2026-08-13 OpenWhisk
         # --duration regression (TROUBLESHOOTING_RUNBOOK.md #11): a run whose

@@ -111,6 +111,12 @@ class OpenWhiskAdapter(Adapter):
         """Download the static docker CLI into vendor/ (shadow-mount for the
         standalone's obsolete embedded client). Returns the binary path."""
         if os.path.isfile(VENDOR_DOCKER):
+            # An interrupted/older download can leave the binary non-executable
+            # (mode 0644). docker run -v onto /usr/bin/docker then gives the JVM
+            # an unusable client and the standalone dies at pre-flight with
+            # "Couldn't locate docker binary" -> API never serves /ping.
+            if not os.access(VENDOR_DOCKER, os.X_OK):
+                os.chmod(VENDOR_DOCKER, 0o755)
             return VENDOR_DOCKER
         # A stale *directory* from a pre-fix extraction must not satisfy the check
         # (it would be mounted as a dir onto /usr/bin/docker and docker run fails).
