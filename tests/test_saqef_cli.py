@@ -1017,6 +1017,110 @@ class TestTier1AggregatorHygiene(unittest.TestCase):
                       "then appending it anyway silently feeds a truncated run "
                       "into the background fit and Table 1")
 
+    def _probe_fn(self):
+        import re
+        src = open(self.TIER1).read()
+        m = re.search(r"def probe_rate.*?\n(?=\S)", src, re.S)
+        self.assertIsNotNone(m, "probe_rate not found")
+        return m.group(0)
+
+    def test_probe_rate_is_fail_closed_not_a_silent_none(self):
+        """Every leg in this protocol is invoked with --cpu-probe 60, so a leg
+        that RAN but whose probe is missing/unreadable is a protocol violation.
+        It used to return None quietly: the corrected columns printed '--', the
+        flatness check said 'no probe data', and the script still exited 0 --
+        silently dropping the one independent check this experiment exists for."""
+        import re
+        body = self._probe_fn()
+        self.assertRegex(body, r"errors\.append",
+                         "probe_rate must record a missing/unreadable probe in "
+                         "`errors`; returning None quietly is the bug being fixed")
+        sig = re.search(r"def probe_rate\(([^)]*)\)", body).group(1)
+        self.assertIn("errors", sig,
+                      "probe_rate needs the errors sink as a parameter so the "
+                      "caller can make a protocol violation exit non-zero")
+        # every early-return None must be a *recorded* failure, not a silent
+        # skip. Strip the docstring first: it quotes the OLD bug ("this used to
+        # return None"), which is prose about the defect, not a live code path.
+        code_only = re.sub(r'"""..*?"""', "", body, flags=re.S)
+        for seg in re.split(r"\breturn None\b", code_only)[:-1]:
+            self.assertIn("errors.append", seg,
+                          "an early `return None` reached without recording an error "
+                          "is a silent degradation path")
+
+    def test_probe_rate_prefers_runs_json_and_falls_back_to_summary(self):
+        """Behavioral: single-run probe artifacts (summary.json only, the shape
+        the --repeat 1 probe produced) must still yield a rate."""
+        import json, os, subprocess, sys, tempfile
+        code = ("import json,os,sys\n" + self._probe_fn() + """
+errs=[]
+repo=sys.argv[1]
+r=probe_rate(repo,'t1','fn',errs)
+print(json.dumps({'rate':r,'errs':errs}))
+""")
+        with tempfile.TemporaryDirectory() as td:
+            # summary.json only (the single-run shape)
+            d=os.path.join(td,'results','idle_probe_t1','fn'); os.makedirs(d)
+            json.dump({"wall_s":60.0,"cpu_sec":{"control_plane":3.0,"function":6.0}},
+                      open(os.path.join(d,'summary.json'),'w'))
+            p=subprocess.run([sys.executable,'-c',code,td],capture_output=True,text=True)
+            self.assertEqual(p.returncode,0,p.stdout+p.stderr)
+            got=json.loads(p.stdout.strip().splitlines()[-1])
+            self.assertEqual(got['errs'],[], "summary.json fallback must not error")
+            self.assertAlmostEqual(got['rate']['cp_per_s'],0.05,places=6)
+            self.assertAlmostEqual(got['rate']['fn_per_s'],0.10,places=6)
+            self.assertEqual(got['rate']['src'],'summary.json')
+
+            # runs.json now present -> it wins over the summary
+            json.dump([{"wall_s":60.0,"cpu_sec":{"control_plane":1.2,"function":2.4}}],
+                      open(os.path.join(d,'runs.json'),'w'))
+            p=subprocess.run([sys.executable,'-c',code,td],capture_output=True,text=True)
+            got=json.loads(p.stdout.strip().splitlines()[-1])
+            self.assertEqual(got['rate']['src'],'runs.json',
+                             "runs.json must take precedence when present")
+            self.assertAlmostEqual(got['rate']['cp_per_s'],0.02,places=6)
+
+            # no probe dir at all -> recorded as a protocol error, not a silent None
+            p=subprocess.run([sys.executable,'-c',code.replace(
+                "repo,'t1'","repo,'absent'"),td],
+                capture_output=True,text=True)
+            got=json.loads(p.stdout.strip().splitlines()[-1])
+            self.assertIsNone(got['rate'])
+            self.assertTrue(got['errs'],
+                            "a ran-but-unprobed leg must record an error")
+            self.assertIn("idle_probe", " ".join(got['errs']))
+
+    def test_flatness_verdict_uses_a_detection_limit_not_a_fixed_threshold(self):
+        """The script hardcoded `spread_c <= 2.0` -> '(flat)'. That is the same
+        error class as the paper's 'flat share' claim: a magic threshold instead
+        of the instrument's resolution. VERIFIED_RESULTS section 14 now reports
+        a worst-leg-CV, two-independent-means MDD, and distinguishes 'flat TO
+        RESOLUTION' from 'RESOLVABLE DRIFT'. On the committed quick-tier legs
+        2.0 pp would have called OpenFaaS's 1.00 pp corrected spread 'flat' when
+        its limit is 0.73 pp -- i.e. a resolvable drift mislabelled as flat."""
+        import re
+        src = open(self.TIER1).read()
+        tail = src.split("PY")[-1]
+        self.assertNotRegex(tail, r"<= *2\.0",
+                            "the fixed 2.0 pp flatness threshold must be gone")
+        self.assertIn("RESOLVABLE DRIFT", src)
+        self.assertIn("flat TO RESOLUTION", src)
+        self.assertIn("detect limit", src.lower())
+        self.assertIn("math.sqrt(2.0)", src, "MDD must use the section-14 formula")
+
+    def test_python_errors_reach_bash_through_a_file(self):
+        """The errors list lives in the embedded Python; ${#errors[@]} is a BASH
+        array and does not see it -- that mismatch would have read as zero
+        errors and exited 0, silently reintroducing the bug."""
+        import re
+        src = open(self.TIER1).read()
+        self.assertRegex(src, r"export SAQEF_TIER1_ERRS=",
+                         "the temp file carrying python errors to bash must be exported")
+        self.assertRegex(src, r"nerr=\$\(head -1 \"\$ERRS_FILE\"",
+                         "bash must read the error COUNT from the handoff file, not "
+                         "from a bash array that python never populates")
+        self.assertIn("exit 1", src.split("PROTOCOL ERRORS")[-1])
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -231,8 +231,9 @@ fi
 # Any post hoc paper number must be re-derived from here, not from this table.
 # ---------------------------------------------------------------------------
 banner "cross-stamp aggregation (from committed result files)"
+ERRS_FILE="$(mktemp)"; export SAQEF_TIER1_ERRS="$ERRS_FILE"
 python3 - "$REPO" <<'PY'
-import json, os, statistics, sys
+import json, math, os, statistics, sys
 repo = sys.argv[1]
 # stamp pattern per platform: openfaas_cpubound_lock_tier1cN (light) /
 # tier1owN (ow). All REPEAT=5, so no _quick suffix.
@@ -246,20 +247,34 @@ def find_run_dir(plat, stamp):
         return d
     return d + "_quick" if os.path.isdir(d + "_quick") else None
 
-def probe_rate(repo, stamp, plat):
-    """per-second background CPU rate from the per-leg --idle-probe (if present)."""
+def probe_rate(repo, stamp, plat, errors):
+    """per-second background CPU rate from the per-leg --idle-probe.
+
+    FIXED 2026-10-01 (expert review + self-audit): this used to return None
+    whenever runs.json was absent -- which is exactly what a --repeat 1 probe
+    produced before the harness was fixed. That made the whole independent
+    cross-check a SILENT no-op: every corrected column printed "--" and the
+    flatness check said "no probe data" while the script still exited 0.
+    Prefer runs.json, fall back to the single-run summary.json.
+
+    Second, harder fix in the same pass: a leg that RAN but whose probe is
+    missing/unreadable is a PROTOCOL VIOLATION, not a leg without a probe --
+    every leg in this script is invoked with --cpu-probe 60, so a missing
+    probe can only mean the probe failed. That is now recorded in `errors`
+    and exits non-zero below, instead of silently degrading the one check
+    this experiment exists to perform. (A leg that was never run at all is
+    still handled earlier, as "(missing ... -> skipped)".)
+    """
     d = os.path.join(repo, "results", "idle_probe_%s" % stamp, plat)
     if not os.path.isdir(d) and os.path.isdir(d + "_quick"):
         d = d + "_quick"
     if not os.path.isdir(d):
-        return None                      # leg genuinely ran without --cpu-probe
-    # FIXED 2026-10-01 (expert review): this used to return None whenever
-    # runs.json was absent -- which is exactly what a --repeat 1 probe produced
-    # before the harness was fixed. That made the whole independent cross-check a
-    # SILENT no-op: every corrected column printed "--" and the flatness check
-    # said "no probe data" while the script still exited 0. Prefer runs.json,
-    # fall back to the single-run summary.json, and if neither is readable, SAY
-    # SO loudly instead of degrading quietly.
+        errors.append("%s c=%s: ran but NO idle_probe dir at %s -- every leg "
+                      "must be probed (--cpu-probe 60); the independent "
+                      "background measurement is missing"
+                      % (plat, stamp.replace("tier1c", "").replace("tier1ow", "ow="),
+                         os.path.join("results", "idle_probe_%s" % stamp, plat)))
+        return None
     src = None
     for name, wrap in (("runs.json", list), ("summary.json", lambda v: [v])):
         f = os.path.join(d, name)
@@ -271,13 +286,18 @@ def probe_rate(repo, stamp, plat):
                 print("  !! %s c-probe: %s present but unreadable (%s)"
                       % (plat, name, type(e).__name__))
     if src is None:
-        print("  !! %s: probe dir %s has NO readable runs.json/summary.json --"
-              " background correction IMPOSSIBLE for this leg" % (plat, os.path.basename(d)))
+        errors.append("%s c=%s: probe dir %s has NO readable runs.json/summary.json "
+                      "-- background correction IMPOSSIBLE for this leg"
+                      % (plat, stamp, os.path.basename(d)))
         return None
     r = src[0][0]
     wall = r.get("wall_s") or 1.0
     cp = r.get("cpu_sec", {}).get("control_plane", 0.0)
     fn = r.get("cpu_sec", {}).get("function", 0.0)
+    if not wall or wall <= 0:
+        errors.append("%s c=%s: probe has no usable wall_s -- cannot derive a rate"
+                      % (plat, stamp))
+        return None
     return {"cp_per_s": cp / wall, "fn_per_s": fn / wall, "wall": wall,
             "src": src[1], "cp_cpu_s": cp, "fn_cpu_s": fn}
 
@@ -305,13 +325,14 @@ def fn_container_count(s):
 
 raw = {}   # plat -> list of (c, req, wall_s, cp_s, fn_s, share)  [RAW, NO correction]
 legs = {}  # (plat, c) -> {"bg": probe_rate or None, "d": outdir}
+errors = []  # protocol violations that MUST make this script exit non-zero
 for plat, (label, cs) in short2plat.items():
     for c in cs:
         stamp = ("tier1ow%d" if plat == "openwhisk" else "tier1c%d") % c
         d = find_run_dir(plat, stamp)
         if not d:
             print("  (missing %s c=%d -> skipped)" % (label, c)); continue
-        legs[(plat, c)] = {"bg": probe_rate(repo, stamp, plat), "d": d}
+        legs[(plat, c)] = {"bg": probe_rate(repo, stamp, plat, errors), "d": d}
         runs = json.load(open(os.path.join(d, "runs.json")))
         ndrop = 0
         for runnr, r in enumerate(runs, 1):
@@ -395,37 +416,85 @@ for plat, (label, cs) in short2plat.items():
               % (label, which, a, b, b * 100, r2, n))
 
 print()
-print("Share flatness check on RAW and probe-CORRECTED share (paper: share flat):")
+print("Share flatness check, judged against a DATA-DERIVED detection limit")
+print("(paper: share flat). NOT a hardcoded pp threshold: VERIFIED_RESULTS.md")
+print("section 14 established that 'flat' must mean 'below what this")
+print("instrument can resolve'. Detection limit = worst-leg share CV, two-")
+print("independent-means MDD (two-sided 5%, 80% power) at this leg's n. A")
+print("spread under the limit is flat TO RESOLUTION, which is a weaker claim")
+print("than flat to a quoted precision -- the distinction the 2026-08-15")
+print("quick sweep got wrong when its 1.18-2.74 pp raw spreads were called")
+print("flat with no limit computed.")
 for plat, (label, cs) in short2plat.items():
-    shares_raw, shares_corr = {}, {}
+    per_leg_raw, per_leg_corr = {}, {}
     for c in cs:
         recs = [r for r in raw.get(plat, []) if r[0] == c]
         if not recs: continue
-        shares_raw[c] = med([r[5] for r in recs])
+        sh = [r[5] for r in recs]
+        per_leg_raw[c] = med(sh)
         bg = legs.get((plat, c), {}).get("bg")
         if bg:
             vals = [100.0 * (r[3] - bg["cp_per_s"] * r[2]) /
                     (r[3] - bg["cp_per_s"] * r[2] + r[4] - bg["fn_per_s"] * r[2])
                     for r in recs]
-            shares_corr[c] = med([v for v in vals if v == v])
-        else:
-            shares_corr[c] = float("nan")
-    if len(shares_raw) >= 2:
-        sr = {k: round(v, 2) for k, v in shares_raw.items()}
-        sc = {k: (round(v, 2) if v == v else "--") for k, v in shares_corr.items()}
-        spread = max(shares_raw.values()) - min(shares_raw.values())
-        scvals = [v for v in shares_corr.values() if v == v]
-        if len(scvals) >= 2:
-            spread_c = max(scvals) - min(scvals)
-            verdict = "(flat)" if spread_c <= 2.0 else "(NOT flat -- investigate)"
-            tail = "  corrected spread %.2f pp %s" % (spread_c, verdict)
-        else:
-            tail = "  (no probe data for corrected share)"
-        print("  %-9s raw shares %s  corr shares %s  raw spread %.2f pp%s"
-              % (label, sr, sc, spread, tail))
+            per_leg_corr[c] = med([v for v in vals if v == v])
+    if len(per_leg_raw) < 2: continue
+
+    # detection limit from the RAW per-run spreads of the worst leg
+    cvs = []
+    for c in cs:
+        recs = [r for r in raw.get(plat, []) if r[0] == c]
+        if len(recs) > 1 and statistics.mean([r[5] for r in recs]):
+            cvs.append(statistics.pstdev([r[5] for r in recs]) /
+                       statistics.mean([r[5] for r in recs]) * 100.0)
+    nleg = min(len([r for r in raw.get(plat, []) if r[0] == c]) for c in per_leg_raw)
+    mdd = float("nan")
+    if cvs and nleg >= 2:
+        s = max(cvs) / 100.0 * statistics.mean(list(per_leg_raw.values()))
+        df = 2 * nleg - 2
+        tcrit = 2.306 if df >= 7 else (2.365 if df >= 4 else 3.182)
+        tpow = 0.889 if df >= 7 else (0.941 if df >= 4 else 1.060)
+        mdd = (tcrit + tpow) * math.sqrt(2.0) * s / math.sqrt(nleg)
+
+    def verdict(spread):
+        if spread != spread or mdd != mdd: return "n/a"
+        return ("flat TO RESOLUTION (%.2f < %.2f pp)" % (spread, mdd)
+                if spread <= mdd else
+                "RESOLVABLE DRIFT (%.2f > %.2f pp)" % (spread, mdd))
+
+    sr = {k: round(v, 2) for k, v in per_leg_raw.items()}
+    sc = {k: (round(v, 2) if v == v else "--") for k, v in per_leg_corr.items()}
+    spread = max(per_leg_raw.values()) - min(per_leg_raw.values())
+    scvals = [v for v in per_leg_corr.values() if v == v]
+    print("  %-9s n=%d  detect limit %.2f pp (worst-leg CV %.2f%%)" % (
+        label, nleg, mdd, max(cvs) if cvs else float("nan")))
+    print("             raw     %s  spread %.2f pp -> %s" % (sr, spread, verdict(spread)))
+    if len(scvals) >= 2:
+        spread_c = max(scvals) - min(scvals)
+        print("             corr*   %s  spread %.2f pp -> %s" % (sc, spread_c, verdict(spread_c)))
+    else:
+        print("             corr*   %s  (no probe data for corrected share)" % sc)
+with open(os.environ["SAQEF_TIER1_ERRS"], "w") as _fh:
+    _fh.write("%d\n" % len(errors))
+    for _e in errors:
+        _fh.write("%s\n" % _e)
 PY
 
 echo
+nerr=$(head -1 "$ERRS_FILE" 2>/dev/null | tr -cd '0-9'); nerr=${nerr:-0}
+if [ "$nerr" -gt 0 ]; then
+  echo "PROTOCOL ERRORS ($nerr) -- the results above are INCOMPLETE:"
+  tail -n +2 "$ERRS_FILE" | sed 's/^/  * /'
+  echo
+  rm -f "$ERRS_FILE"
+  echo "FAIL. This experiment's entire point is the independent background"
+  echo "measurement; a leg without a usable probe is a protocol violation, not"
+  echo "a result. Re-run the affected leg(s) with --cpu-probe 60."
+  exit 1
+fi
+rm -f "$ERRS_FILE"
 echo "DONE. Agent-safe next steps: re-run this aggregation, update 10-day-plan.md"
-echo "TIER 0.2 (background-CPU model confirmed), then decide Experiment C (spin magnitude)."
-echo "Do NOT alter paper text yet."
+echo "and VERIFIED_RESULTS.md, then decide Experiment C (spin magnitude)."
+echo "Do NOT alter paper text yet -- and do NOT pre-judge the outcome: the"
+echo "flatness line above is a verdict AGAINST the detection limit, so"
+echo "'flat to resolution' and 'resolvable drift' are both legitimate results."
