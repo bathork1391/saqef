@@ -1265,14 +1265,33 @@ class TestTier1StatsHygiene(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        src = open(cls.TIER1).read()
+        with open(cls.TIER1) as f:
+            src = f.read()
         cls.agg = "\n".join(re.findall(r"python3 - \"\$REPO\" <<'PY'\n(.*?)\nPY",
                                        src, re.S))
         # Only the table + lookup are pure; executing the whole block would run
         # the aggregation against the results tree.
         head = cls.agg.split("def find_run_dir")[0]
+        # FIXED (1a audit): the heredoc's second line is `repo = sys.argv[1]`,
+        # and this exec runs with unittest's argv (no REPO argument), so
+        # setUpClass raised IndexError. unittest reported ONE setUpClass error
+        # and skipped all 21 tests in this class -- silently, because the class
+        # had no other failures to draw attention to it. The guards below (Tukey
+        # df k(n-1), stdev-not-pstdev, the wall_s fallback, the flatness
+        # threshold) were therefore not running at all, despite being cited as
+        # proof those defects were fixed. sys is stubbed with an argv the
+        # heredoc accepts; REPO is never touched below def find_run_dir.
+        # NOTE: the heredoc re-imports sys on its own line 1, so injecting a
+        # stub module into `ns` does NOT work -- `import sys` rebinds the name
+        # to the real module and line 2 reads the real (empty) argv. sys.argv
+        # itself must be swapped, then restored.
+        saved_argv = sys.argv
+        sys.argv = ["run_tier1_conc.sh", REPO]
         ns = {"math": math, "statistics": statistics, "os": os}
-        exec(compile(head, "agg-head", "exec"), ns)
+        try:
+            exec(compile(head, "agg-head", "exec"), ns)
+        finally:
+            sys.argv = saved_argv
         cls.ns = ns
 
     def test_missing_wall_s_is_not_replaced_with_one(self):
@@ -2674,6 +2693,386 @@ class TestLegacyReattribution(unittest.TestCase):
             self._write_leg(os.path.join(ds, "run_1"), samples, summary)
             rc = self.lr.main([ds, "--verify", "--tol", "0.01"])
             self.assertNotEqual(rc, 0, "--verify must fail on a bad reconstruction")
+
+
+class TestNoSilentlySkippedTestClasses(unittest.TestCase):
+    """A setUpClass that raises hides its whole class from the suite.
+
+    TestTier1StatsHygiene sat in this state for its entire life. unittest
+    reports a setUpClass failure as ONE error and skips every test in the class
+    -- 21 of them, including the guards for the Tukey df, the pstdev/sd
+    confusion, the fabricated wall_s fallback, and the flatness threshold. Those
+    defects were cited as "test-locked" in the runbook and in review replies
+    while not one of those tests had ever executed. The suite reported
+    "FAILED (errors=1)" and that single line was easy to skim past, especially
+    next to a large count of passing tests.
+
+    This is the same bug class as a gate that cannot fail (sampling_covered_s,
+    and the cp+fn sum-only verify gate). A test that cannot run is worse than no
+    test, because it is cited as evidence. So: every TestCase in the module must
+    have a setUpClass that executes cleanly, and every test method must be
+    discovered.
+    """
+
+    def test_every_test_class_setup_runs_cleanly(self):
+        loader = unittest.TestLoader()
+        suite = loader.loadTestsFromModule(sys.modules["__main__"])
+        # loadTestsFromModule instantiates each test, so the same class can be
+        # reached more than once via nested suites. setUpClass is what we are
+        # testing, so it must run once per class -- repeating it would report
+        # the same defect N times and mask nothing but noise.
+        seen, broken = set(), []
+        stack = list(suite)
+        while stack:
+            item = stack.pop()
+            if isinstance(item, unittest.TestSuite):
+                stack.extend(item)
+                continue
+            cls = type(item)
+            if cls in seen or getattr(cls, "__unittest_skip__", False):
+                continue
+            seen.add(cls)
+            # Only classes that DEFINE setUpClass can break; inherited ones are fine.
+            if "setUpClass" in cls.__dict__:
+                try:
+                    cls.setUpClass()
+                except Exception as exc:                       # noqa: BLE001
+                    broken.append("%s.setUpClass: %s: %s"
+                                  % (cls.__name__, type(exc).__name__, exc))
+        self.assertEqual(broken, [],
+                         "these classes' tests are silently skipped:\n  "
+                         + "\n  ".join(broken))
+
+    def test_no_test_class_is_empty(self):
+        """A class with no test_ methods contributes nothing but still reads as
+        coverage in a file of green lines."""
+        empty = []
+        for name, obj in vars(sys.modules["__main__"]).items():
+            if (isinstance(obj, type) and issubclass(obj, unittest.TestCase)
+                    and name.startswith("Test")
+                    and not any(k.startswith("test_") for k in vars(obj))):
+                empty.append(name)
+        self.assertEqual(empty, [], "test classes with no tests: %s" % empty)
+
+
+class TestRunIsReanalysable(unittest.TestCase):
+    """A new run must keep every input an offline re-attribution needs (1a).
+
+    The 2026-08-14/15 corpus could only be re-attributed at all because that
+    harness happened to write full-span, UNCLIPPED percent-rate rows: integrating
+    those back to the stored CPU-s totals reproduced them to 0.018%. That was
+    luck of history, not a design property, and the current harness breaks it:
+    samples.csv is written downstream of the window clip (sample_totals drops
+    out-of-window samples and scales partial intervals), and summary.json records
+    neither t0_epoch nor the window nor the git revision.
+
+    The failure mode is silent and expensive. A clipped run still passes every
+    gate and still looks citable; the information needed to re-derive it is
+    simply gone. If a window or attribution bug appears later, those runs are
+    unrecoverable exactly as the pre-2026-08-08 data was -- so new box time
+    would buy nothing re-analysable. These tests pin the two artifacts that
+    prevent it: samples_raw.csv (unclipped raw counters + birth times) and the
+    summary.json attribution block (window, allowlists, revision).
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        with open(os.path.join(REPO, "saqef_harness.py")) as f:
+            cls.src = f.read()
+        cls.loader = importlib.machinery.SourceFileLoader(
+            "saqef_harness", os.path.join(REPO, "saqef_harness.py"))
+        spec = importlib.util.spec_from_loader("saqef_harness", cls.loader)
+        cls.h = importlib.util.module_from_spec(spec)
+        cls.loader.exec_module(cls.h)
+
+    # -- the raw artifact ------------------------------------------------
+    @staticmethod
+    def _raw_samples():
+        """Sampler's true output: cumulative cpu.stat counters, 'cum' mode.
+
+        Three containers over 0..5 s. 'gateway' is cp, 'fn-a' is fn, and
+        'late-fn' is first seen at t=3.0 with birth at 2.5 -- so it carries a
+        birth-to-first-sample slice that only exists because born_epoch is
+        recorded. Overhang: samples exist before t0=2.0 and after t1=4.0.
+        """
+        out = []
+        t = 1000.0
+        cum = {"gateway": 10.0, "fn-a": 5.0, "late-fn": 0.0}
+        for i in range(6):
+            t = 1000.0 + i
+            snap = {}
+            for name in cum:
+                if name == "late-fn" and i < 3:
+                    continue
+                snap[name] = (cum[name], 64.0,
+                              1002.5 if name == "late-fn" else 999.0)
+            out.append((t, snap, "cum"))
+            cum["gateway"] += 1.0
+            cum["fn-a"] += 0.5
+            cum["late-fn"] += 0.5
+        return out
+
+    def test_samples_raw_written_unclipped_and_outside_the_window(self):
+        """samples_raw.csv must contain the pre-load and post-load CPU that
+        samples.csv discards. That overhang is precisely the quantity the
+        window correction is about; if it is not on disk the correction cannot
+        be re-derived, only re-asserted."""
+        raw = self._raw_samples()
+        with tempfile.TemporaryDirectory() as td:
+            path = os.path.join(td, "samples_raw.csv")
+            self.assertTrue(self.h.write_samples_raw(path, raw))
+            with open(path) as f:
+                rows = list(csv.DictReader(f))
+        self.assertEqual(list(rows[0].keys()), self.h.RAW_HDR)
+        # The overhang samples (t < 1002.0) must be present...
+        ts = [float(r["t"]) for r in rows]
+        self.assertLess(min(ts), 1002.0, "pre-window samples must survive")
+        self.assertGreater(max(ts), 1004.0, "post-window samples must survive")
+        # ...carrying their RAW cumulative counters, unclipped.
+        gw = [float(r["cpu_cum_s"]) for r in rows if r["container"] == "gateway"]
+        self.assertEqual(gw[0], 10.0)
+        self.assertAlmostEqual(gw[-1] - gw[0], 5.0, places=6,
+                               msg="raw file must hold undifferenced counters")
+
+    def test_samples_raw_keeps_birth_epoch(self):
+        """Birth-to-first-sample CPU is unrecoverable once the counter is
+        differenced away: at first sight the sampler sees a counter already
+        containing everything since creation. Knative creates fn containers
+        seconds into a run, so dropping born_epoch there silently undercounts
+        fn and biases the share upward. It must be on disk."""
+        with tempfile.TemporaryDirectory() as td:
+            path = os.path.join(td, "samples_raw.csv")
+            self.h.write_samples_raw(path, self._raw_samples())
+            with open(path) as f:
+                rows = list(csv.DictReader(f))
+        born = {r["born_epoch"] for r in rows if r["container"] == "late-fn"}
+        self.assertEqual(born, {"1002.5"})
+        self.assertTrue(all(r["cpu_cum_s"] for r in rows if r["container"] == "late-fn"))
+
+    def test_samples_raw_distinguishes_cum_from_pct_mode(self):
+        """The docker-stats fallback stores a RATE, not a counter; the cgroup
+        sampler stores a CUMULATIVE counter. Same column would be unreadable,
+        so mode is recorded and the unused value column stays empty."""
+        raw = [(1000.0, {"a": (12.5, 1.0)}, "cum"),
+               (1001.0, {"a": (30.0, 1.0)}, "pct")]
+        with tempfile.TemporaryDirectory() as td:
+            path = os.path.join(td, "samples_raw.csv")
+            self.h.write_samples_raw(path, raw)
+            with open(path) as f:
+                rows = list(csv.DictReader(f))
+        self.assertEqual(rows[0]["mode"], "cum")
+        self.assertEqual(rows[0]["cpu_cum_s"], "12.5")
+        self.assertEqual(rows[0]["cpu_pct"], "")
+        self.assertEqual(rows[1]["mode"], "pct")
+        self.assertEqual(rows[1]["cpu_pct"], "30.0")
+        self.assertEqual(rows[1]["cpu_cum_s"], "")
+
+    def test_write_run_emits_both_sample_files(self):
+        """Both files, always. samples.csv stays the citable read (figures and
+        the emitter consume it); samples_raw.csv is the forensic copy. Writing
+        raw only on some paths would make the artifact's presence a confound."""
+        raw = self._raw_samples()
+        st = self.h.sample_totals(raw, ("gateway",), "fn",
+                                  window=(1002.0, 1004.0))
+        snaps = []
+        for t, name, pct, mem in st.csv_rows:
+            if snaps and snaps[-1][0] == t:
+                snaps[-1][1][name] = (pct, mem)
+            else:
+                snaps.append((t, {name: (pct, mem)}))
+        with tempfile.TemporaryDirectory() as td:
+            self.h.write_run(td, {"platform": "fn"}, snaps, None, raw_samples=raw)
+            names = set(os.listdir(td))
+            self.assertIn("samples.csv", names)
+            self.assertIn("samples_raw.csv", names)
+            self.assertIn("summary.json", names)
+
+    # -- the round trip the reviewer asked for ----------------------------
+    def test_raw_file_feeds_sample_totals_and_reproduces_the_clipped_totals(self):
+        """THE test: re-read samples_raw.csv and re-run the attribution from it.
+
+        The reviewer asked for a test that feeds sample_totals() from real
+        run_once() output. This is that, without needing the box: the raw file is
+        the sampler's actual output, parsed back into the same structure
+        sample_totals() consumes, and the resulting cp/fn totals must match the
+        in-memory run exactly. If they do, then any future bug in the window,
+        birth, or classification logic can be corrected offline from committed
+        data -- which is the entire point of writing the file.
+        """
+        raw = self._raw_samples()
+        window = (1002.0, 1004.0)
+        # Take the selectors from an attribution block in the shape
+        # summary.json writes, rather than from literals here. A replay that
+        # has to know the CLI's classifier values to reproduce a run is not a
+        # replay -- the whole point is that summary.json carries them.
+        attr = {"cp_sub": ["gateway"], "cp_members": ["gateway"],
+                "fn_containers": ["fn"], "fn_members": ["fn-a"]}
+        direct = self.h.sample_totals(raw, tuple(attr["cp_sub"]),
+                                      attr["fn_containers"][0],
+                                      cp_members=set(attr["cp_members"]),
+                                      fn_members=set(attr["fn_members"]),
+                                      window=window)
+
+        with tempfile.TemporaryDirectory() as td:
+            path = os.path.join(td, "samples_raw.csv")
+            self.h.write_samples_raw(path, raw)
+            with open(path) as f:
+                rows = list(csv.DictReader(f))
+        replay, snap_at = [], {}
+        for r in rows:
+            t = float(r["t"])
+            snap_at.setdefault(t, {})[r["container"]] = (
+                float(r["cpu_cum_s"]) if r["cpu_cum_s"] else float(r["cpu_pct"]),
+                float(r["mem_mb"]) if r["mem_mb"] else 0.0,
+                float(r["born_epoch"]) if r["born_epoch"] else None)
+        for t in sorted(snap_at):
+            replay.append((t, snap_at[t], rows[0]["mode"]))
+
+        rt = self.h.sample_totals(replay, tuple(attr["cp_sub"]),
+                                  attr["fn_containers"][0],
+                                  cp_members=set(attr["cp_members"]),
+                                  fn_members=set(attr["fn_members"]),
+                                  window=window)
+        self.assertAlmostEqual(rt.cp_cpu_s, direct.cp_cpu_s, places=6)
+        self.assertAlmostEqual(rt.fn_cpu_s, direct.fn_cpu_s, places=6)
+        self.assertAlmostEqual(rt.n_samples, direct.n_samples, places=6)
+        # And the totals must be NON-trivial: a round trip that agrees because
+        # both sides are zero would prove nothing.
+        self.assertGreater(direct.cp_cpu_s, 0.0)
+        self.assertGreater(direct.fn_cpu_s, 0.0)
+        # The window must actually be doing something, i.e. the unclipped
+        # full-span totals must exceed the clipped ones -- otherwise this test
+        # would pass even if the clip were removed entirely.
+        unclipped = self.h.sample_totals(replay, tuple(attr["cp_sub"]),
+                                       attr["fn_containers"][0],
+                                       cp_members=set(attr["cp_members"]),
+                                       fn_members=set(attr["fn_members"]),
+                                       window=None)
+        self.assertGreater(unclipped.cp_cpu_s, direct.cp_cpu_s,
+                           "the window must exclude pre-window CPU")
+
+    def test_replay_classification_comes_from_the_attribution_block(self):
+        """Every key sample_totals() needs must exist in a summary.json
+        attribution block. Keyed on the call site rather than on a literal
+        list so that adding a parameter to sample_totals() without recording
+        it breaks this test."""
+        m = re.search(r"sample_totals\(\s*samples,\s*(\w+)\s*,\s*([^,]+),\s*"
+                      r"(cp_members),\s*(fn_members)", self.src)
+        self.assertIsNotNone(m, "run_once sample_totals call not found")
+        # args.fn_containers is recorded under the shorter key fn_containers.
+        keys = {"args.fn_containers": "fn_containers"}
+        for var in m.groups():
+            self.assertIn('"%s"' % keys.get(var, var), self.src,
+                          "attribution block must record %s" % var)
+
+    def test_raw_file_survives_the_clip_that_samples_csv_cannot(self):
+        """The concrete loss samples.csv suffers, pinned as a test.
+
+        At t=1001.0 the sampler observes a 'gateway' interval (1000->1001) that
+        lies entirely before the load window. The clip correctly contributes
+        nothing to the reported share, and sample_totals() drops the row. That
+        dropped row is the problem: it holds real burned CPU, and it is the
+        evidence for what the window excluded. samples_raw.csv keeps it. If
+        this ever inverts, new runs are strictly less re-analysable than the
+        2026-08 corpus, whose recoverability came precisely from writing the
+        unclipped full-span rows."""
+        raw = self._raw_samples()
+        st = self.h.sample_totals(raw, ("gateway",), "fn", window=(1002.0, 1004.0))
+        clipped_times = {t for t, _n, _p, _m in st.csv_rows}
+        with tempfile.TemporaryDirectory() as td:
+            path = os.path.join(td, "samples_raw.csv")
+            self.h.write_samples_raw(path, raw)
+            with open(path) as f:
+                raw_times = {float(r["t"]) for r in csv.DictReader(f)}
+        self.assertNotIn(1001.0, clipped_times,
+                         "precondition: the clip really does drop that row")
+        self.assertIn(1001.0, raw_times,
+                      "samples_raw.csv must keep the discarded overhang row")
+        # 1000.0 survives the clip only as a zero-delta baseline row, so it is
+        # in both; the meaningful check is that raw is a superset of clipped.
+        self.assertTrue(raw_times.issuperset(clipped_times))
+
+
+class TestSummaryRecordsAttributionInputs(unittest.TestCase):
+    """summary.json must carry what an offline re-attribution needs.
+
+    Without t0_epoch and the window, a run's attribution is an unfalsifiable
+    assertion: the stored share is right or wrong and nobody can tell which,
+    because the samples that would decide it are gone. That is exactly the
+    state the 2026-08-14/15 corpus was in, and it is why re-attribution there
+    had to INFER a window as (first_sample, first_sample + wall) rather than
+    read it. The inference turned out to be good enough (<=0.074 pp), but a
+    bound on an inferred quantity is not the same as the quantity.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        with open(os.path.join(REPO, "saqef_harness.py")) as f:
+            cls.src = f.read()
+        cls.loader = importlib.machinery.SourceFileLoader(
+            "saqef_harness", os.path.join(REPO, "saqef_harness.py"))
+        spec = importlib.util.spec_from_loader("saqef_harness", cls.loader)
+        cls.h = importlib.util.module_from_spec(spec)
+        cls.loader.exec_module(cls.h)
+
+    def test_summary_has_an_attribution_block(self):
+        self.assertIn('"attribution"', self.src)
+        for key in ("t0_epoch", "window_start_epoch", "window_end_epoch",
+                    "sampler", "sample_s", "rescan_s"):
+            self.assertIn(key, self.src, "attribution block must record %s" % key)
+
+    def test_attribution_block_carries_the_allowlists_actually_used(self):
+        """The classification inputs belong with the number, not in the
+        command line. CP_CONTAINER_HINTS had already drifted out of sync with
+        the adapters' own cp_containers (the same bug class as the OpenFaaS
+        'gateway' substring incident), so a hand-kept list is not trustworthy
+        on its own; recording the resolved members makes a run's attribution
+        auditable without re-running it."""
+        for key in ("cp_members", "fn_members", "fn_allow_configured",
+                    "fn_images", "fn_labels", "cp_images", "cp_labels",
+                    "cp_sub", "docker_inventory"):
+            self.assertIn(key, self.src, "attribution block must record %s" % key)
+
+    def test_attribution_records_cp_sub_not_just_resolved_members(self):
+        """cp_images/cp_labels are only consulted for containers present in
+        the inventory. sample_totals() falls back to matching name substrings
+        (cp_sub) for anything they missed, so recording the resolved member
+        lists alone can leave a replay unable to reproduce the CP side at all.
+        Assert both the key exists and that it is wired to the same value
+        sample_totals() is called with."""
+        self.assertIn('"cp_sub": list(cp_sub)', self.src,
+                      "attribution block must record the cp_sub actually applied")
+        m = re.search(r"sample_totals\(\s*samples,\s*(\w+)\s*,", self.src)
+        self.assertIsNotNone(m, "sample_totals call not found")
+        self.assertEqual(m.group(1), "cp_sub",
+                         "sample_totals must be called with the same cp_sub that "
+                         "the attribution block records")
+
+    def test_summary_records_the_harness_git_revision(self):
+        """A result is reproducible only if you know which code produced it.
+        The 2026-08 corpus predates the window fix (c22dff9) and birth-credit
+        fix (34b4f26) and says nothing about it in its own JSON."""
+        self.assertIn('"git_rev"', self.src)
+        self.assertIn('"git_dirty"', self.src)
+        rev = self.h.harness_git_rev()
+        self.assertRegex(rev, r"^(\w{7,40}|unknown)$",
+                         "rev must be a short hash or 'unknown', never empty")
+        self.assertIsInstance(self.h.harness_git_dirty(), (bool, type(None)))
+
+    def test_committed_legacy_runs_are_marked_as_lacking_a_window(self):
+        """The new field is absent from every pre-fix run -- which is exactly
+        why those runs needed an inferred window. Asserted so no one later
+        reads a missing attribution block as a bug in the emitter."""
+        legacy = os.path.join(os.path.dirname(REPO), "saqef-paper", "results",
+                              "openfaas_cpubound_lock_lock4", "run_1",
+                              "summary.json")
+        if not os.path.exists(legacy):
+            self.skipTest("legacy corpus not present")
+        with open(legacy) as f:
+            s = json.load(f)
+        self.assertNotIn("attribution", s)
+        self.assertIsNone(s.get("harness", {}).get("git_rev")
+                          if isinstance(s.get("harness"), dict) else None)
 
 
 if __name__ == "__main__":

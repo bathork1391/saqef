@@ -714,30 +714,215 @@ bias is small against the contrast, the claim survives.
 No re-measurement campaign was needed. `samples.csv` retains, per sample instant
 and per container, the interval CPU rate the old code computed
 (`pct = Δcum/(t[i+1]−t[i]) × 100`), which integrates back to the stored totals:
-257 of 269 committed legs rebuild to a median error of **0.024 %** (max 0.99 %).
+264 of 269 committed legs rebuild to a median error of **0.018 %** (max 0.42 %).
 The tool refuses to report a number it cannot reproduce (`--verify` exits
-non-zero), solves the fn allowlist against each run's own stored total rather
-than assuming one, and reports `unclassifiable` rather than guessing.
+non-zero) and solves the fn allowlist against each run's own stored total rather
+than assuming one.
 
-Result: the window clip shifts `cp_dynamic_share_pct` **upward** on 222/257 legs
-(median +0.36 pp, max +1.85 pp) — upward as §22's idle-dominance argument
-predicts.
+Result: **the window clip moves the numbers by essentially nothing.** Median
+**0.003 pp**, max **0.074 pp**, and only 4 of 264 legs exceed 0.05 pp. Every stored
+headline figure is unchanged to within 0.02 pp, and per table cell the clip is
+≤0.014 pp.
 
-**The finding that mattered, and which no amount of noise-yardstick discussion
-would have surfaced:** the shift is *not constant across concurrency*
-(OpenFaaS +1.13, +0.63, +0.25, +0.27 pp at c=1/2/8/16). A constant bias is
-harmless; a bias that varies along the axis of comparison manufactures trend.
-Consequences:
+#### 23.3.1 The bug that produced the opposite conclusion (commit `05d07f5`)
 
-- **OpenFaaS: the c=1→c=16 contrast collapses** from 0.75 pp to 0.11 pp
-  (15 % retained). The "flat within ~1–2 pp" claim survives on OpenFaaS only
-  because the corrected range is 1.67 pp — but the specific c=1 vs c=16
-  comparison does not.
-- **Fn and Knative keep their contrasts** (161 % and 120 % retained) and keep the
-  same shape, though Fn's minimum moves c=2 → c=8 and Knative's flattens
-  (c=2→c=16 goes +0.11 → −0.08 pp).
+An earlier version of this runbook reported the clip shifting the share upward on
+222/257 legs at median **+0.36 pp / max +1.85 pp**, varying with concurrency, and
+drew four conclusions from it (OpenFaaS c=1→c=16 collapsing 0.75 → 0.11 pp, Fn's
+minimum moving c=2 → c=8, OF c=2 "explained", and per-platform ranges of
+1.67/2.42/3.68 pp). **All four were artifacts of a bug in the tool, not
+properties of the platforms.**
+
+`_integrate()` classified into two buckets — `if name in fn_set: fn else: cp` —
+so every container that was neither function nor control plane landed in the CP
+**numerator**, while the caller subtracted `unclassified_cpu_s` from the
+**denominator** only. OpenFaaS c=1 run_1 stored 6.93 % and reported 8.03 %:
+(1.41 + 0.23)/(1.41 + 18.96) = 8.05 %. Because the unclassified bucket is a
+roughly *constant* absolute quantity while the share's denominator varies with
+concurrency, the leak produced a shift that grew as concurrency fell — precisely
+the pattern the old text read as a real bias.
+
+**The `--verify` gate could not detect it.** It checked `cp + fn` against the
+stored `cp + fn`, and that sum is correct under a mis-assigned bucket. So the
+gate passed, 160 tests passed, and every reported share was inflated. *A gate on
+the total cannot detect a wrong split.* The gate now checks each bucket
+independently: cp and fn at 1 % (corpus maxima 0.59 % / 0.44 %), and unclassified
+on **absolute** error at 0.01 cpu-s — never on its ratio, which reaches 46.9 % on
+a rounding-sized absolute difference.
+
+Two further defects surfaced while fixing it, both worth keeping:
+
+- **The clip was being gated.** Comparing a clipped figure against the
+  *unclipped* stored total reported 9 correct legs as `verify_failed` at 1.0–2.3 %
+  error — purely because clipping worked. A deliberate correction must not be
+  gated against the uncorrected value. The gate now always judges the unclipped
+  integration; the clip is reported separately.
+- **A hand-kept allowlist drifts.** `CP_CONTAINER_HINTS` had already fallen out
+  of sync with the adapters' own `cp_containers` (missing
+  `openfaas_nats`/`openfaas_queue-worker`/`openfaas_alertmanager` and Knative's
+  `kourier-gateway`) — the same class of bug as the OpenFaaS "gateway" substring
+  incident. It is now test-locked to `platforms/*.py`.
+- **Terminal escapes in container names.** The 5 pre-`container_labels` legs
+  recorded one container under two names, `\x1b[H01KZ…` and `\x1b[J\x1b[H01KZ…`,
+  because an escape-laden `docker ps` header bled into the field. Its CPU was
+  counted twice (+5.2 % on run_1's fn total).
+
+**The 5 remaining legs.** `fn_cpubound` predates `container_labels`, so fn is
+inferred name-only as "everything that is not the adapter's cp container". That
+cannot be checked independently, so it is held to a **tighter** 1 % bound rather
+than a looser one — and it fails, at 3.1–16.6 %, because `samples.csv` retains
+8.48 s where `wall_s` is 14.24 s. The stored totals came from a span the samples
+no longer cover; recovering them needs cgroup files that do not exist. Final
+state: **264 ok, 5 `verify_failed`, 0 `unclassifiable`.**
+
+#### 23.3.2 What survives
+
+- **Paper §5.3's "flat within ~1–2 pp on every platform" is false as written** —
+  but because of the **stored** spread, not the clip: 1.48 / 2.13 / 2.74 pp across
+  c=1/2/8/16 (OF / Kn / Fn) and 1.52 / 2.85 / 3.41 pp across tier-1 c=1/2/4/8.
+  Restate per platform.
+- **The sweep minimum is per platform, and only OpenFaaS's is at c=2.** Recomputed
+  from the per-run summaries (medians; ranges are max−min of medians — the quick
+  sweep is `REPEAT=3`, tier-1 is `REPEAT=5`):
+
+  | platform | quick c=1/2/8/16 | range | tier-1 c=1/2/4/8 | range | min |
+  |---|---|---|---|---|---|
+  | OpenFaaS | 7.00 / 5.82 / 6.51 / 7.75 | 1.93 | 7.78 / 6.26 / 7.16 / 7.15 | 1.52 | **c=2** |
+  | Fn | 12.66 / 11.06 / 9.92 / 11.01 | 2.74 | 13.97 / 12.03 / 10.57 / 10.56 | 3.41 | **c=8** quick; **c=4≈c=8** tier-1 |
+  | Knative | 14.08 / 11.97 / 12.10 / 12.08 | 2.11 | 14.49 / 12.23 / 11.64 / 12.68 | 2.85 | **c=4** tier-1 |
+
+  Knative's quick-sweep c=2/8/16 sit within **0.13 pp** of each other, so there is
+  effectively no minimum there. OpenFaaS c=2 remains **unexplained** — it is *not*
+  explained by the correction, which moves it by −0.004 pp.
+
+  **How the wrong version got written.** Two edits were made from memory instead of
+  from the per-run files, and both failed silently: the OF range came out as
+  1.48 (matching neither the median nor the mean range) and Knative as 2.13 (2.11
+  by median, 2.16 by mean). And the "c=2 minimum on all three" sentence was
+  written *with its own numbers beside it* — "Fn 12.03 → 10.57 at c=4" states that
+  c=4 is below c=2, so the sentence refuted itself one clause earlier. Nobody
+  checked it against the table it was derived from.
+
+  **Two rules from this, and both are the §23 lesson again:**
+  1. **A derived figure must be recomputed from the committed per-run files in the
+     same edit that introduces it** — never carried in a summary, never written
+     from a remembered table. `python3 -c` over `results/*/run_*/summary.json`
+     takes seconds and is the only thing that catches this.
+  2. **No sentence may state a superlative (min/max) that its own adjacent numbers
+     contradict.** The self-contradicting clause survived review because both the
+     table and the prose read as plausible in isolation; only placing them side by
+     side exposes it.
+
+  One cell genuinely needs the statistic named: **Fn c=16** has runs
+  17.43 / 10.66 / 11.01 — one warm-up-contaminated leg pulling the mean to 13.03
+  while the median holds at 11.01 (CV 23.9 %). Under the mean, Fn's quick-sweep
+  range reads 3.15 rather than 2.74. The median is the quoted statistic and the
+  text now says so.
 - **The cross-platform ordering OF < Fn < Knative holds at every concurrency**,
-  which is the paper's central claim and is untouched.
-- Paper §5.3's "flat within ~1–2 pp on every platform" becomes **false as
-  written**: re-attributed ranges are 1.67 pp (OF), 2.42 pp (Kn), 3.68 pp (Fn).
-  The claim needs restating per platform, not defending as a single number.
+  which is the paper's central claim and is untouched — the correction is ≤0.02 pp
+  on every platform, and a bias that moved platforms *differently* is the only
+  thing that could have threatened it.
+
+**Rule adopted from this:** a total-summed verification gate cannot certify a
+per-bucket claim, and a per-platform conclusion drawn from a correction whose
+magnitude is smaller than the reporting precision is a finding about the tool,
+not the system. Re-derive any figure that moves when the attribution code moves.
+
+### 23.4 A third class of the same bug: 21 tests that had never run
+
+The §23.3 bug and this one share a shape — **a check that cannot fail was cited
+as evidence that something was verified.**
+
+`TestTier1StatsHygiene` has been in the suite since it was written, and its 21
+tests had **never executed**. Its `setUpClass` extracts the aggregation heredoc
+from `tools/run_tier1_conc.sh` and `exec`s the head of it, and that head begins:
+
+```python
+import json, math, os, statistics, sys
+repo = sys.argv[1]
+```
+
+Under `python3 tests/test_saqef_cli.py` there is no `argv[1]`, so `setUpClass`
+raised `IndexError` — **on the first day it ran.** unittest reports a
+`setUpClass` failure as a single error and skips every test in the class, so
+the suite showed `FAILED (errors=1)` with 147 passing and the whole thing was
+easy to skim past.
+
+What was silently not being checked:
+
+- Tukey df must be `k(n-1)`, not the Bonferroni `2n-2`
+- `statistics.stdev`, never `statistics.pstdev`, for a sample of runs
+- a missing `wall_s` must fail closed, never become `1.0`
+- the flatness threshold must be `studentized_range_q`, not `(tcrit+tpow)*sqrt(2)`
+- the TOST margin must be pre-specified, and `se == 0` must not pass
+
+Those are exactly the fixes §22 and §23 cite as "test-locked". They were locked
+to nothing. This is the same failure mode as the `cp + fn` sum-only verify gate:
+the aggregate was right, so the check passed, and the per-bucket claim it was
+supposed to certify was never examined. The Tukey table itself is in the
+heredoc and is correct — but *nothing was verifying it.*
+
+**Fixed** by swapping `sys.argv` around the `exec` (a stub module in the exec
+namespace does **not** work: the heredoc's own `import sys` on line 1 rebinds
+the name to the real module). Suite now reports **180 passing, 0 errors**.
+
+**New guard, because "the suite is green" is not the same as "the suite ran":**
+`TestNoSilentlySkippedTestClasses` re-executes every `setUpClass` in the module
+and fails if any raises, and fails on any `TestCase` with no `test_` methods.
+Verified it fires by deliberately re-breaking the `sys.argv` fix — it reports
+`TestTier1StatsHygiene.setUpClass: IndexError` and exits non-zero.
+
+**Lesson, and it is the general one:** *a test that cannot run is worse than no
+test, because it gets cited.* Both this and §23.3 were invisible to review,
+because a green run and a hidden skip look identical in the output. When
+verifying that something is checked, confirm the check **executes** — count the
+tests, don't read the pass line.
+
+### 23.5 New runs were strictly LESS re-analysable than the corpus they replace (2026-10-01)
+
+The salvage worked because of an accident of history. The 2026-08-14/15 harness
+wrote **full-span, unclipped** percent-rate rows, and `pct = Δcum/dt` integrates
+back to the stored CPU-s totals — which is the entire reason `legacy_reattribute.py`
+can reconstruct 264/269 legs. The current harness **breaks that property**:
+
+- `sample_totals()` drops samples lying entirely outside the window (line ~1063)
+  and scales partial intervals by their overlap fraction (line ~1114)
+- `samples.csv` is written **downstream** of that clip, so the discarded CPU is
+  gone from disk
+- `summary.json` recorded **no** `t0_epoch`, no window, no git revision (49 keys,
+  none of them any of those)
+
+So new runs could not have been re-attributed at all. The clip itself is correct
+and the measured effect is ≤0.074 pp — but correctness of the *number* was never
+the issue. **If a window or birth bug appeared tomorrow, those runs would have
+been unrecoverable exactly as the pre-2026-08-08 data is**, and box time would
+have bought nothing. That is the worst outcome available: a run that passes every
+gate and cannot be audited.
+
+Fixed (1a):
+
+- **`samples_raw.csv`** — the sampler's unclipped output, raw cumulative `cpu.stat`
+  counters (`cum` mode, exact and cadence-independent) or instantaneous rates
+  (`pct` mode, docker fallback), plus `mem_mb` and **`born_epoch`**. Written
+  unconditionally alongside `samples.csv`, never instead of it: `samples.csv`
+  stays the citable read that the figures and emitter consume.
+- **`born_epoch` matters more than it looks.** At first sight the sampler sees a
+  counter that already contains everything since creation; difference it away and
+  that slice is gone. Knative creates fn containers seconds into a run, so this is
+  not a rounding detail there — it is the same class of loss as the overhang.
+- **`summary.json.attribution`** — `t0_epoch`, `window_start_epoch`,
+  `window_end_epoch`, sampler and cadences, the resolved `cp_members`/`fn_members`,
+  every allowlist, and the full `container_inventory`. The allowlists go in
+  because `CP_CONTAINER_HINTS` had already drifted out of sync with the adapters'
+  own `cp_containers` (§23.3) — a hand-kept list cannot be trusted alone.
+- **`summary.json.harness`** — `git_rev` and `git_dirty`. A result is reproducible
+  only if you know which code produced it; the 2026-08 corpus predates `c22dff9`
+  and `34b4f26` and says nothing about it in its own JSON. `git_dirty` is there
+  because an uncommitted edit is precisely the case where the commit hash
+  misrepresents the code that ran.
+
+The round trip is test-locked: `samples_raw.csv` is parsed back into the structure
+`sample_totals()` consumes and must reproduce the in-memory `cp_cpu_s`/`fn_cpu_s`
+to 1e-6, with the unclipped totals asserted strictly larger so the test cannot pass
+if the clip were removed. That is the property the old corpus had and new runs
+would have lost.

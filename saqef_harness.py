@@ -70,6 +70,38 @@ def run(cmd):
     return subprocess.run(cmd, shell=True, capture_output=True, text=True)
 
 
+def harness_git_rev():
+    """The harness's own git revision, recorded in every summary.json.
+
+    A result is only reproducible if you know which code produced it. The
+    2026-08-14/15 corpus predates the window fix (c22dff9) and the birth-credit
+    fix (34b4f26), and nothing in those runs' JSON says so -- the revision had to
+    be recovered from runbook history. Returns "unknown" rather than raising:
+    a run must not fail because git is absent."""
+    try:
+        out = subprocess.run(["git", "rev-parse", "--short", "HEAD"],
+                             cwd=os.path.dirname(os.path.abspath(__file__)),
+                             capture_output=True, text=True, timeout=10)
+        return out.stdout.strip() or "unknown"
+    except (OSError, subprocess.SubprocessError):
+        return "unknown"
+
+
+def harness_git_dirty():
+    """True if the harness working tree had uncommitted changes at run time.
+
+    git_rev alone is not enough: an uncommitted edit is exactly the case where
+    the committed revision misrepresents the code that ran. Recorded so a
+    suspicious result can be traced to a working state, not blamed on a hash."""
+    try:
+        out = subprocess.run(["git", "status", "--porcelain"],
+                             cwd=os.path.dirname(os.path.abspath(__file__)),
+                             capture_output=True, text=True, timeout=15)
+        return bool(out.stdout.strip())
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
 def docker_stats_once():
     """Return {name: (cpu_percent, mem_mb)} from one `docker stats` snapshot."""
     out = run("docker stats --no-stream --format '{{.Name}}|{{.CPUPerc}}|{{.MemUsage}}|{{.MemPerc}}'")
@@ -1608,16 +1640,110 @@ def run_once(args, cp_sub):
         "rapl_validation_err_pct": round(rapl_validation, 2) if rapl_validation is not None else None,
         "rapl_wrap": rapl_wrap,
         "rapl_available": rapl_start is not None,
+        # Re-analysability (1a). The window is the single input that decides
+        # which samples count, so a run whose JSON does not carry it cannot be
+        # re-derived by an offline tool -- it can only be trusted. That is
+        # exactly the trap of the 2026-08-14/15 corpus, whose only
+        # re-attribution lever was inferring (first_sample, first_sample+wall)
+        # because t0_epoch was never written. These fields make the choice
+        # explicit and auditable instead of inferred.
+        "attribution": {
+            "t0_epoch": round(t0_epoch, 6),
+            "window_start_epoch": round(t0_epoch, 6),
+            "window_end_epoch": round(t0_epoch + wall, 6),
+            "wall_s": round(wall, 3),
+            # Every assumption the offline re-attributer needs to reproduce this
+            # run, in one place. Anything that changes cp/fn totals belongs
+            # here, not buried in argparse defaults.
+            "sampler": args.sampler,
+            "sample_s": args.sample_s,
+            "rescan_s": args.rescan_s,
+            "fn_containers": list(args.fn_containers),
+            "fn_images": list(args.fn_images),
+            "fn_labels": list(args.fn_labels),
+            "cp_images": list(args.cp_images),
+            "cp_labels": list(args.cp_labels),
+            # cp_sub is the name-substring fallback applied in sample_totals().
+            # Without it a replay cannot reproduce CP classification for
+            # containers cp_images/cp_labels did not already resolve.
+            "cp_sub": list(cp_sub),
+            "cp_members": sorted(cp_members),
+            "fn_members": sorted(fn_members),
+            "fn_allow_configured": fn_allow_configured,
+            # Named docker_inventory, not container_inventory: the summary
+            # already has a top-level container_inventory (live names at
+            # write time). This is the PRE/POST-RUN UNION with images and
+            # labels -- the classification input that was actually applied.
+            "docker_inventory": {n: [img, sorted(lbls)]
+                                 for n, (img, lbls) in sorted(inv.items())},
+        },
+        "harness": {"git_rev": harness_git_rev(), "git_dirty": harness_git_dirty()},
     }
     if ld is not None:
         summary["loadgen"] = {"source": "hey", "rps": ld["rps"],
                               "avg_ms": round(ld_avg, 2) if ld_avg is not None else None,
                               "errors": ld_errors,
                               "wall_s": round(wall_loadgen, 2) if wall_loadgen else None}
-    return summary, all_snaps, reqs, ld
+    return summary, all_snaps, reqs, ld, list(samples)
 
 
-def write_run(outdir, summary, all_snaps, reqs):
+RAW_HDR = ["t", "container", "mode", "cpu_cum_s", "cpu_pct", "mem_mb", "born_epoch"]
+
+
+def write_samples_raw(path, raw_samples):
+    """Write the UNCLIPPED sampler output next to samples.csv.
+
+    Why this file exists. samples.csv is written downstream of the window clip:
+    sample_totals() drops samples entirely outside the load window, scales
+    partial intervals by their overlap fraction, and hands downstream only a
+    normalized percent-rate. That is the right artifact for reading a number --
+    and the wrong artifact for auditing one. Two separate problems follow:
+
+      1. A clip bug is unrecoverable. If the window is later shown to be wrong,
+         samples.csv no longer holds the CPU that was discarded, so no offline
+         re-attribution can put it back. This is exactly what happened to the
+         2026-08-14/15 corpus, where re-attribution worked ONLY because that
+         harness wrote full-span unclipped rows; new runs must not lose the
+         property that made the old ones salvageable.
+      2. A window bug is unfalsifiable. With the raw counters on disk, anyone can
+         re-run the attribution under a different window and see whether the
+         headline moves. Without them, the window is an unfalsifiable assertion.
+
+    So samples_raw.csv carries the sampler's actual observations -- cumulative
+    CPU counters ('cum' mode, exact and cadence-independent) or instantaneous
+    rates ('pct' mode, docker stats fallback) -- with NO window applied. Together
+    with summary.json's attribution block (t0_epoch, window bounds, allowlists,
+    git revision) this is the minimum needed to reproduce or challenge any
+    number in summary.json offline.
+
+    The birth time is kept because birth-to-first-sample CPU is unrecoverable
+    once the counter is differenced away: at first sight the sampler sees a
+    counter that already contains everything since creation, and only
+    born_epoch lets that slice be apportioned. Knative creates function
+    containers seconds into a run, so this is not a rounding detail there.
+
+    Written unconditionally, so the artifact's presence can never itself be a
+    confound (a run without it is anomalous, not silently different)."""
+    if raw_samples is None:
+        return False
+    with open(path, "w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(RAW_HDR)
+        for t, snap, mode in raw_samples:
+            for name, vsnap in (snap or {}).items():
+                cum = vsnap[0]
+                mem = vsnap[1] if len(vsnap) > 1 else None
+                born = vsnap[2] if len(vsnap) > 2 else None
+                if mode == "cum":
+                    w.writerow([round(t, 6), name, mode, cum, None, mem,
+                                round(born, 6) if born else None])
+                else:
+                    w.writerow([round(t, 6), name, mode, None, cum, mem,
+                                round(born, 6) if born else None])
+    return True
+
+
+def write_run(outdir, summary, all_snaps, reqs, raw_samples=None):
     os.makedirs(outdir, exist_ok=True)
     with open(os.path.join(outdir, "summary.json"), "w") as f:
         json.dump(clean_json(summary), f, indent=2)
@@ -1627,6 +1753,7 @@ def write_run(outdir, summary, all_snaps, reqs):
         for t, snap in all_snaps:
             for name, (cpu, mem) in (snap or {}).items():
                 w.writerow([round(t, 2), name, cpu, mem])
+    write_samples_raw(os.path.join(outdir, "samples_raw.csv"), raw_samples)
     with open(os.path.join(outdir, "requests.csv"), "w", newline="") as f:
         w = csv.writer(f)
         w.writerow(["ok", "latency_ms"])
@@ -1964,8 +2091,9 @@ def main():
         summaries = []
         for i in range(1, args.repeat + 1):
             print(f"--- run {i}/{args.repeat} ---")
-            summary, all_snaps, reqs, ld = run_once(args, cp_sub)
-            write_run(os.path.join(args.outdir, "run_%d" % i), summary, all_snaps, reqs)
+            summary, all_snaps, reqs, ld, raw = run_once(args, cp_sub)
+            write_run(os.path.join(args.outdir, "run_%d" % i), summary, all_snaps, reqs,
+                      raw_samples=raw)
             if ld is not None:
                 with open(os.path.join(args.outdir, "run_%d" % i, "hey.csv"), "w") as f:
                     f.write(ld["raw"])
@@ -1993,7 +2121,7 @@ def main():
         print(json.dumps(clean_json(med), indent=2))
         print("\nSaved runs to", os.path.abspath(args.outdir), "/")
     else:
-        summary, all_snaps, reqs, ld = run_once(args, cp_sub)
+        summary, all_snaps, reqs, ld, raw = run_once(args, cp_sub)
         summary["ambient"] = ambient
         # FIXED 2026-10-01 (expert review): a single-run bench must write the SAME
         # artifact shape as a repeat>1 bench. Only write_run() ran here, so
@@ -2003,7 +2131,7 @@ def main():
         # printed "--" for every corrected column and quietly skipped the entire
         # independent cross-check. Write runs.json = [summary] here.
         summary["repetitions"] = 1
-        write_run(args.outdir, summary, all_snaps, reqs)
+        write_run(args.outdir, summary, all_snaps, reqs, raw_samples=raw)
         with open(os.path.join(args.outdir, "runs.json"), "w") as f:
             json.dump(clean_json([summary]), f, indent=2)
         if ld is not None:
