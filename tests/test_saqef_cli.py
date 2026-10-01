@@ -14,8 +14,10 @@ Run: python3 tests/test_saqef_cli.py
 import contextlib
 import io
 import json
+import math
 import os
 import re
+import statistics
 import sys
 import tempfile
 import unittest
@@ -1043,6 +1045,118 @@ class TestSingleRunArtifactShape(unittest.TestCase):
         self.assertIn("MARGINAL", txt)
 
 
+def _code_only(src):
+    """Drop comment-only lines.
+
+    The fixes below are documented in comments that quote the old buggy code
+    verbatim, so a naive substring search would match the explanation of the
+    defect rather than the defect."""
+    return "\n".join(l for l in src.splitlines() if not l.strip().startswith("#"))
+
+
+class TestTier1StatsHygiene(unittest.TestCase):
+    """Three aggregator defects from the second expert review: a missing wall_s
+    was silently replaced with 1.0 and fed to the fit, the detection limit used
+    the POPULATION sd on a sample of runs, and a threshold built for one
+    pairwise difference was applied to a range of four means."""
+
+    TIER1 = os.path.join(REPO, "tools", "run_tier1_conc.sh")
+
+    @classmethod
+    def setUpClass(cls):
+        src = open(cls.TIER1).read()
+        cls.agg = "\n".join(re.findall(r"python3 - \"\$REPO\" <<'PY'\n(.*?)\nPY",
+                                       src, re.S))
+        # Only the table + lookup are pure; executing the whole block would run
+        # the aggregation against the results tree.
+        head = cls.agg.split("def find_run_dir")[0]
+        ns = {"math": math, "statistics": statistics}
+        exec(compile(head, "agg-head", "exec"), ns)
+        cls.ns = ns
+
+    def test_missing_wall_s_is_not_replaced_with_one(self):
+        """`wall = r.get("wall_s") or 1.0` fabricated a 1.0 s window and fed it to
+        the background fit; the wall<=0 guard below it could never fire."""
+        src = open(self.TIER1).read()
+        code = _code_only(src)
+        self.assertNotRegex(code, r'wall\s*=\s*r\.get\("wall_s"\)\s*or\s*1\.0',
+                            "a missing wall_s must fail closed, not become 1.0 s")
+        self.assertEqual(code.count('wall = r.get("wall_s")'), 2,
+                         "both fit sites must read wall_s explicitly")
+        self.assertIn("has no usable wall_s", src)
+
+    def test_detection_limit_uses_sample_sd_not_population_sd(self):
+        """pstdev divides by n; these are n observed runs of a sample. It
+        understated the limit ~11% at n=4, making 'flat' easier to declare."""
+        code = _code_only(open(self.TIER1).read())
+        self.assertNotIn("statistics.pstdev", code,
+                         "population sd must not be used on a sample of runs")
+        self.assertIn("statistics.stdev", code)
+
+    def test_flatness_threshold_uses_studentized_range_not_pairwise_t(self):
+        """The old (tcrit+tpow)*sqrt(2) threshold is a Bonferroni-corrected
+        criterion for ONE pairwise difference, applied to max-minus-min over
+        FOUR means. The correct question is Tukey's 'are these k means equal'."""
+        code = _code_only(open(self.TIER1).read())
+        self.assertNotIn("tpow", code,
+                         "the Bonferroni pairwise-t threshold must be gone")
+        self.assertIn("studentized_range_q", code)
+        self.assertIn("df = nleg * (k_lev - 1)", code,
+                      "ANOVA-style df for k groups of n, not 2*n-2")
+
+    def test_studentized_range_q_reduces_to_t_times_sqrt2_for_k_equals_2(self):
+        """For two levels the studentized range is |t|*sqrt(2), so the table is
+        cross-checkable against standard t quantiles."""
+        sq = self.ns["studentized_range_q"]
+        self.assertAlmostEqual(sq(2, 4), 2.776 * math.sqrt(2), places=2)   # df=4
+        self.assertAlmostEqual(sq(2, 10), 2.228 * math.sqrt(2), places=2)  # df=10
+        self.assertAlmostEqual(sq(2, 40), 2.021 * math.sqrt(2), places=2)  # df=40
+
+    def test_studentized_range_q_is_conservative_when_rounding_df(self):
+        """Rounding df DOWN (or clamping above the table) gives a LARGER q,
+        i.e. a stricter threshold -- never easier to declare flat."""
+        sq = self.ns["studentized_range_q"]
+        for k in (2, 3, 4):
+            self.assertGreaterEqual(sq(k, 4), sq(k, 20))
+            self.assertGreaterEqual(sq(k, 20), sq(k, 40))
+        self.assertEqual(sq(4, 10 ** 6), sq(4, 40),
+                         "df beyond the table must clamp to the last row")
+
+    def test_studentized_range_q_rounds_an_off_table_df_downward(self):
+        """The rounding direction only shows up at a df that is NOT in the table.
+        Rounding down gives the LARGER q (df=10 rather than df=12 for a request of
+        11), i.e. the stricter threshold. Rounding up would let a leg declare
+        itself flat with less evidence."""
+        sq = self.ns["studentized_range_q"]
+        tbl = self.ns["_Q_TABLE"]
+        for want_df, lower_df, upper_df in ((11, 10, 12), (13, 12, 15), (14, 12, 15),
+                                            (16, 15, 20), (19, 15, 20),
+                                            (21, 20, 24), (23, 20, 24),
+                                            (25, 24, 30), (35, 30, 40)):
+            self.assertEqual(sq(4, want_df), tbl[lower_df][4],
+                             "df=%d must round down to the lower tabulated row %d"
+                             % (want_df, lower_df))
+            self.assertGreater(sq(4, want_df), sq(4, upper_df),
+                               "rounding down must yield the larger, stricter q")
+
+    def test_studentized_range_q_grows_with_the_number_of_levels(self):
+        """Comparing MORE means needs a wider range to be significant, so q rises
+        with k. (The old fixed pairwise-t threshold could not express this.)"""
+        sq = self.ns["studentized_range_q"]
+        for df in (4, 10, 20):
+            vals = [sq(k, df) for k in (2, 3, 4, 5)]
+            self.assertEqual(vals, sorted(vals),
+                             "more levels must need a wider range to be significant")
+
+    def test_studentized_range_table_is_monotone_in_df(self):
+        tbl = self.ns["_Q_TABLE"]
+        for k in (2, 3, 4, 5):
+            series = [tbl[df][k] for df in sorted(tbl)]
+            self.assertEqual(series, sorted(series, reverse=True),
+                             "q must decrease as df grows")
+            self.assertGreater(tbl[sorted(tbl)[0]][k], tbl[sorted(tbl)[-1]][k])
+
+
 class TestTier1AggregatorHygiene(unittest.TestCase):
     """Two aggregator bugs from the same expert review: the OpenWhisk function
     container count matched the invoker's warmup pool, and an incomplete run was
@@ -1162,7 +1276,17 @@ print(json.dumps({'rate':r,'errs':errs}))
         self.assertIn("RESOLVABLE DRIFT", src)
         self.assertIn("flat TO RESOLUTION", src)
         self.assertIn("detect limit", src.lower())
-        self.assertIn("math.sqrt(2.0)", src, "MDD must use the section-14 formula")
+        # CORRECTED 2026-10-01 (second expert review): the section-14 formula
+        # (tcrit+tpow)*sqrt(2)*s/sqrt(n) is a Bonferroni threshold for ONE
+        # pairwise difference, but it was being applied to max-minus-min over
+        # FOUR means. The limit is now the Tukey studentized-range threshold.
+        # Asserting on the comment-quoted string would be a false pass, hence
+        # _code_only().
+        code = _code_only(src)
+        self.assertNotIn("math.sqrt(2.0)", code,
+                         "the pairwise-t MDD formula must be gone from the code")
+        self.assertIn("studentized_range_q(k_lev, df) * s_pool", code,
+                      "MDD must use the studentized-range criterion for k levels")
 
     def test_python_errors_reach_bash_through_a_file(self):
         """The errors list lives in the embedded Python; ${#errors[@]} is a BASH

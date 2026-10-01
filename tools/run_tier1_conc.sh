@@ -241,6 +241,45 @@ short2plat = {"openfaas": ("OpenFaaS", (1, 2, 4, 8)),
               "fn": ("Fn", (1, 2, 4, 8)),
               "knative": ("Knative", (1, 2, 4, 8)),
               "openwhisk": ("OpenWhisk", (1, 4, 8))}
+
+# q_{0.95;k,df}: studentized-range critical values, standard Tukey tables.
+# Used as the flatness threshold because the question actually asked is "are
+# these k concurrency means equal", not "do any two of them differ". For k=2
+# this reduces to t*sqrt(2), which is why the table cross-checks against the
+# t quantiles (2.772 at df=inf, 3.927 at df=4).
+_Q_TABLE = {
+    1:  {2: 17.969, 3: 26.976, 4: 32.333, 5: 37.482},
+    2:  {2:  6.085, 3:  8.331, 4:  9.798, 5: 11.245},
+    3:  {2:  4.501, 3:  5.910, 4:  6.825, 5:  7.706},
+    4:  {2:  3.927, 3:  5.040, 4:  5.757, 5:  6.469},
+    5:  {2:  3.635, 3:  4.602, 4:  5.218, 5:  5.673},
+    6:  {2:  3.460, 3:  4.339, 4:  4.896, 5:  5.280},
+    7:  {2:  3.344, 3:  4.165, 4:  4.681, 5:  5.060},
+    8:  {2:  3.261, 3:  4.041, 4:  4.529, 5:  4.796},
+    9:  {2:  3.199, 3:  3.948, 4:  4.415, 5:  4.660},
+    10: {2:  3.151, 3:  3.877, 4:  4.327, 5:  4.555},
+    12: {2:  3.081, 3:  3.773, 4:  4.199, 5:  4.404},
+    15: {2:  3.014, 3:  3.673, 4:  4.076, 5:  4.256},
+    20: {2:  2.950, 3:  3.578, 4:  3.958, 5:  4.171},
+    24: {2:  2.919, 3:  3.532, 4:  3.895, 5:  4.086},
+    30: {2:  2.888, 3:  3.486, 4:  3.845, 5:  4.000},
+    40: {2:  2.858, 3:  3.442, 4:  3.791, 5:  3.919},
+}
+_Q_MAX_DF = max(_Q_TABLE)
+
+
+def studentized_range_q(k, df):
+    """q_{0.95;k,df} for the Tukey 'are these k means equal' criterion.
+
+    The df used is rounded DOWN to the nearest tabulated value, and df above the
+    table clamps to its last row. Since q decreases as df grows, both moves
+    return a LARGER q, i.e. the more conservative threshold: this can only make
+    the flatness verdict harder to declare, never easier. k is clamped to the
+    tabulated 2..5, matching the 2-4 concurrency levels actually swept."""
+    k = max(2, min(int(k), 5))
+    df = max(1, min(int(df), _Q_MAX_DF))
+    key = max(d for d in _Q_TABLE if d <= df)
+    return _Q_TABLE[key][k]
 def find_run_dir(plat, stamp):
     d = os.path.join(repo, "results", "%s_cpubound_lock_%s" % (plat, stamp))
     if os.path.isdir(d):
@@ -291,9 +330,13 @@ def probe_rate(repo, stamp, plat, errors):
                       % (plat, stamp, os.path.basename(d)))
         return None
     r = src[0][0]
-    wall = r.get("wall_s") or 1.0
+    wall = r.get("wall_s")
     cp = r.get("cpu_sec", {}).get("control_plane", 0.0)
     fn = r.get("cpu_sec", {}).get("function", 0.0)
+    # FIXED 2026-10-01 (expert review): this used to read
+    #   wall = r.get("wall_s") or 1.0
+    # so a MISSING wall_s became 1.0 and flowed into the background fit as a
+    # fabricated rate, while the wall<=0 guard below it never fired. Fail closed.
     if not wall or wall <= 0:
         errors.append("%s c=%s: probe has no usable wall_s -- cannot derive a rate"
                       % (plat, stamp))
@@ -348,7 +391,15 @@ for plat, (label, cs) in short2plat.items():
                 ndrop += 1
                 continue
             cp_s = r["cpu_sec"]["control_plane"]; fn_s = r["cpu_sec"]["function"]
-            wall = r.get("wall_s") or 1.0
+            # FIXED 2026-10-01 (expert review): was `r.get("wall_s") or 1.0`, which
+            # turned a missing wall_s into a fabricated 1.0 s and fed it to the
+            # fit. A run with no wall time is not comparable -- drop it loudly.
+            wall = r.get("wall_s")
+            if not wall or wall <= 0:
+                print("  WARN %s c=%d run_%d has no usable wall_s -- EXCLUDED from fit"
+                      % (label, c, runnr))
+                ndrop += 1
+                continue
             raw.setdefault(plat, []).append((c, req, wall, cp_s, fn_s, r["cp_dynamic_share_pct"]))
         if ndrop:
             print("       -> %s c=%d: %d/%d runs excluded from the fit" % (label, c, ndrop, len(runs)))
@@ -441,20 +492,32 @@ for plat, (label, cs) in short2plat.items():
     if len(per_leg_raw) < 2: continue
 
     # detection limit from the RAW per-run spreads of the worst leg
+    # FIXED 2026-10-01 (expert review): statistics.pstdev is the POPULATION sd
+    # (divides by n). These are the n observed runs of a sample, so stdev
+    # (n-1) is correct and pstdev understated the limit by ~11% at n=4, making
+    # "flat TO RESOLUTION" easier to declare than the data allows.
     cvs = []
     for c in cs:
         recs = [r for r in raw.get(plat, []) if r[0] == c]
         if len(recs) > 1 and statistics.mean([r[5] for r in recs]):
-            cvs.append(statistics.pstdev([r[5] for r in recs]) /
+            cvs.append(statistics.stdev([r[5] for r in recs]) /
                        statistics.mean([r[5] for r in recs]) * 100.0)
     nleg = min(len([r for r in raw.get(plat, []) if r[0] == c]) for c in per_leg_raw)
     mdd = float("nan")
+    s_pool = float("nan")
+    k_lev = len(per_leg_raw)
     if cvs and nleg >= 2:
-        s = max(cvs) / 100.0 * statistics.mean(list(per_leg_raw.values()))
-        df = 2 * nleg - 2
-        tcrit = 2.306 if df >= 7 else (2.365 if df >= 4 else 3.182)
-        tpow = 0.889 if df >= 7 else (0.941 if df >= 4 else 1.060)
-        mdd = (tcrit + tpow) * math.sqrt(2.0) * s / math.sqrt(nleg)
+        s_pool = max(cvs) / 100.0 * statistics.mean(list(per_leg_raw.values()))
+        # FIXED 2026-10-01 (expert review): the old threshold was
+        #   (tcrit + tpow) * sqrt(2) * s / sqrt(nleg)
+        # which is a Bonferroni-corrected threshold for ONE PAIRWISE difference,
+        # yet it was being applied to max-minus-min across FOUR means. Six
+        # pairwise comparisons do not need six Bonferroni penalties when the
+        # question asked is the Tukey one "are these k means equal", so the old
+        # limit was too generous and made "flat TO RESOLUTION" easier to
+        # declare. Use the studentized-range critical value for k levels.
+        df = nleg * (k_lev - 1)          # ANOVA-style df for k groups of n
+        mdd = studentized_range_q(k_lev, df) * s_pool / math.sqrt(nleg)
 
     def verdict(spread):
         if spread != spread or mdd != mdd: return "n/a"
