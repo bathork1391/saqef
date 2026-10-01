@@ -1358,5 +1358,81 @@ class TestCgroupSamplerOverhead(unittest.TestCase):
         self.assertIn("stop.wait(sample_s)", sampler)
 
 
+class TestSamplingQualityGate(unittest.TestCase):
+    """'sampling_covered_s' was quoted in the paper as a quality gate, but it
+    CANNOT FAIL: covered summed the dt of every consecutive sample pair plus a
+    synthetic SAMPLE_S tail and was then clamped to wall, so any sampler that
+    merely started before the load and stopped after it read 100%. The real
+    question is whether the sampler went blind mid-window, which is a MAX GAP."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.loader = importlib.machinery.SourceFileLoader(
+            "saqef_harness", os.path.join(REPO, "saqef_harness.py"))
+        spec = importlib.util.spec_from_loader("saqef_harness", cls.loader)
+        cls.h = importlib.util.module_from_spec(spec)
+        cls.loader.exec_module(cls.h)
+
+    @staticmethod
+    def _samples(times):
+        return [(t, {"web": (t, 1.0)}, "cum") for t in times]
+
+    def test_coverage_reads_100pct_even_with_a_10s_blind_stall(self):
+        ts = [i * 0.05 for i in range(20)] + [10.0 + i * 0.05 for i in range(20)]
+        st = self.h.sample_totals(self._samples(ts), ("web",), "fn")
+        span = st.span_s or 1.0
+        coverage_pct = min(st.covered_s, span) / span * 100.0
+        self.assertAlmostEqual(coverage_pct, 100.0, places=1,
+                               msg="this is the defect: coverage is unfailable")
+        self.assertGreater(st.max_gap_s, 9.0,
+                           "but the new max-gap metric must see the stall")
+
+    def test_max_gap_gate_fails_on_a_mid_window_stall(self):
+        ts = [i * 0.05 for i in range(20)] + [3.0 + i * 0.05 for i in range(60)]
+        st = self.h.sample_totals(self._samples(ts), ("web",), "fn")
+        self.assertGreater(st.max_gap_s, 1.0)
+        gate_ok = st.n_samples >= 2 and st.max_gap_s <= 1.0
+        self.assertFalse(gate_ok, "a >1 s blind interval must fail the gate")
+
+    def test_max_gap_gate_passes_on_a_healthy_20hz_stream(self):
+        ts = [i * 0.05 for i in range(101)]
+        st = self.h.sample_totals(self._samples(ts), ("web",), "fn")
+        self.assertEqual(st.n_samples, 101)
+        self.assertAlmostEqual(st.max_gap_s, 0.05, places=3)
+        self.assertAlmostEqual(st.span_s, 5.0, places=3)
+        self.assertTrue(st.n_samples >= 2 and st.max_gap_s <= 1.0)
+
+    def test_single_sample_is_not_a_pass(self):
+        """One sample means the instrument never observed the window."""
+        st = self.h.sample_totals(self._samples([0.0]), ("web",), "fn")
+        self.assertEqual(st.n_samples, 1)
+        gate_ok = st.n_samples >= 2 and st.max_gap_s <= 1.0
+        self.assertFalse(gate_ok, "a single sample must not certify sampling quality")
+
+    def test_synthetic_tail_is_excluded_from_the_gap_metric(self):
+        """The last sample has a synthetic SAMPLE_S tail used for CPU
+        integration. It must not be counted as a real 1.0 s observation."""
+        ts = [i * 0.05 for i in range(21)]        # 1.0 s of real 20 Hz samples
+        st = self.h.sample_totals(self._samples(ts), ("web",), "fn")
+        self.assertLess(st.max_gap_s, 0.1,
+                        "the synthetic final tail must not masquerade as a blind gap")
+
+    def test_summary_records_the_fields_that_can_actually_fail(self):
+        src = open(os.path.join(REPO, "saqef_harness.py")).read()
+        for key in ("sampling_max_gap_s", "sampling_n_samples",
+                    "sampling_span_s", "sampling_rate_hz", "sampling_gap_ok"):
+            self.assertIn('"%s"' % key, src,
+                          "%s must be recorded so coverage is not cited alone" % key)
+        self.assertIn("n_samples >= 2 and max_gap_s <= args.max_sample_gap", src)
+
+    def test_totals_stay_tuple_unpackable(self):
+        """Existing call sites unpack positionally; a wider return must not
+        break them."""
+        st = self.h.sample_totals(self._samples([0.0, 0.05]), ("web",), "fn")
+        six = st[:6]
+        self.assertEqual(len(six), 6)
+        self.assertEqual(st.n_samples, 2)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

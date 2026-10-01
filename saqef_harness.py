@@ -27,6 +27,7 @@ Outputs (into --outdir):
 
 import argparse
 import base64
+import collections
 import csv
 import io
 import json
@@ -54,6 +55,13 @@ CPU_EMBODIED_G_PER_CORE = 653.0  # gCO2 per CPU core, embodied
 LIFESPAN_YEARS = 5
 SAMPLE_S = 1.0               # nominal sampling interval
 RAPL_DIR = "/sys/class/powercap"
+
+# sample_totals() returns these; a namedtuple keeps the existing tuple-unpacking
+# call sites working while giving the new gap diagnostics real field names.
+SampleTotals = collections.namedtuple(
+    "SampleTotals",
+    "cp_cpu_s fn_cpu_s cp_peak_mem_mb covered_s csv_rows unclass_cpu_s "
+    "max_gap_s n_samples span_s")
 
 
 # ---------------------------------------------------------------------------
@@ -938,7 +946,9 @@ def cgroup_sampler(samples, stop, first_sample, rescan_s=0.25, sample_s=0.05):
 
 def sample_totals(samples, cp_sub, fn_sub="", cp_members=None, fn_members=None,
                   fn_allow_configured=False):
-    """Reduce raw samples to (cp_cpu_s, fn_cpu_s, cp_peak_mem_mb, covered_s, csv_rows, unclass_cpu_s).
+    """Reduce raw samples to a SampleTotals namedtuple:
+    (cp_cpu_s, fn_cpu_s, cp_peak_mem_mb, covered_s, csv_rows, unclass_cpu_s,
+     max_gap_s, n_samples, span_s).
     'cum' samples (cgroup): exact — consecutive cumulative deltas; the rate/dt
     normalization is irrelevant to the total, so irregular cadence cannot bias it.
     'pct' samples (docker stats): rate x elapsed as before.
@@ -952,17 +962,31 @@ def sample_totals(samples, cp_sub, fn_sub="", cp_members=None, fn_members=None,
     container can never silently inflate fn_cpu -- even if the allowlist matched
     nothing (fail-open, so a wrong --fn-images is loud, not silently ignored).
     cp_members/fn_members are sets of container names matched by image/label
-    allowlists in run_once."""
+    allowlists in run_once.
+
+    max_gap_s/n_samples/span_s exist because 'coverage' as previously defined
+    CANNOT FAIL: covered summed the dt of every consecutive pair (including a
+    synthetic SAMPLE_S tail for the last sample) and was then clamped to wall,
+    so any sampler that merely started before the load and stopped after it read
+    100%. The real question is whether the sampler went blind mid-window, which
+    is a MAX GAP, not a total."""
     cp_cpu = fn_cpu = unclass = 0.0
     cp_mem = 0.0
     covered = 0.0
+    max_gap = 0.0
+    n_samples = len(samples)
     fn_allow_active = fn_allow_configured or bool(fn_sub or fn_members)
     prev = {}
     csv_rows = []
     for i, (t, snap, mode) in enumerate(samples):
-        tnext = samples[i + 1][0] if i + 1 < len(samples) else t + SAMPLE_S
+        last = i + 1 >= len(samples)
+        tnext = samples[i + 1][0] if not last else t + SAMPLE_S
         dt = max(tnext - t, 0.01)
         covered += dt
+        # The synthetic SAMPLE_S tail is not a real observation, so it must not
+        # be able to masquerade as a healthy cadence.
+        if not last:
+            max_gap = max(max_gap, tnext - t)
         for name, (v, mem) in snap.items():
             if mode == "cum":
                 cum = v
@@ -989,7 +1013,9 @@ def sample_totals(samples, cp_sub, fn_sub="", cp_members=None, fn_members=None,
                     unclass += cpu_sec
             else:
                 fn_cpu += cpu_sec
-    return cp_cpu, fn_cpu, cp_mem, covered, csv_rows, unclass
+    span_s = (samples[-1][0] - samples[0][0]) if n_samples else 0.0
+    return SampleTotals(cp_cpu, fn_cpu, cp_mem, covered, csv_rows, unclass,
+                        max_gap, n_samples, span_s)
 
 
 def start_sampler(mode="docker", rescan_s=0.25, sample_s=0.05):
@@ -1202,7 +1228,8 @@ def run_once(args, cp_sub):
     fn_members = {n for n, (img, lbls) in inv.items()
                   if _class_matches(n, img, lbls, (), args.fn_images, args.fn_labels)}
     fn_allow_configured = bool(args.fn_containers or args.fn_images or args.fn_labels)
-    cp_cpu_s, fn_cpu_s, cp_peak_mem_mb, covered_s, csv_rows, unclass_cpu_s = sample_totals(
+    (cp_cpu_s, fn_cpu_s, cp_peak_mem_mb, covered_s, csv_rows, unclass_cpu_s,
+     max_gap_s, n_samples, span_s) = sample_totals(
         samples, cp_sub, args.fn_containers, cp_members, fn_members,
         fn_allow_configured=fn_allow_configured)
     if fn_allow_configured and not (args.fn_containers or fn_members):
@@ -1217,6 +1244,14 @@ def run_once(args, cp_sub):
     if unclass_cpu_s > 0.5:
         print("WARNING: %.1f CPU-s fell outside both cp and fn containers "
               "(stray container?) - see container_inventory / container_labels" % unclass_cpu_s)
+    if n_samples < 2:
+        print("ERROR: only %d sample(s) collected - the sampler did not observe the window "
+              "and NO cpu attribution from this run can be trusted" % n_samples)
+    elif max_gap_s > args.max_sample_gap:
+        print("WARNING: sampler went blind for %.2f s mid-window (limit %.2f s) at ~%.1f Hz; "
+              "CPU accrued during that gap is still counted from cumulative counters, but "
+              "peak memory and any rate-derived quantity are unreliable"
+              % (max_gap_s, args.max_sample_gap, n_samples / span_s if span_s else 0))
     all_snaps = []
     for t, name, pct, mem in csv_rows:
         if all_snaps and all_snaps[-1][0] == t:
@@ -1360,6 +1395,18 @@ def run_once(args, cp_sub):
         "wall_s": round(wall, 2),
         "wall_harness_s": round(wall_harness, 2),
         "sampling_covered_s": round(covered_s, 2),
+        # sampling_covered_s CANNOT FAIL and must not be cited as validation:
+        # it summed the dt of every consecutive sample pair plus a synthetic
+        # SAMPLE_S tail and was then clamped to wall, so any sampler that merely
+        # started before the load and stopped after it reads 100%. The fields
+        # below are the ones that actually say whether the instrument stayed
+        # awake: max_gap_s is the longest blind interval, n_samples/span_s give
+        # the achieved rate, and sampling_gap_ok is the gate that can fail.
+        "sampling_max_gap_s": round(max_gap_s, 3),
+        "sampling_n_samples": n_samples,
+        "sampling_span_s": round(span_s, 2),
+        "sampling_rate_hz": round(n_samples / span_s, 2) if span_s > 0 else None,
+        "sampling_gap_ok": bool(n_samples >= 2 and max_gap_s <= args.max_sample_gap),
         # total_requested lets a gate check "did this run finish its count-bound
         # protocol" after the fact (requests can fall short of it on a loadgen
         # timeout/fallback, e.g. the 2026-08-13 OpenWhisk --duration regression,
@@ -1602,7 +1649,7 @@ def verify(args, cp_sub):
     def pct(p):
         return lats[min(len(lats) - 1, int(len(lats) * p))] if lats else float("nan")
 
-    cp_cpu_s, fn_cpu_s, _, _, _, _ = sample_totals(samples, cp_sub, args.fn_containers)
+    cp_cpu_s, fn_cpu_s = sample_totals(samples, cp_sub, args.fn_containers)[:2]
 
     ms_per_inv = (fn_cpu_s / ok * 1000.0) if ok else None
     result = {
@@ -1709,6 +1756,10 @@ def main():
     ap.add_argument("--sample-s", type=float, default=0.05,
                     help="cgroup read cadence for the cgroup sampler (default 20 Hz; CPU is "
                          "differenced from cumulative counters so high rates only cost host CPU)")
+    ap.add_argument("--max-sample-gap", type=float, default=1.0,
+                    help="fail/warn if the sampler went blind for longer than this many seconds "
+                         "mid-window (the real sampling-quality gate; replaces the "
+                         "cannot-fail 'coverage 100%%' figure)")
     ap.add_argument("--loadgen", default="py", choices=["py", "hey"],
                     help="load generator: py (stdlib threads) or hey (Go binary, low host footprint)")
     ap.add_argument("--interarrival-ms", type=float, default=0.0,
