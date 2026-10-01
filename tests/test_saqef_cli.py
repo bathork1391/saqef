@@ -1052,8 +1052,83 @@ class TestSingleRunArtifactShape(unittest.TestCase):
         rc, txt = self._multi_run_gate(reps, repeat="7", discard="2")
         self.assertIn("discarded warm-up run(s): run_1, run_2", txt)
         self.assertNotIn("DRIFT", txt)
-        rc, meta_txt = self._multi_run_gate(reps, repeat="7", discard="2")
-        self.assertEqual(rc, 0, "post-warm-up leg must pass: %s" % meta_txt)
+        self.assertEqual(rc, 0, "post-warm-up leg must pass: %s" % txt)
+
+    # ---- sampling-gap gate ------------------------------------------------
+    # sample_totals() already sets sampling_gap_ok=False when the CPU sampler
+    # went blind for longer than --max-sample-gap. That flag only WARNED, so a
+    # run with a multi-second stall inside the measurement window could still be
+    # cited on per-invocation CPU figures the instrument never actually saw.
+    def _gap_gate(self, over, gap="1.0"):
+        reps = [dict(self._base_summary(), throughput_rps=r, **over) for r in
+                (56.0, 55.0, 57.0, 56.5, 55.5)]
+        block = self._block(self.LOCK, "lock summary written")
+        with tempfile.TemporaryDirectory() as td:
+            out = os.path.join(td, "results", "openwhisk_cpubound_lock_X")
+            os.makedirs(out)
+            os.makedirs(os.path.join(td, "results", "lock_session_X"))
+            for i, o in enumerate(reps, 1):
+                d = os.path.join(out, "run_%d" % i)
+                os.makedirs(d)
+                with open(os.path.join(d, "summary.json"), "w") as f:
+                    json.dump(o, f)
+            with open(os.path.join(out, "summary.json"), "w") as f:
+                json.dump(self._base_summary(), f)
+            with open(os.path.join(out, "runs.json"), "w") as f:
+                json.dump(reps, f)
+            return self._run(block, td, "X", "ow", "5",
+                             "4.235", "4.249", "5.739", "4.882", "20", "0", gap)
+
+    def test_gate_rejects_a_run_whose_sampler_went_blind(self):
+        rc, txt = self._gap_gate({"sampling_gap_ok": False,
+                                  "sampling_max_gap_s": 4.2})
+        self.assertNotEqual(rc, 0,
+                            "a run with a 4.2 s blind interval is not citable: %s" % txt)
+        self.assertIn("SAMPLING GAP 4.20s (limit 1.00s", txt)
+
+    def test_gate_accepts_a_run_whose_sampling_was_continuous(self):
+        rc, txt = self._gap_gate({"sampling_gap_ok": True,
+                                  "sampling_max_gap_s": 0.06})
+        self.assertEqual(rc, 0, "continuous sampling must pass: %s" % txt)
+        self.assertNotIn("SAMPLING GAP", txt)
+
+    def test_missing_sampling_key_does_not_fail_pre_existing_datasets(self):
+        """Every committed dataset predates these keys and reads None. They must
+        not be retroactively failed, or the gate is unusable on history."""
+        rc, txt = self._gap_gate({})
+        self.assertEqual(rc, 0,
+                         "absent sampling keys must not fail the gate: %s" % txt)
+        self.assertNotIn("SAMPLING GAP", txt)
+
+    def test_sampling_gate_threshold_is_configurable(self):
+        """A wide threshold must actually admit a run that the 1.0 s default
+        rejects, or the option is decorative."""
+        rc, txt = self._gap_gate({"sampling_gap_ok": False,
+                                  "sampling_max_gap_s": 4.2}, gap="5.0")
+        self.assertEqual(rc, 0, "--max-sample-gap 5.0 must admit a 4.2 s gap: %s" % txt)
+
+    def test_gate_threshold_overrides_a_green_harness_boolean(self):
+        """The harness sets sampling_gap_ok against ITS OWN --max-sample-gap. If
+        the gate trusted that boolean, a session run with a loose harness
+        threshold would sail through the gate's strict one. The gate must
+        re-check the measured number."""
+        rc, txt = self._gap_gate({"sampling_gap_ok": True,   # harness said fine
+                                  "sampling_max_gap_s": 4.2})  # but 4.2 s > 1.0
+        self.assertNotEqual(rc, 0,
+                            "the gate must judge the measured gap, not inherit "
+                            "the harness's verdict: %s" % txt)
+        self.assertIn("SAMPLING GAP 4.20s", txt)
+
+    def test_sampling_gap_exactly_at_the_limit_passes(self):
+        """Boundary: the limit is inclusive. A gap of exactly max_sample_gap is
+        tolerated; one hair over is not. Without pinning this, `>` silently
+        becomes `>=` and a perfectly tuned session starts failing."""
+        rc, txt = self._gap_gate({"sampling_gap_ok": True,
+                                  "sampling_max_gap_s": 1.0}, gap="1.0")
+        self.assertEqual(rc, 0, "a gap exactly at the limit must pass: %s" % txt)
+        rc, txt = self._gap_gate({"sampling_gap_ok": True,
+                                  "sampling_max_gap_s": 1.0001}, gap="1.0")
+        self.assertNotEqual(rc, 0, "a hair over the limit must fail: %s" % txt)
 
     def test_discard_warmup_survives_into_the_lock_summary(self):
         # The discard must be recorded, or a later reader cannot tell that the

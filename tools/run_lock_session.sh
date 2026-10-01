@@ -66,6 +66,11 @@ DEPLOY_ONLY=0            # deploy+verify the platform(s), then teardown -- EXACT
 REQUESTS_PER_RUN=3000    # harness --total for the DEPLOY_ONLY pilot bench
 OW_DURATION=300          # OpenWhisk loadgen duration cap (default 300; see run_leg)
 MAX_DRIFT_PCT=20         # gate: >this% throughput loss from run_1 to run_N fails the
+                         # leg. Only meaningful for the repeat sweep; the
+                         # deploy-only pilot bench gets a single snapshot.
+MAX_SAMPLE_GAP_S=1.0     # gate: >this worst gap between CPU samples fails the
+                         # run. Must match the harness --max-sample-gap default;
+                         # set by --max-sample-gap.
                          # leg. 20% is ~4x the best observed legitimate run-to-run
                          # spread on a healthy leg, so it only trips on real decay.
 CPU_PROBE_S=0            # >0: after the bench, run one native --idle-probe of CPU_PROBE_S
@@ -107,6 +112,8 @@ while [ "$i" -lt "$#" ]; do
         --ow-duration) i=$((i + 1)); [ "$i" -ge "$#" ] && { echo "--ow-duration needs a value" >&2; exit 2; }; OW_DURATION="${args[$i]}" ;;
         --ow-duration=*) OW_DURATION="${arg#*=}" ;;
         --max-drift-pct) i=$((i + 1)); [ "$i" -ge "$#" ] && { echo "--max-drift-pct needs a value" >&2; exit 2; }; MAX_DRIFT_PCT="${args[$i]}" ;;
+        --max-sample-gap) i=$((i + 1)); [ "$i" -ge "$#" ] && { echo "--max-sample-gap needs a value" >&2; exit 2; }; MAX_SAMPLE_GAP_S="${args[$i]}" ;;
+        --max-sample-gap=*) MAX_SAMPLE_GAP_S="${arg#*=}" ;;
         --max-drift-pct=*) MAX_DRIFT_PCT="${arg#*=}" ;;
         --cpu-probe) i=$((i + 1)); [ "$i" -ge "$#" ] && { echo "--cpu-probe needs a value" >&2; exit 2; }; CPU_PROBE_S="${args[$i]}" ;;
         --cpu-probe=*) CPU_PROBE_S="${arg#*=}" ;;
@@ -469,7 +476,7 @@ if [ "$DRY_RUN" = 1 ]; then
     exit 0
 fi
 banner "gate validation + lock summary"
-python3 - "$REPO" "$STAMP" "$PLATFORMS" "$REPEAT" "$IDLE_OF" "$IDLE_FN" "$IDLE_KN" "$IDLE_OW" "$MAX_DRIFT_PCT" "$DISCARD_WARMUP" <<'PY'
+python3 - "$REPO" "$STAMP" "$PLATFORMS" "$REPEAT" "$IDLE_OF" "$IDLE_FN" "$IDLE_KN" "$IDLE_OW" "$MAX_DRIFT_PCT" "$DISCARD_WARMUP" "$MAX_SAMPLE_GAP_S" <<'PY'
 import glob, json, os, statistics, sys
 repo, stamp, platforms, repeat, w_of, w_fn, w_kn, w_ow = sys.argv[1:9]
 # max_drift_pct is the 9th arg, appended after the existing 8 so that callers
@@ -481,6 +488,9 @@ max_drift = float(sys.argv[9]) if len(sys.argv) > 9 else 20.0
 # first repeat an outlier that inflates within-leg variance (OpenWhisk share SD
 # at c=1: 4.09 with run_1, 0.29 without).
 discard_warmup = int(sys.argv[10]) if len(sys.argv) > 10 else 0
+# max_sample_gap_s is the 11th arg, same convention. Gate threshold for the real
+# worst interval the CPU sampler went blind for; must match --max-sample-gap.
+max_sample_gap_s = float(sys.argv[11]) if len(sys.argv) > 11 else 1.0
 w = {"openfaas": w_of, "fn": w_fn, "knative": w_kn, "openwhisk": w_ow}
 order = {"openfaas": "OpenFaaS", "fn": "Fn", "knative": "Knative", "openwhisk": "OpenWhisk"}
 # short codes used by --platforms (of,fn,kn,ow), matching run_lock_session.sh's own case-statement matching
@@ -533,6 +543,26 @@ for plat in [p for p in ("openfaas", "fn", "knative", "openwhisk") if short[p] i
         re_ = r.get("rapl_validation_err_pct")
         if re_ is not None and re_ > 15.0:
             problems.append("%s RAPL FIT %.1f%% (>15%%, NOT citable)" % (nm, re_))
+        # SAMPLING QUALITY gate. sample_totals() computes the real worst gap
+        # between CPU samples and sets sampling_gap_ok=False when it exceeds the
+        # harness's --max-sample-gap. The harness only WARNED on that, so a leg
+        # with a multi-second stall in the middle of the measurement window
+        # could still be cited -- the per-invocation CPU figures would be
+        # averaged over an interval the instrument never actually saw.
+        #
+        # The gate compares the MEASURED gap against its OWN --max-sample-gap
+        # rather than trusting sampling_gap_ok, which already embeds the
+        # harness's threshold: trusting the boolean would make the gate's
+        # threshold decorative. The boolean is used only when no number is
+        # available. Only a definite failure fails; absent keys stay silent so
+        # pre-2026-10-01 datasets are unaffected.
+        gap_s = r.get("sampling_max_gap_s")
+        gap_bad = (gap_s is not None and gap_s > max_sample_gap_s) \
+            or (gap_s is None and r.get("sampling_gap_ok") is False)
+        if gap_bad:
+            problems.append("%s SAMPLING GAP %s (limit %.2fs, window not covered)" % (
+                nm, ("%.2fs" % gap_s) if gap_s is not None else "unknown",
+                max_sample_gap_s))
         # runbook #6/#12: a run cut short by the loadgen kill-switch completes
         # fewer requests than asked for and/or silently falls back to the python
         # loadgen. Both used to print OK (nothing checked either) -- see the
@@ -613,6 +643,7 @@ else:
                  "Do not read this as a fresh calibration." % os.path.relpath(calib_dir, repo))
 meta = {"stamp": stamp, "platforms": order, "idle_w_by_platform": w,
         "max_drift_pct": max_drift,
+        "max_sample_gap_s": max_sample_gap_s,
         "discard_warmup": discard_warmup,
         "usable_runs_per_leg": int(repeat) - discard_warmup,
         "idle_w_provenance": idle_note,
