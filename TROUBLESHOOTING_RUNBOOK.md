@@ -624,3 +624,44 @@ session that produced the earlier concurrency data.
 symlink to the newest session so existing references still resolve, and anything
 regular already sitting at that path is dated and moved aside rather than
 overwritten. No measurement semantics change.
+
+## 22. Two different clocks in the attribution window (fixed 2026-10-01)
+
+**Symptoms.** `cp_cpu_s` = 0, `fn_cpu_s` = 0, `covered_s` = 0 — from a run that
+clearly produced samples and clearly served requests. The lock session's sampling-gap
+gate **passes anyway**, because it only inspects gaps *inside* a window and an empty
+window contains no gaps. So the one gate that was supposed to catch a broken sampler
+is structurally incapable of catching this particular breakage.
+
+**Cause.** The sampler stamps every sample with `time.time()` — epoch seconds
+(`saqef_harness.py:962`, and `:771` for the pct-mode sampler). `run_once()` built the
+attribution window from `time.perf_counter()` — seconds since boot. The two differ by
+~1.76e9 on this box, so `window=(t0, t0 + wall)` shared no number with any sample
+timestamp and every interval tested as "entirely outside the load".
+
+**Fix (`908bece`).** Keep both clocks and give each the job it is good at:
+
+```python
+t0       = time.perf_counter()   # wall only -- monotonic, so a mid-run NTP
+                                  # step cannot corrupt the duration
+t0_epoch = time.time()           # the window -- same base as the samples
+...
+window=(t0_epoch, t0_epoch + wall)
+```
+
+Both are read together before the load starts, so the window begins at or before the
+first sample and the pre-load overhang remains clippable.
+
+**Why the test suite could not see it — the general lesson.** Every window test
+constructed its window in the same numeric space as the timestamps it handed to
+`sample_totals()`. Nothing exercised the real `run_once()` → `sample_totals()` path
+with raw clocks. A test that supplies both sides of an interface cannot detect a
+mismatch between them; only a test that takes its values from the *producers* can.
+Two tests now pin this: one asserts `run_once()` pairs the epoch base with
+`time.time()`, and one drives `sample_totals()` with raw `time.time()` and
+`time.perf_counter()` values to show that a boot-based window attributes exactly
+nothing.
+
+**Scope of the damage.** Introduced with the window clip (`c22dff9`), so the clip
+itself had never run against real data — it could only ever have returned zero. No
+measurement was taken while the bug was live.
