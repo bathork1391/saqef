@@ -665,3 +665,79 @@ nothing.
 **Scope of the damage.** Introduced with the window clip (`c22dff9`), so the clip
 itself had never run against real data — it could only ever have returned zero. No
 measurement was taken while the bug was live.
+
+## 23. Two silent analysis errors that nearly cost a full re-measurement campaign (2026-10-01)
+
+Both errors were mine, made while triaging §21/§22, and both produced a confident
+wrong answer. They are recorded because the failure mode is general, not because
+the numbers mattered.
+
+### 23.1 A field that is a total was read as a rate — 60× error
+
+`idle_probe_*/*/summary.json` → `cpu_sec` is a **total over the probe's `wall_s`
+(60 s)**, not a per-second rate. It was read as cpu-s/s.
+
+```
+Knative fn : read "0.40 cpu-s/s"  ->  actually 0.40/60 = 0.0067 cores
+OpenWhisk  : read "2.37 cpu-s/s"  ->  actually 2.18/60 = 0.036 cores
+```
+
+Every bias estimate that multiplied an overhang duration by this number was
+inflated ~60×. The tell was internal: the analysis produced "a 12.3 pp bias on a
+12.10 % share", which requires a 2 s overhang to have burned more CPU than the
+entire 3.8 s load on an 8-core box. **A bias larger than the signal it corrects
+is a units bug, not a finding.**
+
+Related trap in the same field family: `orchestration_cpu_sec` is
+`host_cpu_sec − fn_cpu_s` (harness:1403) and includes kernel, dockerd and the
+sampler — it is *not* `cp + fn`. The correct denominator for a dynamic share is
+`cpu_sec.control_plane + cpu_sec.function`. Using the wrong one put the
+reconstruction ratio at 1.75× and made a working method look broken.
+
+**Rule adopted:** before trusting any derived quantity, print the field next to
+the run's own `wall_s` and ask whether the magnitude is physically possible. A
+total and a rate in the same JSON are the most common source of this.
+
+### 23.2 A salvage triage was decided by a 3-sample MAD
+
+Biases were compared against the median absolute deviation of n=3 runs. n=3 MAD
+is dominated by sampling noise; judging a systematic bias against it is
+noise-on-noise and produced a verdict ("247× noise", "redo everything") that the
+re-attribution later disproved.
+
+**Rule adopted:** compare the bias to **the contrast the claim actually rests
+on** — e.g. a c=1→c=16 share difference of ~2 pp — not to a noise estimate. If the
+bias is small against the contrast, the claim survives.
+
+### 23.3 The re-attribution that settled it (`tools/legacy_reattribute.py`)
+
+No re-measurement campaign was needed. `samples.csv` retains, per sample instant
+and per container, the interval CPU rate the old code computed
+(`pct = Δcum/(t[i+1]−t[i]) × 100`), which integrates back to the stored totals:
+257 of 269 committed legs rebuild to a median error of **0.024 %** (max 0.99 %).
+The tool refuses to report a number it cannot reproduce (`--verify` exits
+non-zero), solves the fn allowlist against each run's own stored total rather
+than assuming one, and reports `unclassifiable` rather than guessing.
+
+Result: the window clip shifts `cp_dynamic_share_pct` **upward** on 222/257 legs
+(median +0.36 pp, max +1.85 pp) — upward as §22's idle-dominance argument
+predicts.
+
+**The finding that mattered, and which no amount of noise-yardstick discussion
+would have surfaced:** the shift is *not constant across concurrency*
+(OpenFaaS +1.13, +0.63, +0.25, +0.27 pp at c=1/2/8/16). A constant bias is
+harmless; a bias that varies along the axis of comparison manufactures trend.
+Consequences:
+
+- **OpenFaaS: the c=1→c=16 contrast collapses** from 0.75 pp to 0.11 pp
+  (15 % retained). The "flat within ~1–2 pp" claim survives on OpenFaaS only
+  because the corrected range is 1.67 pp — but the specific c=1 vs c=16
+  comparison does not.
+- **Fn and Knative keep their contrasts** (161 % and 120 % retained) and keep the
+  same shape, though Fn's minimum moves c=2 → c=8 and Knative's flattens
+  (c=2→c=16 goes +0.11 → −0.08 pp).
+- **The cross-platform ordering OF < Fn < Knative holds at every concurrency**,
+  which is the paper's central claim and is untouched.
+- Paper §5.3's "flat within ~1–2 pp on every platform" becomes **false as
+  written**: re-attributed ranges are 1.67 pp (OF), 2.42 pp (Kn), 3.68 pp (Fn).
+  The claim needs restating per platform, not defending as a single number.
