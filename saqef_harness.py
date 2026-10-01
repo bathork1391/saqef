@@ -667,43 +667,45 @@ def cp_cgroup_reader(cp_sub):
 
 
 # ---------------------------------------------------------------------------
-def container_cgroup_dir(cid):
-    """cgroup dir for a container, or None (cgroup v1 'cpu' or v2 unified)."""
+def container_cgroup_dirs(cid):
+    """(cpu_dir, mem_dir) for a container from ONE 'docker inspect'.
+
+    The CPU and memory dirs both come from the same /proc/<pid>/cgroup file, so
+    a single PID lookup suffices. Returns (None, None) if the PID is
+    unavailable or the file cannot be parsed. cgroup v1 'cpu'/'memory'
+    controller hierarchies and the v2 unified hierarchy are both handled.
+    """
     pid = run("docker inspect -f '{{.State.Pid}}' %s" % cid).stdout.strip()
     if not pid or not pid.isdigit():
-        return None
+        return None, None
+    cdir = mdir = None
     try:
         with open("/proc/%s/cgroup" % pid) as f:
             for line in f:
                 parts = line.strip().split(":")
-                if len(parts) == 3:
-                    if parts[1] in ("cpu", "cpu,cpuacct", "cpuacct"):
-                        return "/sys/fs/cgroup/" + parts[1] + parts[2]
-                    if parts[1] == "":
-                        return "/sys/fs/cgroup" + parts[2]  # v2 unified
+                if len(parts) != 3:
+                    continue
+                if parts[1] == "":  # v2 unified
+                    u = "/sys/fs/cgroup" + parts[2]
+                    return (cdir or u), (mdir or u)
+                if cdir is None and parts[1] in ("cpu", "cpu,cpuacct", "cpuacct"):
+                    cdir = "/sys/fs/cgroup/" + parts[1] + parts[2]
+                if mdir is None and "memory" in parts[1]:
+                    mdir = "/sys/fs/cgroup/" + parts[1] + parts[2]
     except Exception:
         pass
-    return None
+    return cdir, mdir
+
+
+def container_cgroup_dir(cid):
+    """cgroup dir for a container, or None (cgroup v1 'cpu' or v2 unified)."""
+    return container_cgroup_dirs(cid)[0]
 
 
 def container_mem_cgroup_dir(cid):
     """cgroup dir for a container's memory controller, or None.
     v2: unified dir (same as cpu). v1: 'memory' controller hierarchy."""
-    pid = run("docker inspect -f '{{.State.Pid}}' %s" % cid).stdout.strip()
-    if not pid or not pid.isdigit():
-        return None
-    try:
-        with open("/proc/%s/cgroup" % pid) as f:
-            for line in f:
-                parts = line.strip().split(":")
-                if len(parts) == 3:
-                    if parts[1] == "":
-                        return "/sys/fs/cgroup" + parts[2]  # v2 unified
-                    if "memory" in parts[1]:
-                        return "/sys/fs/cgroup/" + parts[1] + parts[2]
-    except Exception:
-        pass
-    return None
+    return container_cgroup_dirs(cid)[1]
 
 
 def read_cpu_cumulative(cdir):
@@ -736,10 +738,11 @@ def read_mem_mb(cdir):
     return 0.0
 
 
-def docker_sampler(samples, stop, first_sample, rescan_s=0.25):
+def docker_sampler(samples, stop, first_sample, rescan_s=0.25, sample_s=0.05):
     """Streaming `docker stats` sampler (~1 Hz). Samples: (t, {name: (cpu_pct, mem_mb)}).
-    rescan_s is unused here (docker stats streams all containers continuously);
-    it exists so start_sampler can pass the same arg tuple to either sampler."""
+    rescan_s/sample_s are unused here (docker stats streams all containers
+    continuously); they exist so start_sampler can pass the same arg tuple to
+    either sampler."""
     proc = None
     try:
         proc = subprocess.Popen(
@@ -787,7 +790,43 @@ def docker_sampler(samples, stop, first_sample, rescan_s=0.25):
         pass
 
 
-def cgroup_sampler(samples, stop, first_sample, rescan_s=0.25):
+_CGROUP_SCOPE_RE = re.compile(r"^(?:docker|crio|libpod)-([0-9a-f]{64})\.scope$")
+
+
+def discover_cgroup_container_dirs(root="/sys/fs/cgroup", max_depth=6):
+    """Discover (container_id, cgroup_dir) pairs by walking the cgroup tree.
+
+    A container's cgroup directory is already named after its ID, so this needs
+    no subprocess at all -- 'docker ps' costs ~60 ms of host CPU per call, and
+    paying that 4x/s made the instrument itself a multi-core load. Only the
+    cgroup v2 unified layout is recognised here; callers fall back to
+    'docker ps' when this returns nothing (e.g. cgroup v1 hierarchies, or a
+    runtime whose cgroup dirs are not visible under root).
+    """
+    out = []
+    if not os.path.isdir(root):
+        return out
+    for dirpath, dirnames, _ in os.walk(root):
+        if dirpath[len(root):].count(os.sep) >= max_depth:
+            dirnames[:] = []
+        keep = []
+        for d in dirnames:
+            m = _CGROUP_SCOPE_RE.match(d)
+            if m:
+                out.append((m.group(1), os.path.join(dirpath, d)))
+            else:
+                keep.append(d)
+        dirnames[:] = keep
+    return out
+
+
+def container_name(cid):
+    """Container name (leading '/' stripped) for an ID, or None."""
+    out = run("docker inspect -f '{{.Name}}' %s" % cid).stdout.strip()
+    return out.lstrip("/") if out else None
+
+
+def cgroup_sampler(samples, stop, first_sample, rescan_s=0.25, sample_s=0.05):
     """Direct cpu.stat + memory.current sampler. Stores RAW cumulative CPU
     seconds and current mem MB per container ('cum' samples); the consumer
     differences cumulative CPU using true timestamps, so the result is exact
@@ -795,19 +834,71 @@ def cgroup_sampler(samples, stop, first_sample, rescan_s=0.25):
     spurious wakeups). Bails on the FIRST scan if any container cannot be
     mapped -> caller falls back to the docker sampler.
     rescan_s bounds the blind spot for containers that are born and die between
-    two rescans (shrink for scale-to-zero platforms with ephemeral containers)."""
-    def scan():
-        out = run("docker ps --format '{{.ID}}|{{.Names}}'")
-        if out.returncode != 0:
-            return None
-        d = {}
-        for line in out.stdout.strip().splitlines():
-            cid, _, cname = line.partition("|")
-            cdir = container_cgroup_dir(cid.strip())
-            mdir = container_mem_cgroup_dir(cid.strip())
-            if cdir is None:
+    two rescans (shrink for scale-to-zero platforms with ephemeral containers).
+    sample_s is the cgroup-read cadence; it is a real host cost (two file reads
+    per container per sample) and buys nothing above ~20 Hz, because CPU is
+    recovered by differencing cumulative counters rather than by integrating a
+    rate. The old fixed 0.01 s wait pinned the sampler near 100 Hz.
+
+    Container discovery is a pure cgroup-filesystem walk, and each container's
+    name is resolved with at most one 'docker inspect' for its whole lifetime
+    (cached by ID). The original loop instead ran 'docker ps' plus two
+    'docker inspect' subprocesses for every container on every scan, which cost
+    ~3 cores of host CPU -- CPU attributed to no measured cgroup, so it never
+    showed up in cp/fn, but it inflated host_saturation_pct, polluted the
+    host-residual check, and stole ~40% of the box from the system under test."""
+    cache = {}  # container ID -> (name, cpu_cgroup_dir, mem_cgroup_dir)
+
+    def resolve(cid, cdir=None):
+        """Cached name+cgroup lookup. One inspect per container ID, ever."""
+        hit = cache.get(cid)
+        if hit is None:
+            c2, m2 = container_cgroup_dirs(cid)
+            if c2 is None:
                 return None
-            d[cname.strip()] = (cdir, mdir)
+            nm = container_name(cid)
+            if not nm:
+                return None
+            hit = (nm, c2, m2)
+            cache[cid] = hit
+        return hit
+
+    def scan():
+        d = {}
+        live = set()
+        found = discover_cgroup_container_dirs()
+        if found:
+            for cid, cdir in found:
+                hit = cache.get(cid)
+                if hit is None:  # new container: one inspect, then cached
+                    nm = container_name(cid)
+                    if not nm:
+                        return None
+                    hit = (nm, cdir, cdir)  # cgroup v2: unified cpu+memory
+                    cache[cid] = hit
+                live.add(cid)
+                d[hit[0]] = (hit[1], hit[2])
+        else:
+            # cgroup v1 / non-standard layout: fall back to asking docker.
+            out = run("docker ps --format '{{.ID}}|{{.Names}}'")
+            if out.returncode != 0:
+                return None
+            for line in out.stdout.strip().splitlines():
+                cid, _, cname = line.partition("|")
+                cid = cid.strip()
+                if not cid:
+                    continue
+                hit = resolve(cid)
+                if hit is None:
+                    return None
+                live.add(cid)
+                d[cname.strip()] = (hit[1], hit[2])
+        if not d:
+            return None
+        # Bound the cache: a container ID is never reused, so anything absent
+        # from this scan is dead and can be dropped outright.
+        for dead in [k for k in cache if k not in live]:
+            del cache[dead]
         return d
 
     dirs = scan()
@@ -830,7 +921,7 @@ def cgroup_sampler(samples, stop, first_sample, rescan_s=0.25):
         if snap:
             samples.append((t, snap, "cum"))
             first_sample.set()
-        stop.wait(0.01)
+        stop.wait(sample_s)
     # Flush a final sample at stop time: on a saturated host the last scheduled
     # rescan can be starved past the window end, which truncated coverage on
     # fresh-reset runs (93.6%/92.9% on runs 1-2). A final read closes the gap
@@ -901,12 +992,13 @@ def sample_totals(samples, cp_sub, fn_sub="", cp_members=None, fn_members=None,
     return cp_cpu, fn_cpu, cp_mem, covered, csv_rows, unclass
 
 
-def start_sampler(mode="docker", rescan_s=0.25):
+def start_sampler(mode="docker", rescan_s=0.25, sample_s=0.05):
     """Start a background sampler. Returns (samples, stop, first_sample, thread).
     cgroup mode that cannot map containers returns (None,)*4 -> caller falls back."""
     samples, stop, first_sample = [], threading.Event(), threading.Event()
     target = cgroup_sampler if mode == "cgroup" else docker_sampler
-    th = threading.Thread(target=target, args=(samples, stop, first_sample, rescan_s), daemon=True)
+    th = threading.Thread(target=target, args=(samples, stop, first_sample, rescan_s, sample_s),
+                          daemon=True)
     th.start()
     first_sample.wait(timeout=6)
     if not first_sample.is_set():
@@ -1028,7 +1120,7 @@ def run_once(args, cp_sub):
     # for the whole window in every citable run), but structurally fragile.
     inv_before = docker_inventory()
     rapl_start = rapl_energy()
-    samples, stop, first_sample, th = start_sampler(args.sampler, args.rescan_s)
+    samples, stop, first_sample, th = start_sampler(args.sampler, args.rescan_s, args.sample_s)
     if th is None:
         print("WARNING: %s sampler unavailable -> falling back to docker stats" % args.sampler)
         args.sampler = "docker"
@@ -1494,7 +1586,7 @@ def verify(args, cp_sub):
         headers = {"Authorization": "Basic " + base64.b64encode(
             ("%s:%s" % (user, pw)).encode()).decode()}
     os.makedirs(args.outdir, exist_ok=True)
-    samples, stop, first_sample, th = start_sampler(args.sampler, args.rescan_s)
+    samples, stop, first_sample, th = start_sampler(args.sampler, args.rescan_s, args.sample_s)
     if th is None:
         print("WARNING: %s sampler unavailable -> docker" % args.sampler)
         args.sampler = "docker"
@@ -1609,10 +1701,14 @@ def main():
     ap.add_argument("--verify-budget-ms", type=float, default=None,
                     help="claimed per-call CPU budget ms (for the verify budget check)")
     ap.add_argument("--sampler", default="docker", choices=["docker", "cgroup"],
-                    help="container CPU source (cgroup = direct cpu.stat, ~100 Hz, falls back)")
+                    help="container CPU source (cgroup = direct cpu.stat via a cgroup-tree "
+                         "walk, ~20 Hz, falls back)")
     ap.add_argument("--rescan-s", type=float, default=0.25,
                     help="container-set rescan interval for the cgroup sampler (smaller catches "
                          "short-lived/scale-to-zero containers; costs host CPU)")
+    ap.add_argument("--sample-s", type=float, default=0.05,
+                    help="cgroup read cadence for the cgroup sampler (default 20 Hz; CPU is "
+                         "differenced from cumulative counters so high rates only cost host CPU)")
     ap.add_argument("--loadgen", default="py", choices=["py", "hey"],
                     help="load generator: py (stdlib threads) or hey (Go binary, low host footprint)")
     ap.add_argument("--interarrival-ms", type=float, default=0.0,

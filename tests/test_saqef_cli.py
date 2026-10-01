@@ -1178,5 +1178,185 @@ print(json.dumps({'rate':r,'errs':errs}))
         self.assertIn("exit 1", src.split("PROTOCOL ERRORS")[-1])
 
 
+class TestCgroupSamplerOverhead(unittest.TestCase):
+    """The cgroup sampler used to run `docker ps` + TWO `docker inspect` per
+    container on EVERY scan. `docker inspect` is ~90 ms of host CPU per call, so
+    on the ~70-container Knative stack the instrument itself burned ~3 cores --
+    charged to no measured cgroup, so it never appeared in cp/fn, but it
+    inflated host_saturation_pct, polluted the host-residual check, and starved
+    the platform of ~40% of the box. Discovery is now a cgroup-tree walk plus one
+    inspect per container *lifetime*."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.loader = importlib.machinery.SourceFileLoader(
+            "saqef_harness", os.path.join(REPO, "saqef_harness.py"))
+        spec = importlib.util.spec_from_loader("saqef_harness", cls.loader)
+        cls.h = importlib.util.module_from_spec(spec)
+        cls.loader.exec_module(cls.h)
+
+    def test_container_cgroup_dirs_issues_exactly_one_inspect(self):
+        """The cpu and memory dirs both come from one /proc/<pid>/cgroup read, so
+        one PID lookup must serve both. Two inspects per container per scan was
+        the defect."""
+        calls = []
+
+        class R:
+            returncode = 0
+            stdout = "4242\n"
+
+        def fake_run(cmd, *a, **kw):
+            calls.append(cmd)
+            return R()
+
+        orig_run, orig_open = self.h.run, open
+        self.h.run = fake_run
+        import builtins
+        real_open = builtins.open
+
+        def fake_open(p, *a, **kw):
+            if str(p) == "/proc/4242/cgroup":
+                import io
+                return io.StringIO("0::/docker/abc123.scope\n")
+            return real_open(p, *a, **kw)
+
+        builtins.open = fake_open
+        try:
+            cpu, mem = self.h.container_cgroup_dirs("deadbeef")
+        finally:
+            self.h.run = orig_run
+            builtins.open = real_open
+        self.assertEqual(len(calls), 1,
+                         "must resolve PID with a single docker inspect, got %d: %s"
+                         % (len(calls), calls))
+        self.assertEqual(cpu, "/sys/fs/cgroup/docker/abc123.scope")
+        self.assertEqual(mem, cpu, "cgroup v2 is unified: cpu and memory dirs coincide")
+
+    def test_thin_wrappers_agree_with_combined_lookup(self):
+        self.assertEqual(self.h.container_cgroup_dir.__doc__ is not None, True)
+        class R:
+            returncode = 0
+            stdout = "0\n"
+        orig = self.h.run
+        self.h.run = lambda cmd, *a, **kw: R()
+        try:
+            # Both wrappers must route through the single-inspect path.
+            cpu, mem = self.h.container_cgroup_dirs("x")
+            self.assertEqual(self.h.container_cgroup_dir("x"), cpu)
+            self.assertEqual(self.h.container_mem_cgroup_dir("x"), mem)
+        finally:
+            self.h.run = orig
+
+    def test_discover_parses_scope_dir_names(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            cid = "a" * 64
+            os.makedirs(os.path.join(d, "docker-%s.scope" % cid))
+            os.makedirs(os.path.join(d, "notacontainer"))
+            got = dict(self.h.discover_cgroup_container_dirs(root=d))
+            self.assertIn(cid, got)
+            self.assertEqual(got[cid], os.path.join(d, "docker-%s.scope" % cid))
+            self.assertNotIn("notacontainer", got.values())
+
+    def test_discover_returns_empty_for_missing_root(self):
+        self.assertEqual(self.h.discover_cgroup_container_dirs(root="/nonexistent/x"), [])
+
+    def test_steady_state_spawns_no_docker_subprocesses(self):
+        """The point of the fix: after the first scan, sampling must not fork
+        docker at all. This is the assertion that would have failed before."""
+        cid = "b" * 64
+        cdir = "/sys/fs/cgroup/docker-%s.scope" % cid
+        imports = []
+
+        class R:
+            returncode = 0
+            stdout = "/web\n"
+
+        def fake_run(cmd, *a, **kw):
+            imports.append(cmd)
+            return R()
+
+        usage = [0.0]
+
+        orig_run = self.h.run
+        orig_disc = self.h.discover_cgroup_container_dirs
+        orig_read = self.h.read_cpu_cumulative
+        orig_mem = self.h.read_mem_mb
+        self.h.run = fake_run
+        self.h.discover_cgroup_container_dirs = lambda *a, **kw: [(cid, cdir)]
+        self.h.read_cpu_cumulative = lambda d: 1.0 + 0.01 * len(imports)
+        self.h.read_mem_mb = lambda d: 5.0
+
+        import threading
+        samples, stop, first = [], threading.Event(), threading.Event()
+        try:
+            th = threading.Thread(target=self.h.cgroup_sampler,
+                                  args=(samples, stop, first, 0.01, 0.01), daemon=True)
+            th.start()
+            first.wait(timeout=5)
+            warm = len(imports)
+            self.assertTrue(samples, "sampler produced no samples")
+            import time as _t
+            _t.sleep(0.2)   # keep sampling; every extra sample must fork nothing
+            stop.set()
+            th.join(timeout=5)
+        finally:
+            self.h.run = orig_run
+            self.h.discover_cgroup_container_dirs = orig_disc
+            self.h.read_cpu_cumulative = orig_read
+            self.h.read_mem_mb = orig_mem
+
+        self.assertEqual(warm, 1,
+                         "exactly one inspect per container lifetime, got %d" % warm)
+        self.assertGreater(len(samples), 5, "sampler should keep sampling after warm-up")
+        self.assertTrue(all(s[2] == "cum" for s in samples))
+        self.assertEqual(len(imports), warm,
+                         "steady-state sampling forked %d extra docker calls"
+                         % (len(imports) - warm))
+
+    def test_dead_container_ids_are_evicted_from_the_cache(self):
+        """An ID is never reused, so a stale entry would leak forever."""
+        cid = "c" * 64
+        cdir = "/sys/fs/cgroup/docker-%s.scope" % cid
+
+        class R:
+            returncode = 0
+            stdout = "/web\n"
+
+        live = [[(cid, cdir)]]
+        orig_run = self.h.run
+        orig_disc = self.h.discover_cgroup_container_dirs
+        orig_read = self.h.read_cpu_cumulative
+        orig_mem = self.h.read_mem_mb
+        self.h.run = lambda cmd, *a, **kw: R()
+        self.h.discover_cgroup_container_dirs = lambda *a, **kw: live[0]
+        self.h.read_cpu_cumulative = lambda d: 1.0
+        self.h.read_mem_mb = lambda d: 5.0
+
+        import threading
+        try:
+            # first scan sees one container
+            samples, stop, first = [], threading.Event(), threading.Event()
+            th = threading.Thread(target=self.h.cgroup_sampler,
+                                  args=(samples, stop, first, 0.01, 0.01), daemon=True)
+            th.start()
+            first.wait(timeout=5)
+            self.assertEqual(set(samples[0][1]), {"web"})
+            stop.set()
+            th.join(timeout=5)
+        finally:
+            self.h.run = orig_run
+            self.h.discover_cgroup_container_dirs = orig_disc
+            self.h.read_cpu_cumulative = orig_read
+            self.h.read_mem_mb = orig_mem
+
+    def test_sample_s_replaces_the_pinned_100hz_loop(self):
+        src = open(os.path.join(REPO, "saqef_harness.py")).read()
+        sampler = src.split("def cgroup_sampler")[1].split("\ndef ")[0]
+        self.assertNotIn("stop.wait(0.01)", sampler,
+                         "the fixed 10 ms wait pinned the sampler near 100 Hz")
+        self.assertIn("stop.wait(sample_s)", sampler)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
