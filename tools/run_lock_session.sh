@@ -58,6 +58,9 @@ DEPLOY_ONLY=0            # deploy+verify the platform(s), then teardown -- EXACT
                          # c=1 duration pilot shared by the tier1 driver). See run_leg.
 REQUESTS_PER_RUN=3000    # harness --total for the DEPLOY_ONLY pilot bench
 OW_DURATION=300          # OpenWhisk loadgen duration cap (default 300; see run_leg)
+MAX_DRIFT_PCT=20         # gate: >this% throughput loss from run_1 to run_N fails the
+                         # leg. 20% is ~4x the best observed legitimate run-to-run
+                         # spread on a healthy leg, so it only trips on real decay.
 CPU_PROBE_S=0            # >0: after the bench, run one native --idle-probe of CPU_PROBE_S
                          # seconds with the same stack state and save cp/fn CPU rates.
                          # This is the direct per-leg background-rate measurement the
@@ -94,6 +97,8 @@ while [ "$i" -lt "$#" ]; do
         --requests-per-run=*) REQUESTS_PER_RUN="${arg#*=}" ;;
         --ow-duration) i=$((i + 1)); [ "$i" -ge "$#" ] && { echo "--ow-duration needs a value" >&2; exit 2; }; OW_DURATION="${args[$i]}" ;;
         --ow-duration=*) OW_DURATION="${arg#*=}" ;;
+        --max-drift-pct) i=$((i + 1)); [ "$i" -ge "$#" ] && { echo "--max-drift-pct needs a value" >&2; exit 2; }; MAX_DRIFT_PCT="${args[$i]}" ;;
+        --max-drift-pct=*) MAX_DRIFT_PCT="${arg#*=}" ;;
         --cpu-probe) i=$((i + 1)); [ "$i" -ge "$#" ] && { echo "--cpu-probe needs a value" >&2; exit 2; }; CPU_PROBE_S="${args[$i]}" ;;
         --cpu-probe=*) CPU_PROBE_S="${arg#*=}" ;;
         --*) echo "unknown option: $arg" >&2; exit 2 ;;
@@ -441,9 +446,13 @@ if [ "$DRY_RUN" = 1 ]; then
     exit 0
 fi
 banner "gate validation + lock summary"
-python3 - "$REPO" "$STAMP" "$PLATFORMS" "$REPEAT" "$IDLE_OF" "$IDLE_FN" "$IDLE_KN" "$IDLE_OW" <<'PY'
+python3 - "$REPO" "$STAMP" "$PLATFORMS" "$REPEAT" "$IDLE_OF" "$IDLE_FN" "$IDLE_KN" "$IDLE_OW" "$MAX_DRIFT_PCT" <<'PY'
 import glob, json, os, statistics, sys
-repo, stamp, platforms, repeat, w_of, w_fn, w_kn, w_ow = sys.argv[1:]
+repo, stamp, platforms, repeat, w_of, w_fn, w_kn, w_ow = sys.argv[1:9]
+# max_drift_pct is the 9th arg, appended after the existing 8 so that callers
+# written against the older argv shape (tests/test_saqef_cli.py invokes this
+# block directly with 8 args) keep working. Absent -> the 20% default.
+max_drift = float(sys.argv[9]) if len(sys.argv) > 9 else 20.0
 w = {"openfaas": w_of, "fn": w_fn, "knative": w_kn, "openwhisk": w_ow}
 order = {"openfaas": "OpenFaaS", "fn": "Fn", "knative": "Knative", "openwhisk": "OpenWhisk"}
 # short codes used by --platforms (of,fn,kn,ow), matching run_lock_session.sh's own case-statement matching
@@ -480,6 +489,15 @@ for plat in [p for p in ("openfaas", "fn", "knative", "openwhisk") if short[p] i
             problems.append("%s delta_check" % nm)
         if r.get("rapl_wrap") not in (None, "none"):
             problems.append("%s rapl_wrap=%s" % (nm, r.get("rapl_wrap")))
+        # RAPL FIT gate (added 2026-10-01). The harness flags
+        # rapl_validation_err_pct > 15 as "NOT citable" in saqef's own table,
+        # but nothing here read it: tier1ow8 printed a FIT DEGRADED warning for
+        # runs 4 and 5 (24.7%, 29.2%) and this gate still reported ALL GATES OK.
+        # Same key and same 15% threshold as saqef_harness.py/saqef so the lock
+        # verdict can never be greener than the per-run table.
+        re_ = r.get("rapl_validation_err_pct")
+        if re_ is not None and re_ > 15.0:
+            problems.append("%s RAPL FIT %.1f%% (>15%%, NOT citable)" % (nm, re_))
         # runbook #6/#12: a run cut short by the loadgen kill-switch completes
         # fewer requests than asked for and/or silently falls back to the python
         # loadgen. Both used to print OK (nothing checked either) -- see the
@@ -490,6 +508,24 @@ for plat in [p for p in ("openfaas", "fn", "knative", "openwhisk") if short[p] i
         env = r.get("env") or {}
         if env.get("loadgen_fallback"):
             problems.append("%s LOADGEN FALLBACK (%s!=%s)" % (nm, env.get("loadgen"), env.get("loadgen_requested")))
+    # MONOTONE DRIFT gate (added 2026-10-01). Every tier1ow* leg degraded
+    # monotonically run-over-run (c=8: 57.0 -> 29.1 rps, host_cpu 307 -> 446
+    # CPU-s) while the per-run gates all passed, because each repeat is an
+    # independent snapshot: nothing compared them. A median over a decaying
+    # sequence is not a central estimate of anything, and the whole 5-run
+    # median is what lands in the paper. Compare first vs last repeat and
+    # fail if the box lost more than --max-drift-pct of throughput.
+    try:
+        rp = [json.load(open(os.path.join(p, "summary.json"))).get("throughput_rps")
+              for p in runs]
+        if len(rp) >= 3 and all(v for v in rp):
+            drop = (rp[0] - rp[-1]) / rp[0] * 100.0
+            if drop > max_drift:
+                problems.append("DRIFT run_1..run_%d throughput %.1f -> %.1f rps "
+                                "(%.1f%% loss > %.0f%%) -- median is not citable"
+                                % (len(rp), rp[0], rp[-1], drop, max_drift))
+    except Exception as e:
+        problems.append("drift check unreadable (%s)" % type(e).__name__)
     # ambient/quiet-gate is measured once per leg, before the whole --repeat
     # batch starts (saqef_harness.py main(), not run_once()), so it only ever
     # lands on the leg-level merged summary.json -- never on run_N/summary.json.
@@ -527,6 +563,7 @@ for plat in [p for p in ("openfaas", "fn", "knative", "openwhisk") if short[p] i
                      "ambient_present": "ambient" in s,
                      "gates_ok": (ok == "OK")}
 meta = {"stamp": stamp, "platforms": order, "idle_w_by_platform": w,
+        "max_drift_pct": max_drift,
         "notes": ["single box state, back-to-back legs, quiet gate active (precondition only)",
                   "idle-w recalibrated this session (results/idle_w_calibration/lock_%s)" % stamp]}
 outp = os.path.join(repo, "results", "lock_session_%s" % stamp, "lock_summary.json")

@@ -945,6 +945,62 @@ class TestSingleRunArtifactShape(unittest.TestCase):
             self.assertEqual(rc, 0, "the fixed shape must pass: %s" % txt)
             self.assertIn("OK", txt)
 
+    # ---- RAPL fit + monotone drift must fail the gate ---------------------
+    # tier1ow8 (2026-10-01) passed every per-run gate while runs 4 and 5
+    # carried rapl_validation_err_pct 24.7/29.2 (the harness itself printed
+    # "NOT citable") and throughput decayed monotonically 57.0 -> 29.1 rps
+    # across the five repeats. Nothing compared either, so the session reported
+    # ALL GATES OK. These lock both holes down.
+    def _multi_run_gate(self, reps, repeat="5"):
+        """Run the gate block over a leg with one run_N/summary.json per rep."""
+        block = self._block(self.LOCK, "lock summary written")
+        with tempfile.TemporaryDirectory() as td:
+            out = os.path.join(td, "results", "openwhisk_cpubound_lock_X")
+            os.makedirs(out)
+            os.makedirs(os.path.join(td, "results", "lock_session_X"))
+            for i, over in enumerate(reps, 1):
+                d = os.path.join(out, "run_%d" % i)
+                os.makedirs(d)
+                s = self._base_summary()
+                s.update(over)
+                with open(os.path.join(d, "summary.json"), "w") as f:
+                    json.dump(s, f)
+            leg = self._base_summary()
+            with open(os.path.join(out, "summary.json"), "w") as f:
+                json.dump(leg, f)
+            with open(os.path.join(out, "runs.json"), "w") as f:
+                json.dump([dict(self._base_summary(), **o) for o in reps], f)
+            return self._run(block, td, "X", "ow", repeat,
+                             "4.235", "4.249", "5.739", "4.882", "20")
+
+    def test_gate_rejects_a_run_whose_rapl_fit_is_degraded(self):
+        rc, txt = self._multi_run_gate([
+            {}, {}, {}, {"rapl_validation_err_pct": 24.71},
+            {"rapl_validation_err_pct": 29.23}])
+        self.assertNotEqual(rc, 0,
+                            "a run the harness calls NOT citable must fail: %s" % txt)
+        self.assertIn("RAPL FIT", txt)
+
+    def test_gate_rejects_monotone_throughput_decay(self):
+        # the real tier1ow8 shape: rps halves across the repeats while every
+        # per-run gate still passes. A median over a decaying sequence is not a
+        # central estimate, so the leg must not be citable.
+        rc, txt = self._multi_run_gate([
+            {"throughput_rps": 56.96}, {"throughput_rps": 44.18},
+            {"throughput_rps": 37.02}, {"throughput_rps": 32.39},
+            {"throughput_rps": 29.09}])
+        self.assertNotEqual(rc, 0,
+                            "monotone decay must fail the gate: %s" % txt)
+        self.assertIn("DRIFT", txt)
+
+    def test_gate_accepts_flat_repeats_within_drift_tolerance(self):
+        # normal run-to-run scatter must NOT trip the drift gate, or the fix
+        # would be unusable in practice (every healthy leg would fail).
+        rc, txt = self._multi_run_gate([
+            {"throughput_rps": r} for r in (57.0, 55.4, 58.1, 56.2, 54.9)])
+        self.assertEqual(rc, 0, "flat repeats must pass: %s" % txt)
+        self.assertNotIn("DRIFT", txt)
+
     # ---- the pilot validator -------------------------------------------
     def _pilot_rc(self, **over):
         block = self._block(self.TIER1, "PILOT REJECTED")
