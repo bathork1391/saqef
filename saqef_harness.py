@@ -993,9 +993,16 @@ def sample_totals(samples, cp_sub, fn_sub="", cp_members=None, fn_members=None,
     sampler is started before the load and stopped after it, so without this
     every run folded in CPU accrued while the platform was idle but the sampler
     was already running, and the stop-time flush added a tail past the end. Both
-    inflate cp_cpu_s/fn_cpu_s relative to wall_s, biasing cp_dynamic_share_pct
-    DOWNWARD by an amount that scales with how far the sampler overhangs the
-    window -- so it was not even a constant bias across concurrencies.
+    inflate cp_cpu_s/fn_cpu_s relative to wall_s. Direction of the share bias:
+    UPWARD, not downward. cp_dynamic_share_pct = cp/(cp+fn), so adding a block of
+    idle CPU to both numerator and denominator pulls the ratio toward that
+    block's own cp:fn mix -- and idle time is CP-dominated (measured CP idle
+    0.0025-0.0036 cpu-s/s vs Fn idle 0.0012-0.0095), i.e. far more CP-heavy than
+    the load phase, where the function container is doing the work. The size of
+    the error scales with how far the sampler overhangs the window, so it was
+    not even a constant bias across concurrencies: measured overhang/wall is
+    ~2-5% on the long lock4 legs but reaches 29-37% on the short quick-tier legs,
+    which is precisely where the concurrency comparison lives.
     Cumulative counters are only known at sample instants, so the in-window
     portion of each interval is apportioned by time overlap; a sample entirely
     outside the window contributes nothing and a container absent from a sample
