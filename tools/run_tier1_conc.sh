@@ -267,6 +267,46 @@ _Q_TABLE = {
 }
 _Q_MAX_DF = max(_Q_TABLE)
 
+# One-sided 95% t critical values (equivalently, the two-sided 90% interval used
+# by TOST at alpha=0.05). Separate from the q table because they answer a
+# different question: q guards a simultaneous k-way comparison, t bounds a
+# single leg's deviation from the grand mean.
+_T_TABLE = {
+    1: 6.314, 2: 2.920, 3: 2.353, 4: 2.132, 5: 2.015, 6: 1.943,
+    7: 1.895, 8: 1.860, 9: 1.833, 10: 1.812, 12: 1.782, 15: 1.753,
+    20: 1.725, 24: 1.711, 30: 1.697, 40: 1.684,
+}
+_T_MAX_DF = max(_T_TABLE)
+
+# Pre-specified equivalence margin, in percentage points of cp_dynamic_share.
+# NOT derived from the data: a margin chosen after seeing the spread is exactly
+# how "flat to resolution" becomes unfalsifiable. 2 pp is the reviewer's own
+# example of a swing that would be practically real. Override only by declaring
+# the new value in the session log.
+EQUIV_MARGIN_PP = float(os.environ.get("SAQEF_EQUIV_MARGIN_PP", "2.0"))
+
+
+def t_crit_95(df):
+    """One-sided 95% t critical value, conservative on off-table df."""
+    df = max(1, min(int(df), _T_MAX_DF))
+    key = max(d for d in _T_TABLE if d <= df)
+    return _T_TABLE[key]
+
+
+def tost_equivalent(diff, se, df, margin):
+    """True when diff is equivalent to 0 within +/-margin at alpha=0.05.
+
+    Two one-sided tests: reject H0 (|diff| >= margin) only when the whole 90%
+    CI sits inside (-margin, +margin). A failure to reject the spread test
+    leaves "we could not resolve it", which is NOT the same as "there is no
+    drift"; only a True here licenses the word "equivalent".
+    """
+    if se <= 0 or not (se == se) or margin <= 0:
+        return False, (float("nan"), float("nan"))
+    tc = t_crit_95(df)
+    lo, hi = diff - tc * se, diff + tc * se
+    return (lo > -margin and hi < margin), (lo, hi)
+
 
 def studentized_range_q(k, df):
     """q_{0.95;k,df} for the Tukey 'are these k means equal' criterion.
@@ -476,6 +516,14 @@ print("spread under the limit is flat TO RESOLUTION, which is a weaker claim")
 print("than flat to a quoted precision -- the distinction the 2026-08-15")
 print("quick sweep got wrong when its 1.18-2.74 pp raw spreads were called")
 print("flat with no limit computed.")
+print()
+print("BEWARE: 'flat TO RESOLUTION' is a NON-INFERIORITY result. Failing to")
+print("resolve a spread never shows the spread is zero, so it is not evidence")
+print("of flatness. When it appears, a TOST line below tests equivalence")
+print("against a PRE-SPECIFIED margin (+/-%.2f pp); only 'EQUIVALENT' licenses"
+      % EQUIV_MARGIN_PP)
+print("the word flat. Margin comes from SAQEF_EQUIV_MARGIN_PP and must be")
+print("declared in the session log, never picked after seeing the spread.")
 for plat, (label, cs) in short2plat.items():
     per_leg_raw, per_leg_corr = {}, {}
     for c in cs:
@@ -537,6 +585,40 @@ for plat, (label, cs) in short2plat.items():
         print("             corr*   %s  spread %.2f pp -> %s" % (sc, spread_c, verdict(spread_c)))
     else:
         print("             corr*   %s  (no probe data for corrected share)" % sc)
+
+    # EQUIVALENCE (TOST) vs RESOLUTION. The verdict() line above is a
+    # non-inferiority test: failing to resolve a spread never proves the spread
+    # is zero, so "flat TO RESOLUTION" must never be reported as "flat". A TOST
+    # inverts the burden -- equivalence is only claimed when the data can
+    # exclude every difference larger than a PRE-SPECIFIED margin, here
+    # EQUIV_MARGIN_PP. Each leg's mean is tested against the grand mean of the
+    # legs, which is the quantity the paper actually claims is constant.
+    if spread <= mdd:
+        gm = statistics.mean(list(per_leg_raw.values()))
+        equiv_ok, detail = True, []
+        for c, m in sorted(per_leg_raw.items()):
+            recs = [r for r in raw.get(plat, []) if r[0] == c]
+            vals = [r[5] for r in recs]
+            if len(vals) < 2:
+                equiv_ok = False
+                detail.append("c=%d: n=%d" % (c, len(vals)))
+                continue
+            sd = statistics.stdev(vals)
+            se = sd / math.sqrt(len(vals))
+            ok, (lo, hi) = tost_equivalent(m - gm, se, len(vals) - 1,
+                                            EQUIV_MARGIN_PP)
+            equiv_ok = equiv_ok and ok
+            detail.append("c=%d: %+.2f [%+.2f,%+.2f]%s"
+                          % (c, m - gm, lo, hi, "" if ok else " OUT"))
+        print("             TOST    margin +/-%.2f pp -> %s%s" % (
+            EQUIV_MARGIN_PP,
+            "EQUIVALENT to flat within margin" if equiv_ok
+            else "EQUIVALENCE NOT ESTABLISHED",
+            "" if equiv_ok else "  [" + "; ".join(detail) + "]"))
+        if not equiv_ok:
+            print("             ^ flat TO RESOLUTION but not PROVEN flat: the"
+                  " spread is simply below this instrument's power. Do not"
+                  " write 'flat' in the paper.")
 with open(os.environ["SAQEF_TIER1_ERRS"], "w") as _fh:
     _fh.write("%d\n" % len(errors))
     for _e in errors:

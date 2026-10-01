@@ -18,6 +18,7 @@ import math
 import os
 import re
 import statistics
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -1193,7 +1194,7 @@ class TestTier1StatsHygiene(unittest.TestCase):
         # Only the table + lookup are pure; executing the whole block would run
         # the aggregation against the results tree.
         head = cls.agg.split("def find_run_dir")[0]
-        ns = {"math": math, "statistics": statistics}
+        ns = {"math": math, "statistics": statistics, "os": os}
         exec(compile(head, "agg-head", "exec"), ns)
         cls.ns = ns
 
@@ -1278,6 +1279,178 @@ class TestTier1StatsHygiene(unittest.TestCase):
             self.assertEqual(series, sorted(series, reverse=True),
                              "q must decrease as df grows")
             self.assertGreater(tbl[sorted(tbl)[0]][k], tbl[sorted(tbl)[-1]][k])
+
+    # ---- TOST: 'flat to resolution' is not 'flat' -----------------------
+    # The paper's claim is that cp_dynamic_share does not move with concurrency.
+    # The detection-limit line only shows the spread is below this instrument's
+    # power; that is a non-inferiority result and cannot support the word "flat".
+    def test_tost_accepts_a_tight_cluster_with_tight_noise(self):
+        """A genuinely flat leg: means within 0.2 pp of each other, small SD."""
+        ok, (lo, hi) = self.ns["tost_equivalent"](0.20, 0.05, 4, 2.0)
+        self.assertTrue(ok, "a 0.2 pp deviation cannot exclude <=2 pp: %s" % ((lo, hi),))
+
+    def test_tost_rejects_when_noise_alone_cannot_exclude_the_margin(self):
+        """The OpenWhisk c=1 case: the MEAN deviation is only 1.77 pp, under the
+        2 pp margin, but the CI is [-5.67, +2.13] and straddles it. This is the
+        leg that printed 'flat TO RESOLUTION' and must not read as flat.
+        se is back-solved from that interval: half-width 3.90 / t(4)=2.132."""
+        ok, (lo, hi) = self.ns["tost_equivalent"](-1.77, 3.90 / 2.132, 4, 2.0)
+        self.assertFalse(ok,
+                         "a CI crossing the margin is not equivalence: %s" % ((lo, hi),))
+        self.assertLess(lo, -2.0)
+        self.assertGreater(hi, 2.0)
+
+    def test_tost_is_stricter_than_comparing_the_mean_to_the_margin(self):
+        """The bug class this guards: `abs(mean) < margin` declares equivalence
+        while ignoring sampling error entirely."""
+        ok, _ = self.ns["tost_equivalent"](1.5, 0.60, 4, 2.0)
+        self.assertFalse(ok,
+                         "1.5 pp < 2.0 pp but the CI is ~1.3 pp wide, so "
+                         "differences beyond the margin are not excluded")
+
+    def test_tost_rejects_zero_standard_error_rather_than_passing(self):
+        """se==0 (identical runs) must not short-circuit to 'equivalent'."""
+        ok, _ = self.ns["tost_equivalent"](1.9, 0.0, 4, 2.0)
+        self.assertFalse(ok, "degenerate se must fail closed, not certify flatness")
+
+    def test_tost_rejects_a_nonpositive_margin(self):
+        """A margin of 0 or negative is meaningless and must not certify."""
+        for bad in (0.0, -1.0):
+            ok, _ = self.ns["tost_equivalent"](0.0, 0.1, 4, bad)
+            self.assertFalse(ok, "margin=%r must not certify equivalence" % bad)
+
+    def test_tost_t_table_decreases_with_df(self):
+        """t must fall as df grows, so tighter data can exclude a wider range."""
+        tbl = self.ns["_T_TABLE"]
+        tc = self.ns["t_crit_95"]
+        for df in (2, 5, 10, 20, 40):
+            self.assertLess(tc(df), tbl[sorted(tbl)[0]])
+        series = [tbl[df] for df in sorted(tbl)]
+        self.assertEqual(series, sorted(series, reverse=True))
+
+    def test_tost_df_rounding_is_conservative(self):
+        """Off-table df must round DOWN to a LARGER t, widening the CI and making
+        equivalence harder -- never easier."""
+        tc = self.ns["t_crit_95"]
+        tbl = self.ns["_T_TABLE"]
+        for want_df, lower_df, upper_df in ((11, 10, 12), (13, 12, 15), (14, 12, 15),
+                                            (16, 15, 20), (19, 15, 20),
+                                            (21, 20, 24), (23, 20, 24),
+                                            (25, 24, 30), (35, 30, 40)):
+            self.assertEqual(tc(want_df), tbl[lower_df],
+                             "df=%d must round down to %d" % (want_df, lower_df))
+            self.assertGreater(tc(want_df), tc(upper_df),
+                               "rounding down must yield the larger, stricter t")
+
+    def test_equivalence_margin_is_prespecified_not_data_derived(self):
+        """A margin chosen after seeing the spread is what made 'flat' "
+        "unfalsifiable. It must come from the environment with a fixed default,
+        never from the measured spread."""
+        code = _code_only(open(self.TIER1).read())
+        self.assertIn('SAQEF_EQUIV_MARGIN_PP', code,
+                      "the margin must be an explicit, logged input")
+        self.assertIn('"2.0"', code, "and must have a fixed pre-specified default")
+        # No expression may build the margin out of the observed data.
+        self.assertNotRegex(code, r"EQUIV_MARGIN_PP\s*=\s*(spread|mdd|s_pool|max\()",
+                            "the margin must not be derived from the measurements")
+
+    def test_flat_to_resolution_never_prints_without_a_tost_line(self):
+        """The output must never show the old 'flat TO RESOLUTION' verdict with
+        no equivalence test next to it."""
+        code = _code_only(open(self.TIER1).read())
+        self.assertIn("EQUIVALENCE NOT ESTABLISHED", code)
+        self.assertIn("EQUIVALENT to flat within margin", code)
+        self.assertIn("Do not", code)
+
+    # ---- end to end: the printed verdict is what the paper quotes ---------
+    # The pure-function tests above cannot catch a broken REPORTING path (a TOST
+    # that is computed and then silently dropped, or a margin quietly widened at
+    # the call site). Those mutants all survived. So drive the real aggregator
+    # over a synthetic results tree and assert on what it prints.
+    def _agg_over_tree(self, tree):
+        """Run the whole aggregation block against a synthetic results tree."""
+        src = open(self.TIER1).read()
+        blk = "\n".join(re.findall(r"python3 - \"\$REPO\" <<'PY'\n(.*?)\nPY",
+                                   src, re.S))
+        self.assertTrue(blk, "aggregation block not found")
+        with tempfile.TemporaryDirectory() as td:
+            self._write_tree(td, tree)
+            errs = os.path.join(td, "errs.txt")
+            with open(errs, "w") as f:
+                f.write("0\n")
+            p = subprocess.run([sys.executable, "-c", blk, td],
+                               capture_output=True, text=True,
+                               env=dict(os.environ, SAQEF_TIER1_ERRS=errs))
+        return p.returncode, p.stdout + p.stderr
+
+    def _write_tree(self, td, tree):
+        """tree: {concurrency: [share_pct per run]} for the synthetic platform."""
+        for c, shares in tree.items():
+            stamp = "tier1c%d" % c
+            d = os.path.join(td, "results", "openfaas_cpubound_lock_%s" % stamp)
+            os.makedirs(d, exist_ok=True)
+            runs = [{"requests": 3000, "total_requested": 3000, "wall_s": 100.0,
+                     "cpu_sec": {"control_plane": 60.0, "function": 60.0},
+                     "cp_dynamic_share_pct": s,
+                     "container_labels": {"h": {"image": "x/hello:v1"}},
+                     "container_inventory": ["h"],
+                     "platform": "openfaas"} for s in shares]
+            json.dump(runs, open(os.path.join(d, "runs.json"), "w"))
+            json.dump(runs[0], open(os.path.join(d, "summary.json"), "w"))
+            pd = os.path.join(td, "results", "idle_probe_%s" % stamp, "openfaas")
+            os.makedirs(pd, exist_ok=True)
+            json.dump([{"wall_s": 60.0,
+                        "cpu_sec": {"control_plane": 3.0, "function": 6.0}}],
+                      open(os.path.join(pd, "runs.json"), "w"))
+
+    def test_aggregator_reports_equivalence_when_the_margin_is_excluded(self):
+        rc, txt = self._agg_over_tree(
+            {1: [7.80, 7.76, 7.82, 7.78, 7.81],
+             2: [7.79, 7.77, 7.81, 7.80, 7.78],
+             4: [7.81, 7.79, 7.83, 7.80, 7.82],
+             8: [7.80, 7.82, 7.78, 7.81, 7.79]})
+        self.assertIn("TOST", txt, "every flat verdict needs a TOST line: %s" % txt)
+        self.assertIn("EQUIVALENT to flat within margin", txt,
+                      "a 0.06 pp spread with tiny noise must be established as "
+                      "flat: %s" % txt)
+
+    def test_aggregator_refuses_to_call_an_unresolved_spread_flat(self):
+        """OpenWhisk's shape: 1.5 pp of spread that is small against the CV but
+        not tight enough to exclude the 2 pp margin."""
+        rc, txt = self._agg_over_tree(
+            {1: [81.14, 86.0, 79.0, 84.5, 80.0],
+             4: [83.41, 84.0, 83.0, 83.9, 82.5],
+             8: [84.18, 85.1, 84.0, 83.6, 85.0]})
+        self.assertIn("flat TO RESOLUTION", txt,
+                      "this tree should still be below the detection limit")
+        self.assertIn("EQUIVALENCE NOT ESTABLISHED", txt,
+                      "and it must NOT be reported as proven flat: %s" % txt)
+        self.assertIn("Do not", txt)
+
+    def test_aggregator_cannot_report_flat_when_the_tost_line_is_suppressed(self):
+        """Direct check of the M6 mutant: if the TOST print were removed, the
+        'flat TO RESOLUTION' verdict would stand alone and be quotable."""
+        src = open(self.TIER1).read()
+        self.assertNotRegex(_code_only(src),
+                            r"if False:\s*print\(\s*\"+\s*TOST",
+                            "the TOST line must not be disabled by a dead branch")
+        flat_at = src.index("flat TO RESOLUTION (%.2f < %.2f pp)")
+        tost_at = src.index('print("             TOST')
+        self.assertLess(flat_at, tost_at)
+        self.assertLess(tost_at, len(src))
+
+    def test_aggregator_cannot_widen_the_margin_at_the_call_site(self):
+        """Direct check of the M5 mutant: the call must pass the pre-specified
+        margin, never a literal chosen to make the data look flat."""
+        code = _code_only(open(self.TIER1).read())
+        m = re.search(r"tost_equivalent\(m - gm,(.*?)\)\)", code, re.S)
+        self.assertIsNotNone(m, "tost_equivalent call not found")
+        self.assertIn("EQUIV_MARGIN_PP", m.group(1),
+                      "the call site must use the pre-specified margin: %s"
+                      % m.group(1).strip())
+        self.assertNotRegex(m.group(1), r"\d+\.\d",
+                            "the call site must not hardcode a pp margin: %s"
+                            % m.group(1).strip())
 
 
 class TestTier1AggregatorHygiene(unittest.TestCase):
