@@ -21,6 +21,7 @@ import statistics
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -2026,6 +2027,49 @@ class TestSamplingQualityGate(unittest.TestCase):
         st = self.h.sample_totals(self._samples(ts), ("web",), "fn")
         self.assertAlmostEqual(st.cp_cpu_s, 20.0, places=6)
 
+    # ---- the window must share a time base with the samples ---------------
+    # Regression guard for a bug that made every real run produce 0 CPU: the
+    # sampler stamps samples with time.time() (epoch) but run_once() built the
+    # attribution window from time.perf_counter() (seconds since boot). The two
+    # differ by ~1.76e9 here, so no sample ever fell inside the window and every
+    # CPU total came out zero. The unit tests below could not catch it because
+    # they all construct the window in the same numeric space as the timestamps
+    # they hand in. So these tests deliberately use RAW clocks and assert that
+    # the harness pairs them the way run_once() does.
+    def test_attribution_window_is_built_in_the_same_time_base_as_the_samples(self):
+        """A real run must not attribute zero CPU. Sampled stamps come from
+        time.time(); the window must therefore be epoch-based."""
+        src = open(os.path.join(REPO, "saqef_harness.py")).read()
+        body = re.search(r"def run_once.*?\n(?=\ndef )", src, re.S).group(0)
+        self.assertRegex(body, r"window=\(t0_epoch,\s*t0_epoch \+ wall\)",
+                         "run_once must pass an EPOCH-based window to "
+                         "sample_totals(), matching the sampler's time.time() stamps")
+        # And the epoch base must actually be recorded from time.time().
+        self.assertRegex(body, r"t0_epoch\s*=\s*time\.time\(\)")
+
+    def test_window_from_perf_counter_attributes_nothing(self):
+        """Documenting the failure mode itself: a perf_counter-based window
+        against epoch-stamped samples yields zero CPU and zero coverage. If this
+        ever stops being true, the two clocks have been unified and the guard
+        test above should be revisited rather than trusted blindly."""
+        epoch_now = time.time()
+        perf_now = time.perf_counter()
+        # 10 samples, 1/s, container burning 1 CPU-s per second.
+        samples = []
+        for i in range(11):
+            t = epoch_now + i
+            samples.append((t, {"web": (float(i), 1.0)}, "cum"))
+        good = self.h.sample_totals(samples, ("web",), "fn",
+                                    window=(epoch_now, epoch_now + 10))
+        bad = self.h.sample_totals(samples, ("web",), "fn",
+                                   window=(perf_now, perf_now + 10))
+        self.assertAlmostEqual(good.cp_cpu_s, 10.0, places=6,
+                               msg="epoch window must attribute the full load")
+        self.assertGreater(good.covered_s, 9.0)
+        self.assertAlmostEqual(bad.cp_cpu_s, 0.0, places=6,
+                               msg="a boot-based window cannot overlap epoch stamps")
+        self.assertAlmostEqual(bad.covered_s, 0.0, places=6)
+
     def test_preload_cpu_is_not_absorbed_by_the_first_in_window_sample(self):
         """The sampler starts before the load, so the first in-window cumulative
         delta covers (prev_t, t] -- which straddles t0. Prorating it against the
@@ -2193,8 +2237,9 @@ class TestSamplingQualityGate(unittest.TestCase):
         self.assertIn("window=", m.group(1),
                       "run_once must clip the totals to the load window: %s"
                       % m.group(1).strip())
-        self.assertRegex(m.group(1), r"window=\(t0,\s*t0 \+ wall\)",
-                         "the window must be the actual measured load window")
+        self.assertRegex(m.group(1), r"window=\(t0_epoch,\s*t0_epoch \+ wall\)",
+                         "the window must be the actual measured load window, "
+                         "in the sampler's epoch time base")
 
     def test_summary_records_the_fields_that_can_actually_fail(self):
         src = open(os.path.join(REPO, "saqef_harness.py")).read()

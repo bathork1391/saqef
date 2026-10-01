@@ -1276,7 +1276,13 @@ def run_once(args, cp_sub):
     host_before = host_cpu_ticks()
     t_host_before = time.perf_counter()
 
+    # The sampler stamps every sample with time.time() (epoch seconds), so the
+    # attribution window MUST be in that same time base or nothing overlaps it.
+    # t0 stays perf_counter for measuring wall, because perf_counter is monotonic
+    # and a wall-clock step (NTP) mid-run would otherwise corrupt the duration.
+    # Two clocks, two jobs: t0 for the duration, t0_epoch for the window.
     t0 = time.perf_counter()
+    t0_epoch = time.time()
     reqs = None
     ld = None
     wall_loadgen = None
@@ -1342,7 +1348,7 @@ def run_once(args, cp_sub):
      max_gap_s, n_samples, span_s) = sample_totals(
         samples, cp_sub, args.fn_containers, cp_members, fn_members,
         fn_allow_configured=fn_allow_configured,
-        window=(t0, t0 + wall))
+        window=(t0_epoch, t0_epoch + wall))
     if fn_allow_configured and not (args.fn_containers or fn_members):
         print("WARNING: function allowlist configured (--fn-images/--fn-labels/--fn-containers) "
               "but matched NO running container - every non-CP container is being counted as "
