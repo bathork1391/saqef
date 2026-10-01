@@ -262,10 +262,15 @@ class Adapter:
     def harness_argv(self, metric, total, concurrency, duration, warmup, repeat,
                      outdir, idle_w=None, cpu_count_override=None, host_cpu_list=None,
                      verify=False, no_quiet_gate=False, ambient_window_s=None,
-                     max_ambient_cpu_pct=None):
+                     max_ambient_cpu_pct=None, idle_probe=False):
         """Build the saqef_harness.py argv exactly as the proven shell runners do.
 
         verify=True emits the --verify variant (no total/concurrency/repeat).
+        idle_probe=True forwards the harness's --idle-probe (platform up, zero
+        traffic for --duration s): the direct background-CPU-rate measurement
+        subtracted from CP/fn CPU-s in concurrency sweeps (2026-10-01). Like
+        the quiet gate, the probe is quiet-gate-exempt by design (the stack
+        itself is the subject).
         The quiet-gate knobs default to None/False so existing callers emit
         byte-identical argv (the quiet gate then runs with its harness-side
         defaults: 20 s window, 15% ceiling); the contamination A/B tool passes
@@ -332,6 +337,13 @@ class Adapter:
         cmd += ["--total", str(total), "--concurrency", str(concurrency),
                 "--duration", str(duration), "--warmup", str(warmup),
                 "--repeat", str(repeat)]
+        if idle_probe:
+            # Platform up, zero traffic for --duration s: the direct static
+            # orchestration baseline. The harness samples the same cp/fn
+            # cgroups, so cpu_sec.control_plane / wall_s IS the background
+            # CPU rate a concurrency sweep must subtract (2026-10-01). No
+            # loadgen is spawned when this flag is set.
+            cmd += ["--idle-probe"]
         cmd += ["--sampler", self.sampler]
         if self.delta_check:
             cmd += ["--delta-check"]

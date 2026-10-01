@@ -280,7 +280,8 @@ def cmd_run(args):
                           host_cpu_list=args.host_cpu_list,
                           no_quiet_gate=args.no_quiet_gate,
                           ambient_window_s=args.ambient_window_s,
-                          max_ambient_cpu_pct=args.max_ambient_cpu_pct)
+                          max_ambient_cpu_pct=args.max_ambient_cpu_pct,
+                          idle_probe=args.idle_probe)
     run_sub(cmd, dry_run=args.dry_run)
     if not args.dry_run:
         gates_for(out)
@@ -415,6 +416,9 @@ def main(argv=None):
                    help="skip the pre-run ambient-load quiet check (exploratory / contamination A/B only)")
     p.add_argument("--ambient-window-s", type=float, default=None)
     p.add_argument("--max-ambient-cpu-pct", type=float, default=None)
+    p.add_argument("--idle-probe", action="store_true",
+                   help="platform up, zero traffic for --duration s: static orchestration "
+                        "baseline (the direct background-CPU-rate measurement, 2026-10-01)")
     p.add_argument("--dry-run", action="store_true")
     p.set_defaults(func=cmd_run)
 

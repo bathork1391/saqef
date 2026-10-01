@@ -495,11 +495,19 @@ def run_load(url, total, concurrency, timeout_s=10, deadline_s=None, headers=Non
     return results
 
 
-def run_hey(url, total, concurrency, deadline_s=None, headers=None, timeout_ms=30000):
+def run_hey(url, total, concurrency, deadline_s=None, headers=None, timeout_ms=30000,
+            qps=None):
     """Run hey (Go load generator) as a subprocess; keeps the harness's own CPU
     out of host accounting. Returns a results dict, or None if hey is missing/fails.
     QoS is computed from hey's per-request CSV rows: rps, latency percentiles,
     status distribution.
+
+    qps (added for the cold-start / rate-controlled experiments): AGGREGATE target
+    request rate. hey's own -q flag is PER WORKER, so it is divided by
+    concurrency here. Without this, any rate-limited run had no way to stay on
+    hey and silently fell back to the Python ThreadPoolExecutor generator, whose
+    own threads land inside host_cpu_sec and corrupt host_saturation_pct /
+    host_plausible -- the exact accounting hey exists to protect.
 
     NOTE (bug fixed here): mainline rakyll/hey has never had a JSON output mode.
     Per hey's own docs, "'csv' is the only supported alternative" to the default
@@ -523,6 +531,14 @@ def run_hey(url, total, concurrency, deadline_s=None, headers=None, timeout_ms=3
     # the raw ms value (30000) was silently a 30,000-second timeout. Convert.
     cmd = ["hey", "-n", str(total), "-c", str(concurrency),
            "-t", str(max(1, timeout_ms // 1000)), "-o", "csv"]
+    if qps and qps > 0:
+        # -q is QPS PER WORKER in hey; aggregate rate = q * concurrency.
+        per_worker = qps / float(concurrency)
+        if per_worker <= 0:
+            print("hey: qps %.3f with concurrency %d rounds to 0 per worker; "
+                  "not rate-limiting" % (qps, concurrency))
+        else:
+            cmd += ["-q", ("%.6g" % per_worker)]
     if headers:
         for k, v in headers.items():
             cmd += ["-H", "%s: %s" % (k, v)]
@@ -1036,11 +1052,28 @@ def run_once(args, cp_sub):
     reqs = None
     ld = None
     wall_loadgen = None
+    # Effective aggregate QPS for a rate-controlled run. --qps is explicit;
+    # otherwise --interarrival-ms is translated (each of the `concurrency`
+    # in-flight workers sleeps interarrival_ms per request, so the aggregate
+    # rate is concurrency / interarrival_s). Translating here is what keeps a
+    # cold-start experiment on hey: before this, --interarrival-ms only reached
+    # run_load(), so passing it silently forced the Python generator.
+    qps = args.qps or 0.0
+    if args.interarrival_ms > 0:
+        derived = args.concurrency * 1000.0 / args.interarrival_ms
+        if qps > 0:
+            print("WARNING: both --qps (%.3f) and --interarrival-ms (%.1f) given; "
+                  "using --qps and ignoring --interarrival-ms" % (qps, args.interarrival_ms))
+        else:
+            qps = derived
+    if args.loadgen == "hey" and qps > 0:
+        print("rate-limited run: aggregate %.3f QPS at concurrency %d "
+              "(hey -q %.4g per worker)" % (qps, args.concurrency, qps / args.concurrency))
     if args.idle_probe:
         time.sleep(args.duration)  # platform up, zero traffic -> static orchestration baseline
     elif args.loadgen == "hey":
         ld = run_hey(args.url, args.total, args.concurrency, deadline_s=args.duration,
-                     headers=headers)
+                     headers=headers, qps=(qps or None))
         if ld is None:
             print("WARNING: hey unavailable/failed -> python load generator")
             reqs = run_load(args.url, args.total, args.concurrency, deadline_s=args.duration,
@@ -1299,7 +1332,16 @@ def run_once(args, cp_sub):
                 "sampler": args.sampler,
                 "loadgen": "hey" if ld is not None else "py",
                 "loadgen_requested": args.loadgen,
-                "loadgen_fallback": bool(args.loadgen == "hey" and ld is None)},
+                "loadgen_fallback": bool(args.loadgen == "hey" and ld is None),
+                # Rate-control provenance: a run that INTENDED to be
+                # rate-limited but silently ran unthrottled is otherwise
+                # indistinguishable from a correct one in the committed JSON
+                # (same bug class as the invalid freeze-ablation `=0` leg).
+                # target_qps is the aggregate rate actually requested; it is 0.0
+                # for every unthrottled citable run, so pre-existing runs keep
+                # reading as unthrottled.
+                "target_qps": round(qps, 4),
+                "interarrival_ms": args.interarrival_ms},
         "rapl_validation_err_pct": round(rapl_validation, 2) if rapl_validation is not None else None,
         "rapl_wrap": rapl_wrap,
         "rapl_available": rapl_start is not None,
@@ -1574,7 +1616,14 @@ def main():
     ap.add_argument("--loadgen", default="py", choices=["py", "hey"],
                     help="load generator: py (stdlib threads) or hey (Go binary, low host footprint)")
     ap.add_argument("--interarrival-ms", type=float, default=0.0,
-                    help="gap between requests, ms (cold-start experiments: total N, concurrency 1)")
+                    help="gap between requests, ms (cold-start experiments: total N, concurrency 1). "
+                         "With --loadgen hey this is translated into a rate limit (hey -q) so the "
+                         "run stays on the CPU-clean generator instead of falling back to the "
+                         "Python threads (whose CPU pollutes host_saturation_pct)")
+    ap.add_argument("--qps", type=float, default=0.0,
+                    help="aggregate target request rate for --loadgen hey (0 = unthrottled). "
+                         "Passed as hey -q (per worker). Mutually redundant with --interarrival-ms: "
+                         "if both are given, --qps wins and a warning is printed")
     ap.add_argument("--delta-check", action="store_true",
                     help="cross-validate sampler vs direct before/after cgroup counter of the CP container")
     ap.add_argument("--idle-probe", action="store_true",

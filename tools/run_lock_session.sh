@@ -53,6 +53,16 @@ REPEAT=5
 IDLE_OF="" IDLE_FN="" IDLE_KN="" IDLE_OW=""
 IDLE_BARE=""
 DEFAULT_OF=4.3 DEFAULT_FN=4.3 DEFAULT_KN=4.561 DEFAULT_OW=4.3
+DEPLOY_ONLY=0            # deploy+verify the platform(s), then teardown -- EXACTLY ONE
+                         # bench invocation per platform at REQUESTS_PER_RUN (for the
+                         # c=1 duration pilot shared by the tier1 driver). See run_leg.
+REQUESTS_PER_RUN=3000    # harness --total for the DEPLOY_ONLY pilot bench
+OW_DURATION=300          # OpenWhisk loadgen duration cap (default 300; see run_leg)
+CPU_PROBE_S=0            # >0: after the bench, run one native --idle-probe of CPU_PROBE_S
+                         # seconds with the same stack state and save cp/fn CPU rates.
+                         # This is the direct per-leg background-rate measurement the
+                         # tier1 concurrency driver subtracts from CP/fn CPU-s (the
+                         # window-length artifact the 2026-08-15 sweep exposed).
 
 args=("$@")
 i=0
@@ -78,6 +88,14 @@ while [ "$i" -lt "$#" ]; do
         --total) i=$((i + 1)); [ "$i" -ge "$#" ] && { echo "--total needs a value" >&2; exit 2; }; TOTAL="${args[$i]}" ;;
         --concurrency) i=$((i + 1)); [ "$i" -ge "$#" ] && { echo "--concurrency needs a value" >&2; exit 2; }; CONCURRENCY="${args[$i]}" ;;
         --repeat) i=$((i + 1)); [ "$i" -ge "$#" ] && { echo "--repeat needs a value" >&2; exit 2; }; REPEAT="${args[$i]}" ;;
+        --repeat=*) REPEAT="${arg#*=}" ;;
+        --deploy-only) DEPLOY_ONLY=1 ;;
+        --requests-per-run) i=$((i + 1)); [ "$i" -ge "$#" ] && { echo "--requests-per-run needs a value" >&2; exit 2; }; REQUESTS_PER_RUN="${args[$i]}" ;;
+        --requests-per-run=*) REQUESTS_PER_RUN="${arg#*=}" ;;
+        --ow-duration) i=$((i + 1)); [ "$i" -ge "$#" ] && { echo "--ow-duration needs a value" >&2; exit 2; }; OW_DURATION="${args[$i]}" ;;
+        --ow-duration=*) OW_DURATION="${arg#*=}" ;;
+        --cpu-probe) i=$((i + 1)); [ "$i" -ge "$#" ] && { echo "--cpu-probe needs a value" >&2; exit 2; }; CPU_PROBE_S="${args[$i]}" ;;
+        --cpu-probe=*) CPU_PROBE_S="${arg#*=}" ;;
         --*) echo "unknown option: $arg" >&2; exit 2 ;;
     esac
     i=$((i + 1))
@@ -243,8 +261,10 @@ run_leg() {
     # This is TROUBLESHOOTING_RUNBOOK.md #6, already fixed once in the older
     # per-platform manual protocol; it regressed here because this consolidated
     # driver never carried the platform-specific override forward (see #11).
+    # 2026-10-01: duration is now overridable per invocation (--ow-duration) so
+    # the tier1 driver can give an OpenWhisk c=1 leg a taller cap.
     local duration=60
-    [ "$platform" = "openwhisk" ] && duration=300
+    [ "$platform" = "openwhisk" ] && duration="$OW_DURATION"
     banner "$(echo $platform | tr a-z A-Z) leg (idle_w=$idle_w, duration=${duration}s)"
     if [ "$DRY_RUN" = 1 ]; then
         echo "DRY-RUN: would run: deploy --platform $platform"
@@ -253,6 +273,7 @@ run_leg() {
         esac
         echo "DRY-RUN: verify --platform $platform"
         echo "DRY-RUN: run --platform $platform --total $TOTAL --concurrency $CONCURRENCY --duration $duration --repeat $REPEAT --idle-w $idle_w --out $out"
+        [ "$CPU_PROBE_S" -gt 0 ] && echo "DRY-RUN: run --platform $platform --idle-probe --duration $CPU_PROBE_S --repeat 1 --idle-w $idle_w --out $REPO/results/idle_probe_${STAMP}/$platform"
         echo "DRY-RUN: gates --out $gate_out ; teardown --platform $platform"
         return 0
     fi
@@ -268,11 +289,38 @@ run_leg() {
     esac
     echo ">>> verify"
     $SAQEF verify --platform "$platform"
+    if [ "$DEPLOY_ONLY" = 1 ]; then
+        echo ">>> DEPLOY-ONLY pilot bench: total=$REQUESTS_PER_RUN concurrency=$CONCURRENCY duration=$duration repeat=1"
+        $SAQEF run --platform "$platform" --total "$REQUESTS_PER_RUN" --concurrency "$CONCURRENCY" \
+            --duration "$duration" --repeat 1 --idle-w "$idle_w" --out "$out"
+        echo ">>> teardown"
+        $SAQEF teardown --platform "$platform"
+        [ "$platform" = "knative" ] && wait_knative_clean
+        sleep 5
+        return 0
+    fi
     echo ">>> run: total=$TOTAL concurrency=$CONCURRENCY duration=$duration repeat=$REPEAT out=$out"
     $SAQEF run --platform "$platform" --total "$TOTAL" --concurrency "$CONCURRENCY" \
         --duration "$duration" --repeat "$REPEAT" --idle-w "$idle_w" --out "$out"
     echo ">>> gates"
     $SAQEF gates --out "$gate_out"
+    if [ "$CPU_PROBE_S" -gt 0 ]; then
+        # Native --idle-probe: same stack state as the bench, zero traffic,
+        # exactly one measurement. Saves a summary with the same cpu_sec
+        # fields; dividing by wall_s gives the per-second background CPU rate.
+        # This is the direct measurement of what the concurrency sweep's
+        # window-length effect actually was -- the driver and the paper must
+        # subtract this from CP/fn CPU-s before quoting per-inv-or-window costs.
+        echo ">>> idle-CPU probe (${CPU_PROBE_S}s, zero traffic)"
+        local pout="$REPO/results/idle_probe_${STAMP}/$platform"
+        if [ -e "${pout}_quick" ] || [ -e "$pout" ]; then
+            die "idle-probe outdir already exists for $platform (${pout}_quick) -- refusing to clobber"
+        fi
+        # repeat=1 writes to <out>_quick, mirroring resolve_outdir() in `saqef`;
+        # pass the bare path and let the CLI apply the suffix (not pre-suffixed).
+        $SAQEF run --platform "$platform" --idle-probe --duration "$CPU_PROBE_S" \
+            --repeat 1 --idle-w "$idle_w" --out "$pout"
+    fi
     echo ">>> teardown"
     $SAQEF teardown --platform "$platform"
     [ "$platform" = "knative" ] && wait_knative_clean
@@ -328,10 +376,17 @@ calibrate_all() {
 # fallbacks.
 # ---------------------------------------------------------------------------
 calib_median() {
-    local state="$1" default="$2"
+    local state="$1" default="$2" explicit="$3" recorded=""
+    # FIXED 2026-10-01 (expert review): an explicit --idle-w-* must WIN over a
+    # saved calib file. The old signature called `calib_median state default`
+    # with default already replaced by "$IDLE_OF:-$DEFAULT_OF}", so a saved
+    # calib file silently shadowed a deliberate --idle-w-* override -- the
+    # opposite of what the echo below claimed. Explicit -> saved calib -> default.
+    if [ -n "$explicit" ]; then echo "$explicit"; return; fi
     if [ -f "$CALIB_DIR/idle_w_$state.txt" ]; then
-        python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["median_w"])' \
-            "$CALIB_DIR/idle_w_$state.txt" 2>/dev/null && return
+        recorded=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["median_w"])' \
+            "$CALIB_DIR/idle_w_$state.txt" 2>/dev/null)
+        [ -n "$recorded" ] && { echo "$recorded"; return; }
     fi
     echo "$default"
 }
@@ -348,13 +403,13 @@ echo "  NOTE   : bare shell, agents QUIT. Each leg self-certifies quiet (15% gat
 check_preconditions
 
 if [ "$SKIP_IDLE" = 1 ]; then
-    IDLE_OF=$(calib_median openfaas "${IDLE_OF:-$DEFAULT_OF}")
-    IDLE_FN=$(calib_median fn "${IDLE_FN:-$DEFAULT_FN}")
-    IDLE_KN=$(calib_median knative "${IDLE_KN:-$DEFAULT_KN}")
-    IDLE_OW=$(calib_median openwhisk "${IDLE_OW:-$DEFAULT_OW}")
+    IDLE_OF=$(calib_median openfaas "$DEFAULT_OF" "${IDLE_OF:-}")
+    IDLE_FN=$(calib_median fn "$DEFAULT_FN" "${IDLE_FN:-}")
+    IDLE_KN=$(calib_median knative "$DEFAULT_KN" "${IDLE_KN:-}")
+    IDLE_OW=$(calib_median openwhisk "$DEFAULT_OW" "${IDLE_OW:-}")
     echo ">> --skip-idle-calib: using idle_w OF=$IDLE_OF FN=$IDLE_FN KN=$IDLE_KN OW=$IDLE_OW"
-    echo "   (explicit --idle-w-* overrides take precedence; otherwise the saved calib"
-    echo "   medians are reused, or these defaults if no calib files exist)"
+    echo "   (explicit --idle-w-* override the saved calib; saved calib overrides the"
+    echo "   hardcoded defaults -- precedence is now the same order as the echo)"
     banner "skipping idle-w calibration"
 elif [ "$DRY_RUN" = 1 ]; then
     # never measured in dry-run; show what the plan would measure with

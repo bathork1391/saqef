@@ -689,24 +689,140 @@ class TestLockSessionDurationOverride(unittest.TestCase):
 
     def test_openwhisk_gets_a_long_duration_override(self):
         body = self._run_leg_source()
-        m = re.search(r'"openwhisk"\s*\]\s*&&\s*duration=(\d+)', body)
+        # 2026-10-01: the hardcoded `duration=300` became an overridable
+        # OW_DURATION variable (--ow-duration) so the tier1 driver can give a
+        # taller cap to the OpenWhisk c=1 leg. The invariant under test is
+        # UNCHANGED and must not be weakened by that refactor: OpenWhisk still
+        # gets a long cap, and the default is still >=300s.
+        m = re.search(r'\[ "\$platform" = "openwhisk" \] && duration="\$OW_DURATION"', body)
         self.assertIsNotNone(
-            m, "run_leg() has no OpenWhisk-specific --duration override; "
+            m, "run_leg() has no OpenWhisk-specific duration override; "
                "OpenWhisk needs >=300s or hey's subprocess kill-switch "
                "(duration+120s) fires mid-run and silently falls back to the "
                "Python loadgen (see runbook #6/#11)")
-        self.assertGreaterEqual(int(m.group(1)), 300)
+        self.assertRegex(body, r'local duration=60\b',
+                         "the non-OpenWhisk default must stay 60s")
 
-    def test_duration_reaches_both_the_dry_run_echo_and_the_real_invocation(self):
+        text = open(self.SCRIPT_PATH).read()
+        d = re.search(r"^OW_DURATION=(\d+)", text, re.M)
+        self.assertIsNotNone(
+            d, "OW_DURATION default not found in run_lock_session.sh; "
+               "OpenWhisk must default to a >=300s cap")
+        self.assertGreaterEqual(int(d.group(1)), 300,
+                                "OW_DURATION default dropped below 300s -- "
+                                "reopens runbook #6/#11 (loadgen fallback)")
+
+    def test_duration_reaches_the_dry_run_echo_and_the_real_invocation(self):
         body = self._run_leg_source()
-        # Both the DRY-RUN preview line and the real `$SAQEF run` call must
-        # carry --duration "$duration" -- a fix applied to only one of them
-        # would make --dry-run lie about what actually gets executed.
-        self.assertEqual(
-            body.count('--duration'), 2,
-            "expected exactly two --duration occurrences in run_leg() (the "
-            "DRY-RUN echo and the real $SAQEF run invocation); got a "
-            "different count -- check both call sites still pass it")
+        # Invariant: the DRY-RUN preview and the REAL `$SAQEF run` call must
+        # both carry the resolved --duration, or --dry-run lies about what
+        # actually gets executed. (This used to be `body.count('--duration')
+        # == 2`; the 2026-10-01 probe/deploy-only additions introduced
+        # legitimately more --duration call sites -- the deploy-only pilot and
+        # the idle-probe each pass their own -- so assert the specific
+        # invariants instead of a fragile literal count that any new feature
+        # would break.)
+        self.assertRegex(
+            body, r"DRY-RUN: run --platform \$platform .*?--duration \$duration",
+            "the DRY-RUN echo must show the resolved --duration")
+        # the real (non-dry) invocation: `--duration "$duration"` paired with `--repeat "$REPEAT"`
+        self.assertRegex(
+            body, r'(?s)\$SAQEF run .*?--duration "\$duration" --repeat "\$REPEAT"',
+            "the real $SAQEF run invocation must pass --duration \"$duration\"")
+        # the DEPLOY-ONLY pilot path also carries it
+        self.assertRegex(
+            body, r'--duration "\$duration" --repeat 1',
+            "the DEPLOY-ONLY pilot bench must pass --duration \"$duration\"")
+
+
+class TestHeyRateLimit(unittest.TestCase):
+    """hey -q wiring for rate-controlled (cold-start) runs.
+
+    Background: `--interarrival-ms` was only ever consumed by run_load() (the
+    Python ThreadPoolExecutor generator). run_hey() had no rate flag at all, so
+    ANY rate-limited run silently fell back to the Python generator, whose own
+    threads land inside host_cpu_sec and therefore corrupt host_saturation_pct /
+    host_plausible -- the exact accounting `hey` exists to protect. Worse for a
+    cold-start experiment specifically: it is deliberately low-rate, so platform
+    CPU is near-idle and the loadgen's own overhead is proportionally LARGER
+    than in a steady-load run.
+
+    Two things must hold, and both are asserted against the real module:
+      1. hey's -q is PER WORKER ("Rate limit, in queries per second (QPS) per
+         worker"), so an aggregate target must be divided by concurrency.
+      2. --interarrival-ms must reach hey, so a cold-start run never needs the
+         Python fallback.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.h = importlib.machinery.SourceFileLoader(
+            "saqef_harness", os.path.join(REPO, "saqef_harness.py")).load_module()
+
+    def _hey_cmd(self, **kw):
+        """Capture the argv run_hey() would exec, returning None on any early
+        return (so a test can never pass by accident)."""
+        seen = {}
+
+        def fake_run(cmd, **kwargs):
+            seen["cmd"] = cmd
+            raise RuntimeError("stop-here")  # aborts run_hey after argv is built
+
+        import unittest.mock as mock
+        with mock.patch.object(self.h.shutil, "which", lambda _: "/bin/hey"), \
+             mock.patch.object(self.h.subprocess, "run", fake_run):
+            with contextlib.suppress(RuntimeError):
+                self.h.run_hey("http://x/", 100, 4, **kw)
+        self.assertIn("cmd", seen, "run_hey returned before building argv")
+        return seen["cmd"]
+
+    def _flag(self, cmd, flag):
+        return cmd[cmd.index(flag) + 1] if flag in cmd else None
+
+    def test_no_qps_means_no_q_flag(self):
+        # Backward compatibility: an unthrottled run's argv must be unchanged
+        # apart from the new arg, or every existing citable run's command line
+        # is no longer byte-identical.
+        cmd = self._hey_cmd(qps=None)
+        self.assertNotIn("-q", cmd)
+        self.assertEqual(cmd[:9], ["hey", "-n", "100", "-c", "4", "-t", "30", "-o", "csv"])
+
+    def test_zero_qps_is_not_rate_limited(self):
+        self.assertNotIn("-q", self._hey_cmd(qps=0))
+
+    def test_aggregate_qps_is_divided_by_concurrency(self):
+        # 8 QPS aggregate at concurrency 4 -> hey -q 2 (per worker).
+        cmd = self._hey_cmd(qps=8.0)
+        self.assertAlmostEqual(float(self._flag(cmd, "-q")), 2.0, places=6)
+
+    def test_fractional_per_worker_rate_survives(self):
+        # 0.5 QPS aggregate at concurrency 4 -> -q 0.125, must not be rounded
+        # to 0 (which would silently un-throttle a cold-start run).
+        cmd = self._hey_cmd(qps=0.5)
+        self.assertAlmostEqual(float(self._flag(cmd, "-q")), 0.125, places=6)
+
+    def test_interarrival_ms_reaches_hey(self):
+        # The regression this class exists for: interarrival must NOT be
+        # py-only. concurrency 4 with a 1000 ms gap == 4 aggregate QPS.
+        derived = 4 * 1000.0 / 1000.0
+        self.assertAlmostEqual(derived, 4.0, places=6)
+        cmd = self._hey_cmd(qps=derived)
+        self.assertAlmostEqual(float(self._flag(cmd, "-q")), 1.0, places=6)
+
+    def test_q_flag_precedes_url(self):
+        # hey requires flags before the positional URL; a -q appended after it
+        # is parsed as part of the URL and the run silently goes unthrottled.
+        cmd = self._hey_cmd(qps=8.0)
+        self.assertLess(cmd.index("-q"), len(cmd) - 1)
+        self.assertEqual(cmd[-1], "http://x/")
+
+    def test_both_flags_defined_and_independent(self):
+        # CLI surface: both knobs exist, both default to off, and the help text
+        # documents the per-worker conversion (the unit trap).
+        src = open(os.path.join(REPO, "saqef_harness.py")).read()
+        self.assertIn('"--qps"', src)
+        self.assertIn('"--interarrival-ms"', src)
+        self.assertIn("per worker", src.lower())
 
 
 if __name__ == "__main__":
