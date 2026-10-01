@@ -926,3 +926,151 @@ The round trip is test-locked: `samples_raw.csv` is parsed back into the structu
 to 1e-6, with the unclipped totals asserted strictly larger so the test cannot pass
 if the clip were removed. That is the property the old corpus had and new runs
 would have lost.
+
+## 24. Bridge experiment — pre-registered decision rule (written 2026-10-02, before any bridge data)
+
+**Why this exists.** Every committed share predates `c05a9df`. The old sampler forked
+`docker ps` plus two `docker inspect` per container per scan (~3 cores, ~40 % of the box) and
+stamped `t` *before* each multi-second scan. Offline re-attribution (§23) settles the window clip
+(≤0.074 pp) but **cannot** bound how much that sampler disturbed the system under test. The bridge
+measures that disturbance. The rule is written down and committed **before** the first leg so it
+cannot be tuned to the outcome. Do not edit this section after bridge data exists. If the rule
+turns out to be wrong, add a §24.x amendment that says what changed and why, and report results
+under both versions.
+
+### 24.1 Design
+
+- **Harness:** `v9.12-reanalysable` = `cec0bd9`. The bridge legs must carry
+  `git_dirty = false`, which requires a clean working tree at run time — verify with
+  `git status --porcelain` before starting, not just at the tag.
+  The two known runtime review items (**transient-inspect fallback**, **RAPL gate semantics**) were
+  **NOT** fixed before this section was written and are **not** fixed as of `cec0bd9`. Neither
+  changes attribution: the fallback only fires on a docker-inspect failure (it would abandon a leg
+  rather than mis-measure it) and the RAPL gate governs energy, not the CP/fn share this bridge
+  compares. Both therefore belong *after* the bridge, where changing them cannot move a
+  reference value. If either is fixed first anyway, re-tag and record the new tag here, and say
+  which.
+- **Protocol:** identical to the existing tier-1 data, via `tools/run_tier1_conc.sh`: TOTAL=3000,
+  REPEAT=5, OF/Fn/Kn at c = 1, 2, 4, 8, OW at c = 1, 4, 8, same `idle_w`, per-leg idle probe.
+  **c = 16 is excluded** for the same reason the driver gives (oversubscribed 8-core box, different
+  regime); the quick-tier c=16 cells stay trend-only.
+- **Conditions matched to the reference:** governor `powersave` (all 169 old lock legs), same
+  pinning, same function images, bare shell with agents quit, ambient quiet gate on.
+- **Fresh stamps are required.** `run_lock_session.sh` refuses to clobber, and the 2026-10-01
+  reference datasets occupy the bare `tier1c$c` / `tier1ow$c` names, so the bridge must run with
+  the prefix flag added for this purpose (2026-10-02):
+
+  ```bash
+  bash tools/run_tier1_conc.sh --stamp-prefix bridge_        # ~2.5-3 h, all four platforms
+  bash tools/run_tier1_conc.sh --stamp-prefix bridge_ --skip-ow   # ~1.5 h, lightweight only
+  ```
+
+  This writes `results/<plat>_cpubound_lock_bridge_tier1c<N>/` and
+  `results/idle_probe_bridge_tier1c<N>/`, and the driver prints a `CARE` line if the flag is
+  omitted. A prefix containing `/`, `tier1c` or `tier1ow` is rejected. Do not move or rename the
+  reference datasets. **Verify before the first leg that the printed stamps carry the prefix** —
+  the driver aborts mid-session if a stamp collides, which would waste the quiet window.
+- **Reference:** the tier-1 datasets below were taken on 2026-10-01 **before** `c05a9df` (their
+  summaries have no `sampling_max_gap_s`), with the same protocol. So reference vs bridge isolates
+  the sampler change, confounded only by day-to-day drift (see 24.3 step 4).
+
+### 24.2 Reference values (frozen)
+
+Median and MAD of `cp_dynamic_share_pct` over the reference runs. Tolerance = max(2 × MAD, 0.50 pp).
+The 0.50 pp floor exists because a 5-run MAD can be implausibly small (Fn c=4: 0.02 pp), and §23.2
+records what happens when a bias is judged against noise-on-noise.
+
+| platform | c | reference dataset | n | median | MAD | tolerance |
+|---|---|---|---|---|---|---|
+| openfaas | 1 | `openfaas_cpubound_lock_tier1c1` | 5 | 7.78 | 0.13 | ±0.50 |
+| openfaas | 2 | `openfaas_cpubound_lock_tier1c2` | 5 | 6.26 | 0.21 | ±0.50 |
+| openfaas | 4 | `openfaas_cpubound_lock_tier1c4` | 5 | 7.16 | 0.12 | ±0.50 |
+| openfaas | 8 | `openfaas_cpubound_lock_tier1c8` | 5 | 7.15 | 0.15 | ±0.50 |
+| fn | 1 | `fn_cpubound_lock_tier1c1` | 5 | 13.97 | 0.15 | ±0.50 |
+| fn | 2 | `fn_cpubound_lock_tier1c2` | 5 | 12.03 | 0.22 | ±0.50 |
+| fn | 4 | `fn_cpubound_lock_tier1c4` | 5 | 10.57 | 0.02 | ±0.50 |
+| fn | 8 | `fn_cpubound_lock_tier1c8` | 5 | 10.56 | 0.11 | ±0.50 |
+| knative | 1 | `knative_cpubound_lock_tier1c1` | 5 | 14.49 | 0.15 | ±0.50 |
+| knative | 2 | `knative_cpubound_lock_tier1c2` | 5 | 12.23 | 0.28 | ±0.56 |
+| knative | 4 | `knative_cpubound_lock_tier1c4` | 5 | 11.64 | 0.38 | ±0.76 |
+| knative | 8 | `knative_cpubound_lock_tier1c8` | 5 | 12.68 | 0.15 | ±0.50 |
+| openwhisk | 1 | `openwhisk_cpubound_lock_tier1ow1` | 5 | 81.14 | 0.22 | ±0.50 |
+| openwhisk | 4 | `openwhisk_cpubound_lock_tier1ow4` | 5 | 83.41 | 0.64 | ±1.28 |
+| openwhisk | 8 | `openwhisk_cpubound_lock_tier1ow8` | 5 | 84.18 | 0.70 | ±1.40 |
+
+**The three OW reference rows are not committed.** They live in `saqef/results/`, which
+`.gitignore` excludes in that repo — unlike `saqef-paper/results/`, which is fully tracked (1435
+files, 316 of them tier-1). So the OW medians below are recoverable only from this box's disk. Two
+consequences: copy `results/openwhisk_cpubound_lock_tier1ow{1,4,8}/` and the matching
+`results/idle_probe_tier1ow{1,4,8}/` somewhere durable **before** the bridge (and note in §24.x
+where), and do not treat an OW rule-1 failure as reproducible-from-git until that copy exists. The
+OF/Fn/Kn rows have no such problem.
+
+**Read the OW rows before quoting them.** Each of the three OW cells has a first leg at
+89.7–90.8 % and four later legs within ~1 pp of each other — the known OW post-deploy transient
+already recorded in the 2026-08-15 sweep. The medians above are unaffected (that is what a median
+is for) and the tolerances are computed from the MAD of all five legs, but **any per-leg
+comparison against these rows will fail**, so rule 1 must be applied to medians only. The reference
+medians also sit above the lock4 OW anchor (81.14 / 83.41 / 84.18 here vs 81.78 at lock4 c=4), so
+a bridge OW leg landing near 81.8 is not a failure against these numbers; it is the transient's
+absence plus the different day, and is reported as such.
+
+### 24.3 Decision rule
+
+Use bridge medians over 5 runs, computed by the same code that computed the reference.
+
+1. **Cell validated:** |bridge median − reference median| ≤ that cell's tolerance.
+2. **Central claim confirmed:** OF < Fn < Kn at every c in the bridge data, and OW above all three.
+   Note this is **stricter than the paper's claim**, which reports Fn ≈ Kn as a
+   convention- and condition-sensitive pair (§5.6) and never ranks them. If `Fn < Kn` fails at some
+   c while `OF < Fn` and `OW` above all three both hold, the paper's headline is *not* refuted — the
+   bridge has shown the Fn/Knative near-tie is not stable, which the paper already says. Report that
+   outcome as "pair ordering not stable", do not patch prose, and do not treat it as rule 2 failing
+   the central claim. Reserve "stop and re-plan" for `OF` losing to `Fn` or `Kn`, or OW dropping
+   below any of the three.
+3. **Shapes confirmed** (operational definitions, using each cell's tolerance as the noise scale):
+   - **Fn falls and stays down:** c1 > c2 > c4, and |c8 − c4| ≤ tolerance(c4). The reference c=4
+     and c=8 medians differ by 0.01 pp (10.57 / 10.56), i.e. a tie, which is why the second clause
+     is a tolerance band and not a strict inequality.
+   - **OpenFaaS dips at c=2:** c2 is lower than *both* c1 and c4 by more than 0.50 pp. If not, §5.3's
+     "unexplained c=2 minimum" becomes "did not reproduce; session state," and is reported that way.
+   - **Knative turns upward at c=8:** c8 − c4 > 0.50 pp.
+4. **If any cell fails rule 1:** run an interleaved A/B on that platform in **one** session,
+   alternating the pre-`c05a9df` sampler and the current one (`tools/contamination_ab.py` is the
+   template). If A ≠ B, the sampler disturbance is real: redo only that platform's affected legs on
+   the current harness and supersede them. If A = B, the difference is day-to-day drift: report it
+   as session variance, and the old data stand.
+5. **Report everything.** Every bridge cell goes into `VERIFIED_RESULTS.md` through the emitter,
+   pass or fail. A failed shape criterion changes the paper text; it is not grounds for a re-run.
+
+### 24.4 Self-check: the rule against the reference itself
+
+Run before the bridge, and recorded here so the criterion's own margins are known rather than
+discovered afterwards. Every rule passes on the reference data (2026-10-02):
+
+| criterion | reference outcome | margin |
+|---|---|---|
+| rule 2, `OF < Fn < Kn` at c=1/2/4/8 | holds at all four | smallest Fn→Kn gap **0.20 pp at c=2** |
+| rule 2, OW above all three | OW min 81.14 > Kn max 14.49 | 66.65 pp |
+| rule 3, Fn c1 > c2 > c4 | holds | \|c8 − c4\| = 0.01 pp, band ±0.50 |
+| rule 3, OF c=2 dip | c1 − c2 = 1.52, c4 − c2 = 0.90 | both exceed 0.50, by 1.02 / 0.40 |
+| rule 3, Kn turns up at c=8 | c8 − c4 = 1.04 | exceeds 0.50 by 0.54 |
+
+Two of those margins are thinner than they look, and both were true before any bridge data existed:
+
+- **The Fn→Kn gap at c=2 is 0.20 pp against a per-cell tolerance of ~0.50 pp.** The ordering is
+  real in the reference but is *not* resolvable at that concurrency — which is exactly why the
+  paper reports the pair as `≈` and §24.3 rule 2 is qualified above. If the bridge flips Fn and Kn at
+  c=2, that is the criterion behaving as designed on a gap that was always inside the noise, not a
+  regression.
+- **The OF dip margin is 0.90 vs a 0.50 threshold, and Knative's is 1.04 vs 0.50.** Both clear, but
+  both would be overturned by roughly half their current size. If either fails, §5.3's "unexplained
+  c=2 minimum" becomes "did not reproduce" — already the stated consequence — rather than evidence
+  that the sampler changed the shape.
+
+### 24.5 What the outcomes mean for the paper
+
+- **All of rules 1–3 pass:** the old corpus is validated against the sampler change. Cite the
+  bridge as the tier-1 replication; keep lock4 / baremetal / 2-core as they are. No more box time.
+- **Rule 1 or 3 fails on some cells:** follow step 4; the scope of any redo is those cells only.
+- **Rule 2 fails:** the central claim is in question. Stop and re-plan; do not patch it in prose.

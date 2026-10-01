@@ -60,22 +60,39 @@
 # verify / 1-min idle probe / teardown) + 3 OW legs (c=1 ~6 min x 5; c=4 ~1 min
 # x 5; c=8 ~1 min x 5) + the c=1 OW duration pilot ~= 2.5-3 h.
 #
-# Usage:  bash tools/run_tier1_conc.sh [--skip-ow] [--dry-run]
+# Usage:  bash tools/run_tier1_conc.sh [--skip-ow] [--dry-run] [--stamp-prefix PFX]
 #   --skip-ow    -> skip the three OpenWhisk legs (lightweight curve only)
 #   --dry-run    -> print the plan only
+#   --stamp-prefix PFX -> write results to <prefix>tier1c<N> / <prefix>tier1ow<N>
+#       instead of the bare tier1c<N> / tier1ow<N>. run_lock_session.sh REFUSES
+#       to clobber an existing outdir, so a re-run of this script against the
+#       2026-10-01 reference datasets would either abort or (worse) sit on
+#       stale data. Required for the bridge in runbook section 24.
 set -uo pipefail
 
 die() { echo "ERROR: $*" >&2; exit 1; }
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DRY_RUN=0 DO_OW=1
-for arg in "$@"; do
-    case "$arg" in
+DRY_RUN=0 DO_OW=1 STAMP_PFX=""
+while [ $# -gt 0 ]; do
+    case "$1" in
         --skip-ow) DO_OW=0 ;;
         --dry-run) DRY_RUN=1 ;;
-        *) echo "unknown option: $arg" >&2; exit 2 ;;
+        --stamp-prefix) [ $# -ge 2 ] || { echo "--stamp-prefix needs a value" >&2; exit 2; }
+                       STAMP_PFX="$2"; shift ;;
+        --stamp-prefix=*) STAMP_PFX="${1#--stamp-prefix=}" ;;
+        *) echo "unknown option: $1" >&2; exit 2 ;;
     esac
+    shift
 done
+# A prefix must not be able to collide with the reference datasets or make the
+# stamp pattern ambiguous for the aggregation step, which parses tier1c/ow out
+# of the stamp name.
+case "$STAMP_PFX" in
+    *"/"*|*tier1c*|*tier1ow*) die "stamp prefix must not contain '/', 'tier1c' or 'tier1ow': $STAMP_PFX" ;;
+esac
+# stamp() <base> -> full stamp, e.g. stamp tier1c4 -> bridge_tier1c4
+stamp() { echo "${STAMP_PFX}$1"; }
 
 W_OF=4.235 W_FN=4.249 W_KN=5.739 W_OW=4.882
 TOTAL=3000
@@ -85,6 +102,7 @@ banner() { echo; echo "=========================================================
 
 echo "SAQEF Tier-1 Experiment B -- concurrency at a single clean tier"
 echo "  repo   : $REPO"
+echo "  stamps  : ${STAMP_PFX:-<none>}tier1c<N> / ${STAMP_PFX:-<none>}tier1ow<N>$([ -n "$STAMP_PFX" ] || echo '   (CARE: bare stamps will collide with the 2026-10-01 reference datasets)')"
 echo "  protocol: TOTAL=$TOTAL REPEAT=$REPEAT (full protocol, NO _quick)  light c=1/2/4/8; OW c=1/4/8"
 echo "  c=16     : EXCLUDED (8-core oversubscription changes the regime; legacy reads retracted)"
 echo "  model   : cp_cpu_s = a*requests + b*wall  (background-CPU; per-leg --idle-probe = direct b)"
@@ -103,7 +121,7 @@ echo "  NOTE   : bare shell, agents QUIT. Each leg self-certifies quiet (15% gat
 # ---------------------------------------------------------------------------
 run_light() {
     for c in 1 2 4 8; do
-        stamp="tier1c$c"
+        stamp=$(stamp "tier1c$c")
         echo
         echo "  >>> concurrency=$c (stamp $stamp, of+fn+kn, N=$REPEAT, idle-probe 60s)"
         if [ "$DRY_RUN" = 1 ]; then
@@ -126,7 +144,7 @@ run_light() {
 run_ow() {
     # pilot: deploy-only, 1 run, same TOTAL -- tells us wall_s and whether the
     # duration/kill-switch is comfortable before we spend 5 runs.
-    stamp="tier1ow1"
+    stamp=$(stamp "tier1ow1")
     echo
     echo "  >>> OW c=1 duration PILOT (stamp ${stamp}_pilot, deploy-only, repeat=1)"
     if [ "$DRY_RUN" = 1 ]; then
@@ -195,7 +213,7 @@ PY
         fi
     fi
     for c in 1 4 8; do
-        stamp="tier1ow$c"
+        stamp=$(stamp "tier1ow$c")
         dur=300; [ "$c" = 1 ] && dur=420
         echo
         echo "  >>> OpenWhisk concurrency=$c (stamp $stamp, N=$REPEAT, ow-duration=${dur}s, idle-probe 60s)"
@@ -232,6 +250,10 @@ fi
 # ---------------------------------------------------------------------------
 banner "cross-stamp aggregation (from committed result files)"
 ERRS_FILE="$(mktemp)"; export SAQEF_TIER1_ERRS="$ERRS_FILE"
+# The aggregation block below re-derives the stamps from (platform, c) rather
+# than reading them off disk, so it has to be told the same prefix the legs ran
+# under or it will report the reference datasets as this run's results.
+export SAQEF_STAMP_PFX="$STAMP_PFX"
 python3 - "$REPO" <<'PY'
 import json, math, os, statistics, sys
 repo = sys.argv[1]
@@ -411,7 +433,8 @@ legs = {}  # (plat, c) -> {"bg": probe_rate or None, "d": outdir}
 errors = []  # protocol violations that MUST make this script exit non-zero
 for plat, (label, cs) in short2plat.items():
     for c in cs:
-        stamp = ("tier1ow%d" if plat == "openwhisk" else "tier1c%d") % c
+        stamp = os.environ.get("SAQEF_STAMP_PFX", "") + (
+            "tier1ow%d" if plat == "openwhisk" else "tier1c%d") % c
         d = find_run_dir(plat, stamp)
         if not d:
             print("  (missing %s c=%d -> skipped)" % (label, c)); continue
