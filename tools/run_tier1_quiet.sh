@@ -20,7 +20,10 @@ set -uo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DRIVER="$REPO/tools/run_tier1_conc.sh"
-LOG="$REPO/results/tier1_session.log"
+# shellcheck source=tools/tier1_log.sh
+. "$REPO/tools/tier1_log.sh"
+tier1_log_new "$REPO"
+LOG="$TIER1_LOG"
 AMBIENT_CEILING="${SAQEF_AMBIENT_CEILING:-15}"
 K3S_WAIT_S="${SAQEF_K3S_WAIT_S:-180}"
 ASSUME_YES=0
@@ -197,6 +200,7 @@ info "log: $LOG"
 info ""
 bash "$DRIVER" 2>&1 | tee "$LOG"
 rc=${PIPESTATUS[0]}
+tier1_log_publish "$REPO"
 
 echo
 if [ "$rc" -eq 0 ]; then

@@ -43,7 +43,10 @@ CERT_WAIT_S="${SAQEF_CERT_WAIT_S:-1800}"
 API_WAIT_S="${SAQEF_API_WAIT_S:-300}"
 AMBIENT_CEILING="${SAQEF_AMBIENT_CEILING:-15}"
 DRIVER="$REPO/tools/run_tier1_conc.sh"
-LOG="$REPO/results/tier1_session.log"
+# shellcheck source=tools/tier1_log.sh
+. "$REPO/tools/tier1_log.sh"
+tier1_log_new "$REPO"
+LOG="$TIER1_LOG"
 DO_RUN=0
 
 for a in "$@"; do
@@ -217,7 +220,9 @@ if [ "$DO_RUN" = 1 ]; then
     *) info "not launching."; exit 0 ;;
   esac
   bash "$DRIVER" 2>&1 | tee "$LOG"
-  exit "${PIPESTATUS[0]}"
+  rc="${PIPESTATUS[0]}"
+  tier1_log_publish "$REPO"
+  exit "$rc"
 else
   info "  bash tools/run_tier1_quiet.sh --check    # re-verify, runs nothing"
   info "  bash tools/run_tier1_quiet.sh --yes      # full 3h run"
