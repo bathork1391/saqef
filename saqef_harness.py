@@ -29,6 +29,7 @@ import argparse
 import base64
 import collections
 import csv
+import datetime
 import io
 import json
 import math
@@ -829,9 +830,26 @@ def discover_cgroup_container_dirs(root="/sys/fs/cgroup", max_depth=6):
 
 
 def container_name(cid):
-    """Container name (leading '/' stripped) for an ID, or None."""
-    out = run("docker inspect -f '{{.Name}}' %s" % cid).stdout.strip()
-    return out.lstrip("/") if out else None
+    """(name, birth_epoch_s) for an ID, or (None, None).
+
+    Name and creation time come from a SINGLE inspect: the birth time is what
+    lets the consumer recover the CPU a container burned between being created
+    and first being sampled, which is otherwise dropped (see sample_totals).
+    Asking for it separately would double the spawn count for no new
+    information, so the two templates are deliberately combined."""
+    out = run("docker inspect -f '{{.Name}}|{{.Created}}' %s" % cid).stdout.strip()
+    if not out:
+        return None, None
+    name, _, created = out.partition("|")
+    born = None
+    if created.strip():
+        try:
+            # RFC3339 -> epoch. fromisoformat handles the offset docker emits.
+            born = datetime.datetime.fromisoformat(
+                created.strip().replace("Z", "+00:00")).timestamp()
+        except Exception:
+            born = None      # unknown birth -> fall back to dropping that slice
+    return (name.lstrip("/") or None), born
 
 
 def cgroup_sampler(samples, stop, first_sample, rescan_s=0.25, sample_s=0.05):
@@ -855,19 +873,19 @@ def cgroup_sampler(samples, stop, first_sample, rescan_s=0.25, sample_s=0.05):
     ~3 cores of host CPU -- CPU attributed to no measured cgroup, so it never
     showed up in cp/fn, but it inflated host_saturation_pct, polluted the
     host-residual check, and stole ~40% of the box from the system under test."""
-    cache = {}  # container ID -> (name, cpu_cgroup_dir, mem_cgroup_dir)
+    cache = {}  # container ID -> (name, cpu_cgroup_dir, mem_cgroup_dir, born)
 
     def resolve(cid, cdir=None):
-        """Cached name+cgroup lookup. One inspect per container ID, ever."""
+        """Cached name+cgroup+birth lookup. One inspect per container ID, ever."""
         hit = cache.get(cid)
         if hit is None:
             c2, m2 = container_cgroup_dirs(cid)
             if c2 is None:
                 return None
-            nm = container_name(cid)
+            nm, born = container_name(cid)
             if not nm:
                 return None
-            hit = (nm, c2, m2)
+            hit = (nm, c2, m2, born)
             cache[cid] = hit
         return hit
 
@@ -879,13 +897,13 @@ def cgroup_sampler(samples, stop, first_sample, rescan_s=0.25, sample_s=0.05):
             for cid, cdir in found:
                 hit = cache.get(cid)
                 if hit is None:  # new container: one inspect, then cached
-                    nm = container_name(cid)
+                    nm, born = container_name(cid)
                     if not nm:
                         return None
-                    hit = (nm, cdir, cdir)  # cgroup v2: unified cpu+memory
+                    hit = (nm, cdir, cdir, born)  # cgroup v2: unified cpu+memory
                     cache[cid] = hit
                 live.add(cid)
-                d[hit[0]] = (hit[1], hit[2])
+                d[hit[0]] = (hit[1], hit[2], hit[3])
         else:
             # cgroup v1 / non-standard layout: fall back to asking docker.
             out = run("docker ps --format '{{.ID}}|{{.Names}}'")
@@ -921,11 +939,11 @@ def cgroup_sampler(samples, stop, first_sample, rescan_s=0.25, sample_s=0.05):
                 dirs = fresh
             last_scan = t
         snap = {}
-        for cname, (cdir, mdir) in dirs.items():
+        for cname, (cdir, mdir, born) in dirs.items():
             cum = read_cpu_cumulative(cdir)
             if cum is None:
                 continue
-            snap[cname] = (cum, read_mem_mb(mdir) if mdir else 0.0)
+            snap[cname] = (cum, read_mem_mb(mdir) if mdir else 0.0, born)
         if snap:
             samples.append((t, snap, "cum"))
             first_sample.set()
@@ -935,11 +953,11 @@ def cgroup_sampler(samples, stop, first_sample, rescan_s=0.25, sample_s=0.05):
     # fresh-reset runs (93.6%/92.9% on runs 1-2). A final read closes the gap
     # so the sampled span reaches the window end.
     snap = {}
-    for cname, (cdir, mdir) in dirs.items():
+    for cname, (cdir, mdir, born) in dirs.items():
         cum = read_cpu_cumulative(cdir)
         if cum is None:
             continue
-        snap[cname] = (cum, read_mem_mb(mdir) if mdir else 0.0)
+        snap[cname] = (cum, read_mem_mb(mdir) if mdir else 0.0, born)
     if snap:
         samples.append((time.time(), snap, "cum"))
 
@@ -990,7 +1008,21 @@ def sample_totals(samples, cp_sub, fn_sub="", cp_members=None, fn_members=None,
       'pct' - the rate was read at t and applies to (t, t_next].
     Using the forward interval for 'cum' instead shifted every delta one sample
     later, which put the whole pre-load stretch into the first in-window
-    interval -- the exact leak the window is meant to remove."""
+    interval -- the exact leak the window is meant to remove.
+
+    Snapshots are {name: (cum, mem)} or {name: (cum, mem, born_epoch)}. The
+    third element is the container's CREATION time. A container first seen at
+    sample i has a counter that already contains everything it burned since
+    creation, and that entire birth-to-first-sample slice used to be discarded
+    (prev is None -> delta 0). That is not a rounding error on scale-up
+    platforms: Knative creates fn containers seconds into the run, and the
+    slice for the LAST container to appear can be seconds of real CPU, silently
+    undercounting fn_cpu and biasing cp_dynamic_share_pct UPWARD.
+    With a known birth time the whole counter is credited over (born, t] and
+    the existing overlap proration keeps only the in-window part, under the
+    uniform-rate assumption that is already used for partial intervals. If the
+    birth time is unknown the old behaviour (drop the slice) is kept, which is
+    conservative in the sense of not inventing CPU."""
     cp_cpu = fn_cpu = unclass = 0.0
     cp_mem = 0.0
     covered = 0.0
@@ -1020,9 +1052,9 @@ def sample_totals(samples, cp_sub, fn_sub="", cp_members=None, fn_members=None,
             overlap = min(span1, w1) - max(span0, w0)
             if overlap <= 0:
                 # Entirely outside the load: no CPU, no coverage, no gap claim.
-                for name, (v, mem) in snap.items():
+                for name, vsnap in snap.items():
                     if mode == "cum":
-                        prev[name] = v
+                        prev[name] = vsnap[0]
                 prev_t = t
                 continue
             frac = min(1.0, overlap / dt)
@@ -1036,20 +1068,45 @@ def sample_totals(samples, cp_sub, fn_sub="", cp_members=None, fn_members=None,
         if not last and (window is None or
                          min(tnext, window[1]) > max(t, window[0])):
             max_gap = max(max_gap, tnext - t)
-        for name, (v, mem) in snap.items():
+        for name, vsnap in snap.items():
+            v = vsnap[0]
+            mem = vsnap[1]
+            born = vsnap[2] if len(vsnap) > 2 else None
+            # Which window fraction applies to THIS container. Normally the
+            # sample's own forward/backward interval fraction. For a first-sight
+            # birth credit the relevant span is (born, t], which is a different
+            # interval, so it must carry its own factor -- applying `frac` as
+            # well would prorate the slice twice.
+            myfrac = frac
             if mode == "cum":
                 cum = v
                 old = prev.get(name)
                 prev[name] = cum
-                d = max(cum - old, 0.0) if (old is not None and has_delta) else 0.0
-                cpu_sec = d
-                pct = (d / dt) * 100.0 if dt else 0.0
+                if old is not None and has_delta:
+                    cpu_sec = max(cum - old, 0.0)
+                    pct = (cpu_sec / dt) * 100.0 if dt else 0.0
+                elif born is not None and born < t:
+                    # First sight: credit the whole counter over (born, t], then
+                    # keep only the part inside the load window. Assumes a
+                    # uniform rate across the lifetime, the same assumption the
+                    # partial-interval proration already makes.
+                    life = t - born
+                    cpu_sec = cum
+                    pct = (cpu_sec / life) * 100.0 if life else 0.0
+                    if window is not None:
+                        ov = min(t, window[1]) - max(born, window[0])
+                        myfrac = min(1.0, max(0.0, ov) / life) if life else 0.0
+                    else:
+                        myfrac = 1.0
+                else:
+                    cpu_sec = 0.0        # no baseline and no birth time
+                    pct = 0.0
             else:
                 pct = v
                 cpu_sec = (pct / 100.0) * dt
-            cpu_sec *= frac
-            if frac < 1.0:
-                pct *= frac
+            cpu_sec *= myfrac
+            if myfrac < 1.0:
+                pct *= myfrac
             csv_rows.append((t, name, pct, mem))
             name_l = name.lower()
             if cp_members and name in cp_members:

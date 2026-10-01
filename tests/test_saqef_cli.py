@@ -2040,6 +2040,152 @@ class TestSamplingQualityGate(unittest.TestCase):
                                msg="only the 10 s of load may be attributed, "
                                    "not the 5 s of idle time before it")
 
+    # ---- containers born mid-run -----------------------------------------
+    # A container first seen at sample i has a counter that already holds
+    # everything it burned since creation. That slice used to be dropped
+    # entirely, which on scale-up platforms is seconds of real fn CPU for the
+    # container that appears last.
+    def test_cpu_burned_before_a_container_is_first_sampled_is_not_lost(self):
+        """fn does not exist in the 12.0 sample, and by 13.0 its counter already
+        reads 4 CPU-s: it was created at 12.0 and burned that CPU before anyone
+        looked. The container must appear in exactly ONE sample here, otherwise
+        the value comes from the ordinary forward delta and the birth slice is
+        never exercised."""
+        smp = [
+            (12.0, {"cp": (1.0, 1.0, 0.0)}, "cum"),
+            (13.0, {"cp": (2.0, 1.0, 0.0), "fn": (4.0, 1.0, 12.0)}, "cum"),
+        ]
+        st = self.h.sample_totals(smp, ("cp",), "fn", window=(12.0, 13.0))
+        self.assertAlmostEqual(st.fn_cpu_s, 4.0, places=6,
+                               msg="the birth-to-first-sample slice is real CPU "
+                                   "and must be credited, not zeroed")
+        self.assertAlmostEqual(st.cp_cpu_s, 1.0, places=6,
+                               msg="cp's own delta is unaffected")
+
+    def test_a_container_visible_in_two_samples_uses_the_delta_not_the_birth(self):
+        """The birth credit is a FIRST-sighting correction only. If it were
+        applied on every sample the counter would be counted repeatedly."""
+        smp = [
+            (12.0, {"fn": (0.0, 1.0, 12.0)}, "cum"),
+            (13.0, {"fn": (4.0, 1.0, 12.0)}, "cum"),
+            (14.0, {"fn": (8.0, 1.0, 12.0)}, "cum"),
+        ]
+        st = self.h.sample_totals(smp, ("cp",), "fn", window=(12.0, 14.0))
+        self.assertAlmostEqual(st.fn_cpu_s, 8.0, places=6,
+                               msg="4 CPU-s in each of two intervals, not 4+4+8")
+
+    def test_birth_credit_is_clipped_to_the_load_window(self):
+        """fn is absent from the first sample and by the second its counter
+        reads 30 CPU-s after a 60 s life. The load window is only 50..55, so
+        5/60 of that counter is in-window. This genuinely exercises the birth
+        branch: fn appears in exactly one sample."""
+        smp = [
+            (50.0, {"cp": (0.0, 1.0, 0.0)}, "cum"),
+            (60.0, {"cp": (1.0, 1.0, 0.0), "fn": (30.0, 1.0, 0.0)}, "cum"),
+        ]
+        st = self.h.sample_totals(smp, ("cp",), "fn", window=(50.0, 55.0))
+        self.assertAlmostEqual(st.fn_cpu_s, 2.5, places=6,
+                               msg="only 5/60 of a 30 CPU-s lifetime is in-window")
+
+    def test_a_container_present_from_the_first_sample_credits_its_birth_slice(self):
+        """The very first sample of the run also has no baseline, so it takes the
+        birth branch too. Its counter holds everything since creation and that
+        CPU belongs to the measurement."""
+        smp = [
+            (1.0, {"fn": (1.0, 1.0, 0.0)}, "cum"),
+            (2.0, {"fn": (2.0, 1.0, 0.0)}, "cum"),
+            (3.0, {"fn": (3.0, 1.0, 0.0)}, "cum"),
+        ]
+        st = self.h.sample_totals(smp, ("cp",), "fn", window=(0.0, 3.0))
+        self.assertAlmostEqual(st.fn_cpu_s, 3.0, places=6,
+                               msg="1 CPU-s of birth slice plus two 1 CPU-s deltas")
+
+    def test_a_birth_time_after_the_sample_is_never_credited(self):
+        """Clock skew, or a container created between the scan and the read,
+        can put Created in the future relative to the sample timestamp. A future
+        birth means no time has elapsed, so no CPU can be attributed."""
+        smp = [
+            (1.0, {"cp": (1.0, 1.0, 0.0)}, "cum"),
+            (2.0, {"cp": (2.0, 1.0, 0.0), "fn": (7.0, 1.0, 99.0)}, "cum"),
+        ]
+        st = self.h.sample_totals(smp, ("cp",), "fn", window=(1.0, 2.0))
+        self.assertAlmostEqual(st.fn_cpu_s, 0.0, places=6,
+                               msg="a negative lifetime must credit nothing, not "
+                                   "fall through to crediting the whole counter")
+
+    def test_a_future_birth_time_is_also_rejected_without_a_window(self):
+        """Same guard with no window supplied, where myfrac defaults to 1.0 and
+        the counter would otherwise be credited whole."""
+        smp = [
+            (1.0, {"cp": (1.0, 1.0, 0.0)}, "cum"),
+            (2.0, {"cp": (2.0, 1.0, 0.0), "fn": (7.0, 1.0, 99.0)}, "cum"),
+        ]
+        st = self.h.sample_totals(smp, ("cp",), "fn")
+        self.assertAlmostEqual(st.fn_cpu_s, 0.0, places=6)
+
+    def test_a_container_born_after_the_window_ends_contributes_nothing(self):
+        """fn is born at 12.6 and first sampled at 13.0, but the load window
+        closed at 12.5 -- its entire life is outside the window."""
+        smp = [
+            (12.0, {"cp": (0.0, 1.0, 0.0)}, "cum"),
+            (13.0, {"cp": (1.0, 1.0, 0.0), "fn": (9.0, 1.0, 12.6)}, "cum"),
+        ]
+        st = self.h.sample_totals(smp, ("cp",), "fn", window=(10.0, 12.5))
+        self.assertAlmostEqual(st.fn_cpu_s, 0.0, places=6,
+                               msg="a birth time past the window end is not credit")
+
+    def test_a_container_already_present_uses_the_forward_interval_as_before(self):
+        """Second and later samples must be unaffected by birth handling."""
+        smp = [
+            (0.0, {"fn": (0.0, 1.0, -50.0)}, "cum"),
+            (1.0, {"fn": (2.0, 1.0, -50.0)}, "cum"),
+            (2.0, {"fn": (4.0, 1.0, -50.0)}, "cum"),
+        ]
+        st = self.h.sample_totals(smp, ("cp",), "fn", window=(0.0, 2.0))
+        self.assertAlmostEqual(st.fn_cpu_s, 4.0, places=6)
+
+    def test_unknown_birth_time_still_drops_the_slice_rather_than_inventing_cpu(self):
+        """No birth time must mean no credit -- a guess would be worse than the
+        undercount it replaces. Only a container's FIRST sighting is affected;
+        once a baseline exists the normal delta is used."""
+        smp = [
+            (0.0, {"cp": (0.0, 1.0, 0.0)}, "cum"),
+            (1.0, {"cp": (1.0, 1.0, 0.0), "fn": (5.0, 1.0)}, "cum"),
+        ]
+        st = self.h.sample_totals(smp, ("cp",), "fn", window=(0.0, 1.0))
+        self.assertAlmostEqual(st.fn_cpu_s, 0.0, places=6,
+                               msg="first sighting with no birth time -> no credit")
+        self.assertAlmostEqual(st.cp_cpu_s, 1.0, places=6,
+                               msg="a container with a baseline is unaffected")
+
+    def test_two_and_s_tuples_are_both_accepted(self):
+        """Older samples.csv replays and existing tests use (cum, mem)."""
+        two = self.h.sample_totals(self._samples([0.0, 1.0, 2.0]),
+                                   ("web",), "fn")
+        three = self.h.sample_totals(
+            [(t, {"web": (t, 1.0, None)}, "cum") for t in (0.0, 1.0, 2.0)],
+            ("web",), "fn")
+        self.assertAlmostEqual(two.cp_cpu_s, three.cp_cpu_s, places=6)
+
+    def test_container_name_returns_the_creation_time_from_one_inspect(self):
+        src = open(os.path.join(REPO, "saqef_harness.py")).read()
+        body = re.search(r"def container_name.*?\n(?=\ndef )", src, re.S).group(0)
+        self.assertIn("{{.Name}}|{{.Created}}", body,
+                      "name and birth must come from ONE inspect, or the "
+                      "sampler's zero-spawn property is lost")
+        self.assertEqual(body.count("run("), 1,
+                         "container_name must spawn exactly one subprocess")
+        self.assertIn("fromisoformat", body,
+                      "the RFC3339 Created field must be parsed")
+        pre = [i * 0.5 for i in range(11)]                 # 0.0 .. 5.0, idle
+        during = [5.0 + 0.5 * i for i in range(21)]        # 5.0 .. 15.0, loaded
+        ts = pre + during
+        smp = [(t, {"web": (t, 1.0)}, "cum") for t in ts]
+        st = self.h.sample_totals(smp, ("web",), "fn", window=(5.0, 15.0))
+        self.assertAlmostEqual(st.cp_cpu_s, 10.0, places=6,
+                               msg="only the 10 s of load may be attributed, "
+                                   "not the 5 s of idle time before it")
+
     def test_runner_passes_the_real_load_window(self):
         src = open(os.path.join(REPO, "saqef_harness.py")).read()
         m = re.search(r"sample_totals\(\s*\n\s*samples,(.*?)\)\n", src, re.S)
