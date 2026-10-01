@@ -1912,6 +1912,144 @@ class TestSamplingQualityGate(unittest.TestCase):
         self.assertLess(st.max_gap_s, 0.1,
                         "the synthetic final tail must not masquerade as a blind gap")
 
+    # ---- the load window -------------------------------------------------
+    # The sampler is started before the load and stopped after it, so samples
+    # exist outside [t0, t0+wall]. Counting them folded idle CPU into the run and
+    # pushed cp_dynamic_share_pct down by an amount that varies with the
+    # overhang, so it was not even a constant bias across concurrencies.
+    def test_cpu_outside_the_load_window_is_not_counted(self):
+        """Same counters, two windows: total CPU must scale with the window."""
+        ts = [i * 0.5 for i in range(41)]          # 20 s, counter grows 1 CPU/s
+        full = self.h.sample_totals(self._samples(ts), ("web",), "fn")
+        half = self.h.sample_totals(self._samples(ts), ("web",), "fn",
+                                    window=(5.0, 15.0))
+        self.assertAlmostEqual(half.cp_cpu_s, 10.0, places=6,
+                               msg="a 10 s window of a 1 CPU/s counter is 10 CPU-s")
+        self.assertAlmostEqual(full.cp_cpu_s, 20.0, places=6,
+                               msg="the whole 20 s of samples is 20 CPU-s")
+        self.assertLess(half.cp_cpu_s, full.cp_cpu_s)
+
+    def test_window_does_not_change_the_share_of_cpu_it_attributes(self):
+        """Clipping must not move CPU between buckets: cp and fn both live
+        outside the window, so their RATIO must be preserved."""
+        ts = [i * 0.5 for i in range(41)]
+        smp = [(t, {"cp": (t, 1.0), "fn": (3.0 * t, 1.0)}, "cum") for t in ts]
+        st = self.h.sample_totals(smp, ("cp",), "fn", window=(5.0, 15.0))
+        share = st.cp_cpu_s / (st.cp_cpu_s + st.fn_cpu_s)
+        self.assertAlmostEqual(share, 0.25, places=6,
+                               msg="cp:fn = 1:3 ratio must survive the clip")
+
+    def test_samples_before_the_window_contribute_nothing(self):
+        """A long pre-load stretch must not appear in the totals."""
+        ts = list(range(0, 100)) + [100.0 + i * 0.5 for i in range(21)]
+        smp = [(t, {"web": (t, 1.0)}, "cum") for t in ts]
+        st = self.h.sample_totals(smp, ("web",), "fn", window=(100.0, 110.0))
+        self.assertAlmostEqual(st.cp_cpu_s, 10.0, places=6,
+                               msg="only the 10 s inside the window may count")
+
+    def test_a_gap_entirely_outside_the_window_does_not_fail_the_gate(self):
+        """The 100 s stall before the load starts says nothing about whether the
+        window was observed. It must not trip max_gap_s."""
+        ts = list(range(0, 20)) + [100.0 + i * 0.05 for i in range(21)]
+        st = self.h.sample_totals(self._samples(ts), ("web",), "fn",
+                                  window=(100.0, 101.0))
+        self.assertLess(st.max_gap_s, 0.1,
+                        "a pre-window stall is not a mid-window blind interval")
+
+    def test_a_gap_inside_the_window_still_fails(self):
+        """Clipping must not accidentally suppress the stall it is meant to
+        keep visible. Sampled 0-0.45, blind 0.45-1.5, then 1.5-3.45."""
+        ts = [100.0 + i * 0.05 for i in range(10)] + [101.5 + i * 0.05
+                                                      for i in range(40)]
+        st = self.h.sample_totals(self._samples(ts), ("web",), "fn",
+                                  window=(100.0, 103.5))
+        self.assertGreater(st.max_gap_s, 1.0,
+                           "an in-window stall must still be reported")
+
+    def test_window_coverage_never_exceeds_the_window(self):
+        ts = [i * 0.5 for i in range(41)]
+        st = self.h.sample_totals(self._samples(ts), ("web",), "fn",
+                                  window=(5.0, 15.0))
+        self.assertLessEqual(st.covered_s, 10.0 + 1e-9,
+                             "coverage cannot exceed the load window itself")
+
+    def test_window_edges_that_fall_between_samples_are_prorated(self):
+        """Every other window test happens to land on sample instants, so the
+        two partial intervals at the boundary are never exercised -- and those
+        are precisely the ones a hard clip or an un-prorated sum gets wrong.
+        Window 5.25..14.75 spans 9.5 s of a 1 CPU/s counter; the first and last
+        sample intervals are only half inside it."""
+        ts = [i * 0.5 for i in range(41)]
+        st = self.h.sample_totals(self._samples(ts), ("web",), "fn",
+                                  window=(5.25, 14.75))
+        self.assertAlmostEqual(st.cp_cpu_s, 9.5, places=6,
+                               msg="the half-overlap intervals at each edge must "
+                                   "contribute half their CPU")
+        self.assertAlmostEqual(st.covered_s, 9.5, places=6,
+                               msg="coverage must be prorated at the edges too")
+
+    def test_a_window_entirely_between_two_samples_credits_only_the_overlap(self):
+        """A window wholly inside one sample interval credits that fraction of
+        the delta, not the whole interval."""
+        ts = [i * 0.5 for i in range(41)]
+        st = self.h.sample_totals(self._samples(ts), ("web",), "fn",
+                                  window=(3.10, 3.40))
+        self.assertAlmostEqual(st.cp_cpu_s, 0.30, places=6,
+                               msg="0.30 s inside the [3.0,3.5] interval is 0.30 CPU-s")
+
+    def test_a_window_with_no_sample_overlap_yields_no_cpu(self):
+        """A sub-cadence gap shorter than the sampling interval still contains
+        real CPU; it must be apportioned by overlap, not rounded away."""
+        ts = [i * 0.5 for i in range(41)]
+        full = self.h.sample_totals(self._samples(ts), ("web",), "fn",
+                                    window=(3.0, 3.5))
+        half = self.h.sample_totals(self._samples(ts), ("web",), "fn",
+                                    window=(3.0, 3.25))
+        self.assertAlmostEqual(full.cp_cpu_s, 0.5, places=6)
+        self.assertAlmostEqual(half.cp_cpu_s, 0.25, places=6)
+
+    def test_a_window_ending_exactly_at_a_sample_credits_nothing_after_it(self):
+        """Boundary: overlap == 0 is not overlap. Window (3.0, 3.5) contains the
+        interval [3.0,3.5] and nothing of [3.5,4.0]; a `<` instead of `<=`
+        guard would fold that next half-second in."""
+        ts = [i * 0.5 for i in range(41)]
+        st = self.h.sample_totals(self._samples(ts), ("web",), "fn",
+                                  window=(3.0, 3.5))
+        self.assertAlmostEqual(st.cp_cpu_s, 0.5, places=6,
+                               msg="exactly one interval, not one and a half")
+        self.assertAlmostEqual(st.covered_s, 0.5, places=6)
+
+    def test_no_window_argument_preserves_the_old_behaviour(self):
+        """Call sites and older analyses pass no window; clipping must be
+        opt-in or every previously published number silently changes."""
+        ts = [i * 0.5 for i in range(41)]
+        st = self.h.sample_totals(self._samples(ts), ("web",), "fn")
+        self.assertAlmostEqual(st.cp_cpu_s, 20.0, places=6)
+
+    def test_preload_cpu_is_not_absorbed_by_the_first_in_window_sample(self):
+        """The sampler starts before the load, so the first in-window cumulative
+        delta covers (prev_t, t] -- which straddles t0. Prorating it against the
+        FORWARD interval instead put the whole pre-load stretch into the window,
+        which is the exact leak the window is meant to remove."""
+        pre = [i * 0.5 for i in range(11)]                 # 0.0 .. 5.0, idle
+        during = [5.0 + 0.5 * i for i in range(21)]        # 5.0 .. 15.0, loaded
+        ts = pre + during
+        smp = [(t, {"web": (t, 1.0)}, "cum") for t in ts]
+        st = self.h.sample_totals(smp, ("web",), "fn", window=(5.0, 15.0))
+        self.assertAlmostEqual(st.cp_cpu_s, 10.0, places=6,
+                               msg="only the 10 s of load may be attributed, "
+                                   "not the 5 s of idle time before it")
+
+    def test_runner_passes_the_real_load_window(self):
+        src = open(os.path.join(REPO, "saqef_harness.py")).read()
+        m = re.search(r"sample_totals\(\s*\n\s*samples,(.*?)\)\n", src, re.S)
+        self.assertIsNotNone(m, "sample_totals call site not found")
+        self.assertIn("window=", m.group(1),
+                      "run_once must clip the totals to the load window: %s"
+                      % m.group(1).strip())
+        self.assertRegex(m.group(1), r"window=\(t0,\s*t0 \+ wall\)",
+                         "the window must be the actual measured load window")
+
     def test_summary_records_the_fields_that_can_actually_fail(self):
         src = open(os.path.join(REPO, "saqef_harness.py")).read()
         for key in ("sampling_max_gap_s", "sampling_n_samples",

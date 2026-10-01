@@ -945,7 +945,7 @@ def cgroup_sampler(samples, stop, first_sample, rescan_s=0.25, sample_s=0.05):
 
 
 def sample_totals(samples, cp_sub, fn_sub="", cp_members=None, fn_members=None,
-                  fn_allow_configured=False):
+                  fn_allow_configured=False, window=None):
     """Reduce raw samples to a SampleTotals namedtuple:
     (cp_cpu_s, fn_cpu_s, cp_peak_mem_mb, covered_s, csv_rows, unclass_cpu_s,
      max_gap_s, n_samples, span_s).
@@ -969,7 +969,28 @@ def sample_totals(samples, cp_sub, fn_sub="", cp_members=None, fn_members=None,
     synthetic SAMPLE_S tail for the last sample) and was then clamped to wall,
     so any sampler that merely started before the load and stopped after it read
     100%. The real question is whether the sampler went blind mid-window, which
-    is a MAX GAP, not a total."""
+    is a MAX GAP, not a total.
+
+    window=(t_start, t_end) restricts the totals to the actual load window. The
+    sampler is started before the load and stopped after it, so without this
+    every run folded in CPU accrued while the platform was idle but the sampler
+    was already running, and the stop-time flush added a tail past the end. Both
+    inflate cp_cpu_s/fn_cpu_s relative to wall_s, biasing cp_dynamic_share_pct
+    DOWNWARD by an amount that scales with how far the sampler overhangs the
+    window -- so it was not even a constant bias across concurrencies.
+    Cumulative counters are only known at sample instants, so the in-window
+    portion of each interval is apportioned by time overlap; a sample entirely
+    outside the window contributes nothing and a container absent from a sample
+    still gets 0 rather than a negative delta.
+
+    The interval a sample's CPU belongs to depends on the mode and this has to be
+    exact, because the sampler starts BEFORE the load:
+      'cum' - the delta cum[i]-cum[i-1] accrued over (t_prev, t], so it is
+              prorated against THAT span, not against the forward one.
+      'pct' - the rate was read at t and applies to (t, t_next].
+    Using the forward interval for 'cum' instead shifted every delta one sample
+    later, which put the whole pre-load stretch into the first in-window
+    interval -- the exact leak the window is meant to remove."""
     cp_cpu = fn_cpu = unclass = 0.0
     cp_mem = 0.0
     covered = 0.0
@@ -977,27 +998,58 @@ def sample_totals(samples, cp_sub, fn_sub="", cp_members=None, fn_members=None,
     n_samples = len(samples)
     fn_allow_active = fn_allow_configured or bool(fn_sub or fn_members)
     prev = {}
+    prev_t = None
     csv_rows = []
     for i, (t, snap, mode) in enumerate(samples):
         last = i + 1 >= len(samples)
         tnext = samples[i + 1][0] if not last else t + SAMPLE_S
-        dt = max(tnext - t, 0.01)
-        covered += dt
+        # The span this sample's measurement covers.
+        if mode == "cum":
+            # first sample establishes the baseline: it has no delta to prorate
+            span0 = prev_t
+            span1 = t
+            has_delta = prev_t is not None
+        else:
+            span0 = t
+            span1 = tnext
+            has_delta = True
+        dt = max(span1 - span0, 0.01) if has_delta else 0.0
+        frac = 1.0
+        if window is not None and has_delta:
+            w0, w1 = window
+            overlap = min(span1, w1) - max(span0, w0)
+            if overlap <= 0:
+                # Entirely outside the load: no CPU, no coverage, no gap claim.
+                for name, (v, mem) in snap.items():
+                    if mode == "cum":
+                        prev[name] = v
+                prev_t = t
+                continue
+            frac = min(1.0, overlap / dt)
+        if has_delta:
+            covered += dt * frac
         # The synthetic SAMPLE_S tail is not a real observation, so it must not
-        # be able to masquerade as a healthy cadence.
-        if not last:
+        # be able to masquerade as a healthy cadence. A gap that lies wholly
+        # outside the window says nothing about coverage of the window either.
+        # A gap is the interval BETWEEN two real observations, so it is measured
+        # forward from t to tnext and never uses the synthetic tail.
+        if not last and (window is None or
+                         min(tnext, window[1]) > max(t, window[0])):
             max_gap = max(max_gap, tnext - t)
         for name, (v, mem) in snap.items():
             if mode == "cum":
                 cum = v
                 old = prev.get(name)
                 prev[name] = cum
-                d = max(cum - old, 0.0) if old is not None else 0.0
+                d = max(cum - old, 0.0) if (old is not None and has_delta) else 0.0
                 cpu_sec = d
-                pct = (d / dt) * 100.0
+                pct = (d / dt) * 100.0 if dt else 0.0
             else:
                 pct = v
                 cpu_sec = (pct / 100.0) * dt
+            cpu_sec *= frac
+            if frac < 1.0:
+                pct *= frac
             csv_rows.append((t, name, pct, mem))
             name_l = name.lower()
             if cp_members and name in cp_members:
@@ -1013,6 +1065,7 @@ def sample_totals(samples, cp_sub, fn_sub="", cp_members=None, fn_members=None,
                     unclass += cpu_sec
             else:
                 fn_cpu += cpu_sec
+        prev_t = t
     span_s = (samples[-1][0] - samples[0][0]) if n_samples else 0.0
     return SampleTotals(cp_cpu, fn_cpu, cp_mem, covered, csv_rows, unclass,
                         max_gap, n_samples, span_s)
@@ -1231,7 +1284,8 @@ def run_once(args, cp_sub):
     (cp_cpu_s, fn_cpu_s, cp_peak_mem_mb, covered_s, csv_rows, unclass_cpu_s,
      max_gap_s, n_samples, span_s) = sample_totals(
         samples, cp_sub, args.fn_containers, cp_members, fn_members,
-        fn_allow_configured=fn_allow_configured)
+        fn_allow_configured=fn_allow_configured,
+        window=(t0, t0 + wall))
     if fn_allow_configured and not (args.fn_containers or fn_members):
         print("WARNING: function allowlist configured (--fn-images/--fn-labels/--fn-containers) "
               "but matched NO running container - every non-CP container is being counted as "
