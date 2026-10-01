@@ -543,3 +543,84 @@ python3 saqef gates --out results/knative_cpubound_baremetal
 Gates must show: delta% ~0, CPmapped 1/1 (OW) / 6/6 (OF) / 15+/15+ (Kn),
 coverage 100%, `host_plausible=true`, `host_saturated=false` (else latency is
 not citable; the share still is — it is contention-robust).
+
+## 19. CPU was attributed over the sampler's whole span, not over the load (fixed 2026-10-01)
+
+**Symptoms.** `cp_cpu_s` / `fn_cpu_s` / `cp_dynamic_share_pct` read high, and the error
+scales with how far the sampler's span sticks out past the load. Worst on the
+scale-to-zero platforms, where the CP container is running before the first request
+and after the last one.
+
+**Cause.** `sample_totals()` accumulated cumulative counter deltas across the whole
+sampled span and only checked coverage. The sampler deliberately starts *before* the
+load and stops *after* it (so the load is bracketed by real observations), which means
+the first interval straddles `t0` and the last straddles `t1`. Those overhang slices
+were credited to the load in full. A second, smaller defect sat next to it: for a
+cumulative counter the delta `cum[i] - cum[i-1]` accrued over `(t_prev, t]`, but the
+per-container overlap factor was computed from the *forward* span `(t, t_next]`.
+Applying a forward-span factor to a backward-span delta shifts every delta one sample
+later, which is what dragged the entire pre-load stretch into the first in-window
+interval.
+
+**Fix (`c22dff9`).** `sample_totals()` takes an optional `window` (the runner passes
+the real load window). Each interval is prorated against *its own* span, and coverage
+and the sampling-gap metric are only claimed for intervals that overlap the window —
+a gap lying wholly outside the load says nothing about coverage of the load. Backward
+compatible: `window=None` keeps the old whole-span behaviour, and old `samples.csv`
+replays still work.
+
+**Consequences to carry forward.**
+- Every dataset measured before `c22dff9` is non-citable for CPU attribution. Protocol,
+  gates, classification and the per-invocation framing survive; the CPU numbers do not.
+- Because the bias inflates CP time, it biased `cp_dynamic_share_pct` **upward**, and
+  by a leg-dependent amount — i.e. it moved exactly the quantity the concurrency sweep
+  exists to compare. Do not "correct for it" post hoc: the overhang is not recoverable
+  from a `summary.json`, so those legs must be re-measured.
+
+## 20. A container's CPU burned before its first sample was discarded (fixed 2026-10-01)
+
+**Symptoms.** `fn_cpu_s` too low, so `cp_dynamic_share_pct` biased **upward**. The error
+is largest for the container that appears last in the run.
+
+**Cause.** A container discovered mid-run arrives with a `cpu.stat` counter that already
+contains everything it has burned since creation. `sample_totals()` took the first
+sighting of any container as delta 0 (`prev is None`), throwing that slice away. On a
+platform that creates function containers seconds into the run, the last one to appear
+can be carrying seconds of real CPU. The sampler rescans cgroup directories every
+`--rescan-s` (0.25 s), so this is not a rare edge case — it is the common case for a
+short run.
+
+**Fix (`34b4f26`).** `container_name()` returns `(name, birth_epoch_s)` from the **same
+single inspect** it already performed (`{{.Name}}|{{.Created}}`), so this costs no
+extra subprocess spawn and the sampler's zero-spawn steady state is preserved. Snapshots
+carry the birth time as an optional third element and `sample_totals()` credits the
+counter over `(born, t]`, keeping only the part inside the window.
+
+Two traps worth knowing before touching this code again:
+- The birth slice needs its **own** overlap factor. The existing per-sample factor
+  describes a different interval; applying both prorates the slice twice. There is a
+  mutation test for this specific double-proration.
+- Unknown birth times must keep the old drop-the-slice behaviour. A guessed
+  attribution is worse than an honest undercount.
+
+**Blind spot that remains (not fixed, by design).** A container that is born *and*
+fully removed between two cgroup rescans is never observed and its CPU is
+unrecoverable. Closing that would need event-driven sampling, which costs the
+sub-millisecond cadence the whole design rests on. State it as a limitation; do not
+paper over it.
+
+## 21. Tier-1 session logs overwrote each other (fixed 2026-10-01)
+
+**Symptoms.** The provenance of an earlier session's numbers cannot be read back — the
+transcript that produced them no longer exists anywhere.
+
+**Cause.** `tier1_go.sh` and `run_tier1_quiet.sh` both teed to the fixed path
+`results/tier1_session.log`, so the second session silently destroyed the first one's
+record. This already happened: the OpenWhisk `tier1ow8` leg overwrote the log of the
+session that produced the earlier concurrency data.
+
+**Fix (`d1fb198`).** `tools/tier1_log.sh` gives each session a UTC-stamped log
+(`tier1_session_<stamp>.log`). The well-known `tier1_session.log` path is kept as a
+symlink to the newest session so existing references still resolve, and anything
+regular already sitting at that path is dated and moved aside rather than
+overwritten. No measurement semantics change.
