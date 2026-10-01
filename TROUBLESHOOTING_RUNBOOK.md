@@ -940,11 +940,19 @@ under both versions.
 
 ### 24.1 Design
 
-- **Harness:** `v9.12-reanalysable` = `cec0bd9`. The bridge legs must carry
-  `git_dirty = false`, which requires a clean working tree at run time — verify with
-  `git status --porcelain` before starting, not just at the tag.
+- **Harness:** **`v9.13.1-bridge-prereg`** — the tag under which the bridge legs run. Every leg will
+  record `git_rev` = whatever `HEAD` is when the bridge starts, so this section must name that
+  revision or it reads as a protocol deviation. The only change from `cec0bd9` (`v9.12-reanalysable`)
+  is the driver's `--stamp-prefix` flag and this section itself: **no measurement code is touched**,
+  so the two reference values and the bridge values are computed by identical `saqef_harness.py`.
+  Confirm at run time:
+  ```bash
+  git rev-parse --short HEAD && git describe --tags --exact-match 2>/dev/null
+  git status --porcelain      # must be empty
+  ```
   The two known runtime review items (**transient-inspect fallback**, **RAPL gate semantics**) were
-  **NOT** fixed before this section was written and are **not** fixed as of `cec0bd9`. Neither
+  **NOT** fixed before this section was written and are **not** fixed as of `cec0bd9` or
+  `v9.13.1-bridge-prereg`. Neither
   changes attribution: the fallback only fires on a docker-inspect failure (it would abandon a leg
   rather than mis-measure it) and the RAPL gate governs energy, not the CP/fn share this bridge
   compares. Both therefore belong *after* the bridge, where changing them cannot move a
@@ -1073,4 +1081,12 @@ Two of those margins are thinner than they look, and both were true before any b
 - **All of rules 1–3 pass:** the old corpus is validated against the sampler change. Cite the
   bridge as the tier-1 replication; keep lock4 / baremetal / 2-core as they are. No more box time.
 - **Rule 1 or 3 fails on some cells:** follow step 4; the scope of any redo is those cells only.
-- **Rule 2 fails:** the central claim is in question. Stop and re-plan; do not patch it in prose.
+- **Rule 2 fails on the grouping:** OpenFaaS losing to Fn or Knative at any c, or OpenWhisk dropping
+  below any of the three, puts the central claim in question. Stop and re-plan; do not patch it in
+  prose.
+- **Rule 2 fails only on the Fn/Knative pair:** Fn and Knative flipping order while `OF < Fn`,
+  `OF < Kn` and `OW` above all three still hold means the **pair ordering is not stable**, which the
+  paper already states (§5.6). Report it that way. The paper's claim is the grouping, and the
+  relevant reference numbers are the 0.18 pp lock4 gap and the 0.20 pp tier-1 c=2 gap, both inside
+  their own spread — so a flip at either is the criterion working on an unresolved gap, not a
+  refutation. No prose change and no re-run.
