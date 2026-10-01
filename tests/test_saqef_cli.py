@@ -953,7 +953,7 @@ class TestSingleRunArtifactShape(unittest.TestCase):
     # "NOT citable") and throughput decayed monotonically 57.0 -> 29.1 rps
     # across the five repeats. Nothing compared either, so the session reported
     # ALL GATES OK. These lock both holes down.
-    def _multi_run_gate(self, reps, repeat="5"):
+    def _multi_run_gate(self, reps, repeat="5", discard="0"):
         """Run the gate block over a leg with one run_N/summary.json per rep."""
         block = self._block(self.LOCK, "lock summary written")
         with tempfile.TemporaryDirectory() as td:
@@ -973,7 +973,7 @@ class TestSingleRunArtifactShape(unittest.TestCase):
             with open(os.path.join(out, "runs.json"), "w") as f:
                 json.dump([dict(self._base_summary(), **o) for o in reps], f)
             return self._run(block, td, "X", "ow", repeat,
-                             "4.235", "4.249", "5.739", "4.882", "20")
+                             "4.235", "4.249", "5.739", "4.882", "20", discard)
 
     def test_gate_rejects_a_run_whose_rapl_fit_is_degraded(self):
         rc, txt = self._multi_run_gate([
@@ -1002,6 +1002,129 @@ class TestSingleRunArtifactShape(unittest.TestCase):
             {"throughput_rps": r} for r in (57.0, 55.4, 58.1, 56.2, 54.9)])
         self.assertEqual(rc, 0, "flat repeats must pass: %s" % txt)
         self.assertNotIn("DRIFT", txt)
+
+    # ---- warm-up discard -------------------------------------------------
+    # A cold JVM/classload makes the first repeat an outlier. In tier1ow8
+    # run_1 cp_ms/inv was 56.4 against 29.6-33.4 afterwards, and OpenWhisk's
+    # within-leg share SD at c=1 collapses 4.09 -> 0.29 once run_1 is dropped.
+    # So the outlier has to be discardable -- but ONLY the first N, and only
+    # when enough usable runs remain.
+    def test_discard_warmup_drops_the_cold_run_from_the_drift_gate(self):
+        # Real tier1ow8 c=8 shape with a pathologically slow run_1, then six
+        # runs so five survive the discard. With discard=1 the drift gate must
+        # compare run_2..run_6, not run_1..run_6.
+        reps = [{"throughput_rps": r} for r in (120.0, 44.18, 40.0, 37.02,
+                                                32.39, 30.5)]
+        rc, txt = self._multi_run_gate(reps, repeat="6", discard="1")
+        self.assertIn("discarded warm-up run(s): run_1", txt)
+        self.assertIn("DRIFT run_2..run_6", txt,
+                      "the drift report must name the runs it actually gated "
+                      "on, not the discarded ones: %s" % txt)
+        self.assertNotIn("DRIFT run_1..", txt)
+
+    def test_discard_warmup_lets_a_leg_pass_that_only_failed_on_run_1(self):
+        # run_1 alone is far off-trend; dropping it leaves a healthy flat leg.
+        reps = [{"throughput_rps": r} for r in (120.0, 55.4, 58.1, 56.2,
+                                                54.9, 57.3)]
+        rc, txt = self._multi_run_gate(reps, repeat="6", discard="1")
+        self.assertEqual(rc, 0,
+                         "a leg that only failed on its cold run must pass once "
+                         "that run is discarded: %s" % txt)
+        self.assertNotIn("DRIFT", txt)
+
+    def test_no_discard_keeps_gating_on_every_run(self):
+        # Same data, discard=0: the off-trend run_1 must still be gated on. If
+        # the discard leaked into the default path this would wrongly pass.
+        reps = [{"throughput_rps": r} for r in (120.0, 55.4, 58.1, 56.2,
+                                                54.9, 57.3)]
+        rc, txt = self._multi_run_gate(reps, repeat="6", discard="0")
+        self.assertNotEqual(rc, 0,
+                            "run_1 must be gated on by default: %s" % txt)
+        self.assertIn("DRIFT run_1..run_6", txt)
+        self.assertNotIn("discarded", txt)
+
+    def test_discard_two_warmup_runs(self):
+        # A JVM often needs two passes to be warm, so the slice must be a count
+        # and not a hardcoded "drop run_1".
+        reps = [{"throughput_rps": r} for r in (120.0, 90.0, 55.4, 58.1,
+                                                56.2, 54.9, 57.3)]
+        rc, txt = self._multi_run_gate(reps, repeat="7", discard="2")
+        self.assertIn("discarded warm-up run(s): run_1, run_2", txt)
+        self.assertNotIn("DRIFT", txt)
+        rc, meta_txt = self._multi_run_gate(reps, repeat="7", discard="2")
+        self.assertEqual(rc, 0, "post-warm-up leg must pass: %s" % meta_txt)
+
+    def test_discard_warmup_survives_into_the_lock_summary(self):
+        # The discard must be recorded, or a later reader cannot tell that the
+        # published median came from a post-discard subset.
+        block = self._block(self.LOCK, "lock summary written")
+        with tempfile.TemporaryDirectory() as td:
+            out = os.path.join(td, "results", "openwhisk_cpubound_lock_X")
+            os.makedirs(out)
+            os.makedirs(os.path.join(td, "results", "lock_session_X"))
+            for i, rps in enumerate([20.0, 57.0, 55.4, 58.1, 56.2, 54.9], 1):
+                d = os.path.join(out, "run_%d" % i)
+                os.makedirs(d)
+                s = self._base_summary()
+                s["throughput_rps"] = rps
+                with open(os.path.join(d, "summary.json"), "w") as f:
+                    json.dump(s, f)
+            with open(os.path.join(out, "summary.json"), "w") as f:
+                json.dump(self._base_summary(), f)
+            with open(os.path.join(out, "runs.json"), "w") as f:
+                json.dump([], f)
+            rc, txt = self._run(block, td, "X", "ow", "6",
+                                "4.235", "4.249", "5.739", "4.882", "20", "1")
+            sp = os.path.join(td, "results", "lock_session_X", "lock_summary.json")
+            meta = json.load(open(sp))["session"]
+            self.assertEqual(meta["discard_warmup"], 1)
+            self.assertEqual(meta["usable_runs_per_leg"], 5)
+
+    def test_lock_summary_does_not_claim_an_idle_calibration_it_never_ran(self):
+        # tier1 used --skip-idle-calib, yet every lock_summary.json carried
+        # "idle-w recalibrated this session (...)" unconditionally. The tier1
+        # passes were not fresh calibrations, and the note must not imply it.
+        block = self._block(self.LOCK, "lock summary written")
+        with tempfile.TemporaryDirectory() as td:
+            out = os.path.join(td, "results", "openwhisk_cpubound_lock_X_quick")
+            os.makedirs(out)
+            os.makedirs(os.path.join(td, "results", "lock_session_X"))
+            with open(os.path.join(out, "summary.json"), "w") as f:
+                json.dump(self._base_summary(), f)
+            with open(os.path.join(out, "runs.json"), "w") as f:
+                json.dump([self._base_summary()], f)
+            self._run(block, td, "X", "ow", "1",
+                      "4.235", "4.249", "5.739", "4.882", "20", "0")
+            sp = os.path.join(td, "results", "lock_session_X", "lock_summary.json")
+            doc = json.load(open(sp))
+            prov = doc["session"]["idle_w_provenance"]
+            self.assertIn("NOT recalibrated", prov,
+                          "with no calibration dir present the summary must say "
+                          "the idle-w values were inherited: %s" % prov)
+            self.assertIn("INHERITED", prov)
+            self.assertNotIn("idle-w recalibrated this session (", prov,
+                             "the false calibration claim must be gone: %s" % prov)
+            self.assertNotIn("idle-w recalibrated this session (",
+                             "\n".join(doc["session"]["notes"]))
+
+    def test_lock_summary_claims_calibration_only_when_state_files_exist(self):
+        # Positive branch: with a real calibration dir the claim must be made.
+        block = self._block(self.LOCK, "lock summary written")
+        with tempfile.TemporaryDirectory() as td:
+            out = os.path.join(td, "results", "openwhisk_cpubound_lock_X_quick")
+            os.makedirs(out)
+            os.makedirs(os.path.join(td, "results", "lock_session_X"))
+            os.makedirs(os.path.join(td, "results", "idle_w_calibration",
+                                     "lock_X", "openwhisk"))
+            with open(os.path.join(out, "summary.json"), "w") as f:
+                json.dump(self._base_summary(), f)
+            with open(os.path.join(out, "runs.json"), "w") as f:
+                json.dump([self._base_summary()], f)
+            self._run(block, td, "X", "ow", "1",
+                      "4.235", "4.249", "5.739", "4.882", "20", "0")
+            sp = os.path.join(td, "results", "lock_session_X", "lock_summary.json")
+            prov = json.load(open(sp))["session"]["idle_w_provenance"]
+            self.assertIn("recalibrated this session (1 state(s)", prov)
 
     # ---- the pilot validator -------------------------------------------
     def _pilot_rc(self, **over):

@@ -50,6 +50,13 @@ PLATFORMS="of,fn,kn,ow"
 TOTAL=10000
 CONCURRENCY=4
 REPEAT=5
+DISCARD_WARMUP=0          # drop the first N runs from the gate + any statistic.
+                         # A cold JIT/classload makes the FIRST repeat an outlier
+                         # (tier1ow8 run_1 cp_ms/inv=56.4 vs 29.6-33.4 after),
+                         # which inflates within-leg variance and can flip a
+                         # verdict: OpenWhisk's share SD collapses 4.09 -> 0.29
+                         # at c=1 once run_1 is dropped. Use REPEAT=5+N so five
+                         # usable runs remain.
 IDLE_OF="" IDLE_FN="" IDLE_KN="" IDLE_OW=""
 IDLE_BARE=""
 DEFAULT_OF=4.3 DEFAULT_FN=4.3 DEFAULT_KN=4.561 DEFAULT_OW=4.3
@@ -92,6 +99,8 @@ while [ "$i" -lt "$#" ]; do
         --concurrency) i=$((i + 1)); [ "$i" -ge "$#" ] && { echo "--concurrency needs a value" >&2; exit 2; }; CONCURRENCY="${args[$i]}" ;;
         --repeat) i=$((i + 1)); [ "$i" -ge "$#" ] && { echo "--repeat needs a value" >&2; exit 2; }; REPEAT="${args[$i]}" ;;
         --repeat=*) REPEAT="${arg#*=}" ;;
+        --discard-warmup) i=$((i + 1)); [ "$i" -ge "$#" ] && { echo "--discard-warmup needs a value" >&2; exit 2; }; DISCARD_WARMUP="${args[$i]}" ;;
+        --discard-warmup=*) DISCARD_WARMUP="${arg#*=}" ;;
         --deploy-only) DEPLOY_ONLY=1 ;;
         --requests-per-run) i=$((i + 1)); [ "$i" -ge "$#" ] && { echo "--requests-per-run needs a value" >&2; exit 2; }; REQUESTS_PER_RUN="${args[$i]}" ;;
         --requests-per-run=*) REQUESTS_PER_RUN="${arg#*=}" ;;
@@ -125,6 +134,20 @@ check_preconditions() {
     banner "precondition checks"
     local problems=()
     command -v python3 >/dev/null || problems+=("python3 not found")
+    # A discarded warm-up run still costs wall time, so the loop must have enough
+    # left over to be citable. Fail here rather than after 3 hours of measuring.
+    if ! [[ "$REPEAT" =~ ^[0-9]+$ ]] || ! [[ "$DISCARD_WARMUP" =~ ^[0-9]+$ ]]; then
+        problems+=("--repeat and --discard-warmup must be integers (got $REPEAT/$DISCARD_WARMUP)")
+    elif [ "$DISCARD_WARMUP" -gt 0 ]; then
+        local usable=$((REPEAT - DISCARD_WARMUP))
+        if [ "$usable" -lt 5 ]; then
+            problems+=("--discard-warmup $DISCARD_WARMUP leaves $usable usable runs at --repeat $REPEAT; a citable leg needs >=5 (use --repeat $((5 + DISCARD_WARMUP)))")
+        elif [ "$REPEAT" -lt 5 ]; then
+            problems+=("--discard-warmup only makes sense at REPEAT>=5 (got $REPEAT)")
+        else
+            echo "  warm-up  : discarding first $DISCARD_WARMUP of $REPEAT run(s); $usable usable runs"
+        fi
+    fi
     if ! $SUDO docker info >/dev/null 2>&1; then
         problems+=("docker not reachable (even via sudo). Is dockerd up?")
     else
@@ -446,13 +469,18 @@ if [ "$DRY_RUN" = 1 ]; then
     exit 0
 fi
 banner "gate validation + lock summary"
-python3 - "$REPO" "$STAMP" "$PLATFORMS" "$REPEAT" "$IDLE_OF" "$IDLE_FN" "$IDLE_KN" "$IDLE_OW" "$MAX_DRIFT_PCT" <<'PY'
+python3 - "$REPO" "$STAMP" "$PLATFORMS" "$REPEAT" "$IDLE_OF" "$IDLE_FN" "$IDLE_KN" "$IDLE_OW" "$MAX_DRIFT_PCT" "$DISCARD_WARMUP" <<'PY'
 import glob, json, os, statistics, sys
 repo, stamp, platforms, repeat, w_of, w_fn, w_kn, w_ow = sys.argv[1:9]
 # max_drift_pct is the 9th arg, appended after the existing 8 so that callers
 # written against the older argv shape (tests/test_saqef_cli.py invokes this
 # block directly with 8 args) keep working. Absent -> the 20% default.
 max_drift = float(sys.argv[9]) if len(sys.argv) > 9 else 20.0
+# discard_warmup is the 10th arg, same backward-compatible convention. It drops
+# the first N repeats from the gate, because a cold JIT/classload makes the
+# first repeat an outlier that inflates within-leg variance (OpenWhisk share SD
+# at c=1: 4.09 with run_1, 0.29 without).
+discard_warmup = int(sys.argv[10]) if len(sys.argv) > 10 else 0
 w = {"openfaas": w_of, "fn": w_fn, "knative": w_kn, "openwhisk": w_ow}
 order = {"openfaas": "OpenFaaS", "fn": "Fn", "knative": "Knative", "openwhisk": "OpenWhisk"}
 # short codes used by --platforms (of,fn,kn,ow), matching run_lock_session.sh's own case-statement matching
@@ -465,14 +493,21 @@ for plat in [p for p in ("openfaas", "fn", "knative", "openwhisk") if short[p] i
     out = os.path.join(repo, "results", "%s_cpubound_lock_%s%s" % (plat, stamp, quick_suffix))
     try:
         s = json.load(open(os.path.join(out, "summary.json")))
-        runs = sorted(glob.glob(os.path.join(out, "run_*")))
+        all_runs = sorted(glob.glob(os.path.join(out, "run_*")))
     except Exception as e:
         print("%-10s FAIL -- no summary under %s (%s)" % (order[plat], out, e)); all_ok = False; continue
+    # Discard the warm-up repeats BEFORE gating: a cold first repeat is an
+    # outlier, and gating on it can fail a leg for a transient that the protocol
+    # explicitly throws away.
+    runs = all_runs[discard_warmup:] if discard_warmup else all_runs
+    if discard_warmup:
+        dropped = ", ".join(os.path.basename(p) for p in all_runs[:discard_warmup])
+        print("%-10s note  -- discarded warm-up run(s): %s" % (order[plat], dropped))
     share = s.get("cp_dynamic_share_pct")
     problems = []
     # quick-tier (REPEAT<5, _quick outdir) is exploratory by design and must
     # NOT fail the lock gate on run count -- only full REPEAT=5 citable sessions
-    # require exactly 5 runs. Any other gate (host_plausible, delta_check,
+    # require exactly 5 USABLE runs. Any other gate (host_plausible, delta_check,
     # rapl_wrap, ambient) still applies to quick-tier runs.
     if int(repeat) >= 5 and len(runs) != 5:
         problems.append("runs=%d (want 5)" % len(runs))
@@ -521,9 +556,13 @@ for plat in [p for p in ("openfaas", "fn", "knative", "openwhisk") if short[p] i
         if len(rp) >= 3 and all(v for v in rp):
             drop = (rp[0] - rp[-1]) / rp[0] * 100.0
             if drop > max_drift:
-                problems.append("DRIFT run_1..run_%d throughput %.1f -> %.1f rps "
+                # Name the actual run dirs: with --discard-warmup the surviving
+                # run_N no longer starts at 1, so a hardcoded "run_1..run_N"
+                # would point at a run this gate deliberately ignored.
+                first, last = os.path.basename(runs[0]), os.path.basename(runs[-1])
+                problems.append("DRIFT %s..%s throughput %.1f -> %.1f rps "
                                 "(%.1f%% loss > %.0f%%) -- median is not citable"
-                                % (len(rp), rp[0], rp[-1], drop, max_drift))
+                                % (first, last, rp[0], rp[-1], drop, max_drift))
     except Exception as e:
         problems.append("drift check unreadable (%s)" % type(e).__name__)
     # ambient/quiet-gate is measured once per leg, before the whole --repeat
@@ -562,10 +601,23 @@ for plat in [p for p in ("openfaas", "fn", "knative", "openwhisk") if short[p] i
                      "cv_pct": round(cv, 2), "host_saturation_pct": sat,
                      "ambient_present": "ambient" in s,
                      "gates_ok": (ok == "OK")}
+calib_dir = os.path.join(repo, "results", "idle_w_calibration", "lock_%s" % stamp)
+calib_states = sorted(os.listdir(calib_dir)) if os.path.isdir(calib_dir) else []
+calib_states = [d for d in calib_states if os.path.isdir(os.path.join(calib_dir, d))]
+if calib_states:
+    idle_note = ("idle-w recalibrated this session (%d state(s) under %s)"
+                 % (len(calib_states), os.path.relpath(calib_dir, repo)))
+else:
+    idle_note = ("idle-w NOT recalibrated this session -- the values above are "
+                 "INHERITED medians passed via --idle-w-*; %s holds no state files. "
+                 "Do not read this as a fresh calibration." % os.path.relpath(calib_dir, repo))
 meta = {"stamp": stamp, "platforms": order, "idle_w_by_platform": w,
         "max_drift_pct": max_drift,
+        "discard_warmup": discard_warmup,
+        "usable_runs_per_leg": int(repeat) - discard_warmup,
+        "idle_w_provenance": idle_note,
         "notes": ["single box state, back-to-back legs, quiet gate active (precondition only)",
-                  "idle-w recalibrated this session (results/idle_w_calibration/lock_%s)" % stamp]}
+                  idle_note]}
 outp = os.path.join(repo, "results", "lock_session_%s" % stamp, "lock_summary.json")
 json.dump({"session": meta, "platforms": summary, "all_gates_ok": all_ok}, open(outp, "w"), indent=2)
 print("\nlock summary written to %s" % os.path.relpath(outp, repo))
