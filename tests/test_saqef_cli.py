@@ -13,6 +13,7 @@ Run: python3 tests/test_saqef_cli.py
 
 import contextlib
 import io
+import csv
 import json
 import math
 import os
@@ -2256,6 +2257,172 @@ class TestSamplingQualityGate(unittest.TestCase):
         six = st[:6]
         self.assertEqual(len(six), 6)
         self.assertEqual(st.n_samples, 2)
+
+
+class TestLegacyReattribution(unittest.TestCase):
+    """tools/legacy_reattribute.py must rebuild what it was given.
+
+    The whole offline-re-attribution argument rests on one claim: samples.csv
+    retains enough per-interval information to reproduce the stored CPU totals.
+    If that is not true the correction has no foundation, so these tests pin the
+    reconstruction itself rather than just its output.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        import importlib.util as _u
+        p = os.path.join(REPO, "tools", "legacy_reattribute.py")
+        spec = _u.spec_from_file_location("legacy_reattribute", p)
+        cls.lr = _u.module_from_spec(spec)
+        spec.loader.exec_module(cls.lr)
+
+    def _write_leg(self, d, samples, summary):
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, "samples.csv"), "w", newline="") as f:
+            w = csv.writer(f)
+            w.writerow(["t", "container", "cpu_pct", "mem_mb"])
+            for row in samples:
+                w.writerow(row)
+        with open(os.path.join(d, "summary.json"), "w") as f:
+            json.dump(summary, f)
+        return d
+
+    def test_reconstruction_reproduces_stored_totals_exactly(self):
+        """The core claim: integrating stored pct over forward intervals
+        rebuilds the cpu_sec the old harness recorded."""
+        with tempfile.TemporaryDirectory() as td:
+            # 2 containers, 1 s cadence. 'hello' is fn, 'gateway' is cp.
+            # Each carries 1.0 cpu-s per second => pct=100 per interval.
+            samples = []
+            for t in (1000.0, 1001.0, 1002.0):
+                samples.append([t, "fn-a", 100.0, 1.0])
+                samples.append([t, "gw", 50.0, 1.0])
+            # 3 samples -> 3 forward intervals (last gets the SAMPLE_S tail).
+            # fn-a at 100% => 1.0 cpu-s per interval => 3.0. gw at 50% => 1.5.
+            summary = {
+                "platform": "fn", "wall_s": 2.0,
+                "cpu_sec": {"control_plane": 1.5, "function": 3.0},
+                "cp_dynamic_share_pct": 33.333333,
+                "container_labels": {"fn-a": {"image": "hello:0.0.40"},
+                                     "gw": {"image": "gateway:1"}},
+                "unclassified_cpu_s": 0.0,
+            }
+            leg = self._write_leg(os.path.join(td, "run_1"), samples, summary)
+            r = self.lr.reconstruct(leg, window=None, tol=0.01)
+            self.assertEqual(r["status"], "ok", r.get("reason"))
+            self.assertAlmostEqual(r["recon_cp"], 1.5, places=6)
+            self.assertAlmostEqual(r["recon_fn"], 3.0, places=6)
+            self.assertLess(r["recon_err"], 1e-9)
+
+    def test_unclassified_cpu_is_subtracted_before_the_gate(self):
+        """Integrating samples.csv sweeps up the unclassified bucket, but
+        cpu_sec holds only cp+fn. Comparing the raw sum to cp+fn shows a ~1%
+        phantom 'error' that is really just unclassified CPU -- this is exactly
+        what made 48 legs fail the gate before it was handled."""
+        with tempfile.TemporaryDirectory() as td:
+            samples = []
+            for t in (1000.0, 1001.0):
+                samples.append([t, "fn-a", 100.0, 1.0])
+                samples.append([t, "gw", 50.0, 1.0])
+                samples.append([t, "stray", 10.0, 1.0])
+            summary = {
+                "platform": "fn", "wall_s": 1.0,
+                # cp+fn as stored. stray's CPU is NOT in here.
+                "cpu_sec": {"control_plane": 1.0, "function": 2.0},
+                "cp_dynamic_share_pct": 33.333333,
+                "container_labels": {"fn-a": {"image": "hello:0.0.40"},
+                                     "gw": {"image": "gateway:1"},
+                                     "stray": {"image": "stray:1"}},
+                "unclassified_cpu_s": 0.2,
+            }
+            leg = self._write_leg(os.path.join(td, "run_1"), samples, summary)
+            r = self.lr.reconstruct(leg, window=None, tol=0.01)
+            self.assertEqual(r["status"], "ok",
+                             "unclassified CPU must not be counted as "
+                             "reconstruction error")
+            self.assertLess(r["recon_err"], 0.02)
+
+    def test_window_clip_never_adds_cpu(self):
+        """Clipping to the load window can only remove overhang, never invent
+        CPU. A window covering a subset of samples must yield <= the unclipped
+        total."""
+        with tempfile.TemporaryDirectory() as td:
+            samples = []
+            for t in (1000.0, 1001.0, 1002.0, 1003.0, 1004.0):
+                samples.append([t, "fn-a", 100.0, 1.0])
+            summary = {
+                "platform": "fn", "wall_s": 4.0,
+                "cpu_sec": {"control_plane": 0.0, "function": 5.0},
+                "cp_dynamic_share_pct": 0.0,
+                "container_labels": {"fn-a": {"image": "hello:0.0.40"}},
+                "unclassified_cpu_s": 0.0,
+            }
+            leg = self._write_leg(os.path.join(td, "run_1"), samples, summary)
+            full = self.lr.reconstruct(leg, window=None, tol=0.5)
+            clipped = self.lr.reconstruct(leg, window=(1000.0, 1002.0), tol=0.5)
+            self.assertLessEqual(clipped["recon_fn"], full["recon_fn"] + 1e-9)
+            self.assertGreater(full["recon_fn"], clipped["recon_fn"])
+
+    def test_interval_entirely_outside_window_contributes_nothing(self):
+        """A sample whose whole interval precedes the window must not be
+        credited at all (the c22dff9 rule)."""
+        with tempfile.TemporaryDirectory() as td:
+            samples = []
+            for t in (1000.0, 1001.0, 1002.0):
+                samples.append([t, "fn-a", 100.0, 1.0])
+            summary = {
+                "platform": "fn", "wall_s": 2.0,
+                "cpu_sec": {"control_plane": 0.0, "function": 3.0},
+                "cp_dynamic_share_pct": 0.0,
+                "container_labels": {"fn-a": {"image": "hello:0.0.40"}},
+                "unclassified_cpu_s": 0.0,
+            }
+            leg = self._write_leg(os.path.join(td, "run_1"), samples, summary)
+            # Window starts at the LAST sample: only the tail may count.
+            r = self.lr.reconstruct(leg, window=(1002.0, 1003.0), tol=0.9)
+            self.assertLess(r["recon_fn"], 1.01,
+                            "out-of-window intervals must contribute ~0")
+
+    def test_missing_labels_is_unclassifiable_not_guessed(self):
+        """No container_labels => no way to split cp/fn. The tool must say so
+        rather than fall back to a guess that would silently invent a share."""
+        with tempfile.TemporaryDirectory() as td:
+            samples = [[1000.0, "x", 100.0, 1.0], [1001.0, "x", 100.0, 1.0]]
+            summary = {"platform": "fn", "wall_s": 1.0,
+                       "cpu_sec": {"control_plane": 0.5, "function": 1.5},
+                       "cp_dynamic_share_pct": 25.0}
+            leg = self._write_leg(os.path.join(td, "run_1"), samples, summary)
+            r = self.lr.reconstruct(leg, window=None, tol=0.01)
+            self.assertEqual(r["status"], "unclassifiable")
+            self.assertIn("container_labels", r["reason"])
+
+    def test_adapter_allowlist_is_platform_specific(self):
+        """A generic 'hello' hint for every platform classifies NOTHING on
+        Knative (image is kn-hello) or OpenWhisk (action-python-v3.11). The
+        hints must match platforms/*.py or the split is silently wrong."""
+        self.assertIn("kn-hello", self.lr.fn_image_hints("knative"))
+        self.assertIn("action-python-v3.11", self.lr.fn_image_hints("openwhisk"))
+        self.assertEqual(self.lr.fn_image_hints("unknown-platform"), ())
+
+    def test_verify_mode_fails_loudly_on_a_bad_reconstruction(self):
+        """--verify must exit non-zero when a leg cannot be rebuilt. A tool
+        that corrects numbers it cannot reproduce is worse than no tool."""
+        with tempfile.TemporaryDirectory() as td:
+            ds = os.path.join(td, "ds")
+            samples = []
+            for t in (1000.0, 1001.0):
+                samples.append([t, "fn-a", 100.0, 1.0])
+            # Stored totals deliberately wrong by 40%.
+            summary = {
+                "platform": "fn", "wall_s": 1.0,
+                "cpu_sec": {"control_plane": 0.0, "function": 99.0},
+                "cp_dynamic_share_pct": 0.0,
+                "container_labels": {"fn-a": {"image": "hello:0.0.40"}},
+                "unclassified_cpu_s": 0.0,
+            }
+            self._write_leg(os.path.join(ds, "run_1"), samples, summary)
+            rc = self.lr.main([ds, "--verify", "--tol", "0.01"])
+            self.assertNotEqual(rc, 0, "--verify must fail on a bad reconstruction")
 
 
 if __name__ == "__main__":
