@@ -73,6 +73,9 @@ MAX_SAMPLE_GAP_S=1.0     # gate: >this worst gap between CPU samples fails the
                          # set by --max-sample-gap.
                          # leg. 20% is ~4x the best observed legitimate run-to-run
                          # spread on a healthy leg, so it only trips on real decay.
+IDLE_SOURCE=""           # --idle-w-source DIR: the calibration the --idle-w-* values came
+                         # from (another stamp's idle_w_calibration dir); recorded in the
+                         # lock summary's idle_w_provenance and checked against it.
 RAPL_FIT_WARN=0          # 1 (--rapl-fit-warn): a run whose RAPL fit is >15% is
                          # recorded as a WARNING, not a gate failure. Only for
                          # sessions whose question is the CP/fn CPU share, which
@@ -123,6 +126,8 @@ while [ "$i" -lt "$#" ]; do
         --cpu-probe) i=$((i + 1)); [ "$i" -ge "$#" ] && { echo "--cpu-probe needs a value" >&2; exit 2; }; CPU_PROBE_S="${args[$i]}" ;;
         --cpu-probe=*) CPU_PROBE_S="${arg#*=}" ;;
         --rapl-fit-warn) RAPL_FIT_WARN=1 ;;
+        --idle-w-source) i=$((i + 1)); [ "$i" -ge "$#" ] && { echo "--idle-w-source needs a value" >&2; exit 2; }; IDLE_SOURCE="${args[$i]}" ;;
+        --idle-w-source=*) IDLE_SOURCE="${arg#*=}" ;;
         --*) echo "unknown option: $arg" >&2; exit 2 ;;
     esac
     i=$((i + 1))
@@ -482,7 +487,7 @@ if [ "$DRY_RUN" = 1 ]; then
     exit 0
 fi
 banner "gate validation + lock summary"
-python3 - "$REPO" "$STAMP" "$PLATFORMS" "$REPEAT" "$IDLE_OF" "$IDLE_FN" "$IDLE_KN" "$IDLE_OW" "$MAX_DRIFT_PCT" "$DISCARD_WARMUP" "$MAX_SAMPLE_GAP_S" "$RAPL_FIT_WARN" <<'PY'
+python3 - "$REPO" "$STAMP" "$PLATFORMS" "$REPEAT" "$IDLE_OF" "$IDLE_FN" "$IDLE_KN" "$IDLE_OW" "$MAX_DRIFT_PCT" "$DISCARD_WARMUP" "$MAX_SAMPLE_GAP_S" "$RAPL_FIT_WARN" "$IDLE_SOURCE" <<'PY'
 import glob, json, os, statistics, sys
 repo, stamp, platforms, repeat, w_of, w_fn, w_kn, w_ow = sys.argv[1:9]
 # max_drift_pct is the 9th arg, appended after the existing 8 so that callers
@@ -500,6 +505,11 @@ max_sample_gap_s = float(sys.argv[11]) if len(sys.argv) > 11 else 1.0
 # rapl_fit_warn is the 12th arg, same convention. 1 -> RAPL FIT goes to the
 # leg's "warnings" instead of "problems" (see RAPL_FIT_WARN in the shell part).
 rapl_fit_warn = (sys.argv[12] == "1") if len(sys.argv) > 12 else False
+# idle_source is the 13th arg, same convention: the calibration dir the
+# --idle-w-* values were read from when this stamp did not calibrate itself
+# (run_final.sh calibrates once under lock_final_calib, then runs each leg
+# under its own stamp). "" -> unknown source.
+idle_source = sys.argv[13] if len(sys.argv) > 13 else ""
 w = {"openfaas": w_of, "fn": w_fn, "knative": w_kn, "openwhisk": w_ow}
 order = {"openfaas": "OpenFaaS", "fn": "Fn", "knative": "Knative", "openwhisk": "OpenWhisk"}
 # short codes used by --platforms (of,fn,kn,ow), matching run_lock_session.sh's own case-statement matching
@@ -696,9 +706,37 @@ calib_states = sorted(os.listdir(calib_dir)) if os.path.isdir(calib_dir) else []
 calib_states = [d for d in calib_states
                 if d.startswith("idle_w_") and d.endswith(".txt")
                 and os.path.isfile(os.path.join(calib_dir, d))]
+def _calib_files(d):
+    if not os.path.isdir(d):
+        return []
+    return sorted(f for f in os.listdir(d) if f.startswith("idle_w_") and f.endswith(".txt")
+                  and os.path.isfile(os.path.join(d, f)))
+src_dir = os.path.abspath(idle_source) if idle_source else ""
+src_states = _calib_files(src_dir) if src_dir else []
 if calib_states:
     idle_note = ("idle-w recalibrated this session (%d state(s) under %s)"
                  % (len(calib_states), os.path.relpath(calib_dir, repo)))
+elif src_states:
+    # Name the source and check the values actually used against its medians,
+    # so the note cannot claim a calibration the numbers did not come from.
+    mism = []
+    for plat in order:
+        f = os.path.join(src_dir, "idle_w_%s.txt" % plat)
+        if not w.get(plat) or not os.path.isfile(f):
+            continue
+        try:
+            med = float(json.load(open(f))["median_w"])
+        except (OSError, ValueError, KeyError):
+            mism.append("%s: unreadable" % plat); continue
+        if abs(float(w[plat]) - med) > 1e-6:
+            mism.append("%s: used %s, calib %s" % (plat, w[plat], med))
+    rel = os.path.relpath(src_dir, repo)
+    if mism:
+        idle_note = ("idle-w NOT from %s -- --idle-w-* values differ from its medians (%s)"
+                     % (rel, "; ".join(mism)))
+    else:
+        idle_note = ("idle-w calibrated earlier in this session (%d state(s) under %s); "
+                     "this leg used those medians via --idle-w-*" % (len(src_states), rel))
 else:
     idle_note = ("idle-w NOT recalibrated this session -- the values above are "
                  "INHERITED medians passed via --idle-w-*; %s holds no state files. "

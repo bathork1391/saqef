@@ -317,7 +317,7 @@ if ! W_OF=$(read_calib "$CAL" openfaas) || ! W_FN=$(read_calib "$CAL" fn) \
     exit 5
 fi
 say "idle_w (this session): of=$W_OF fn=$W_FN kn=$W_KN ow=$W_OW bare=$(read_calib "$CAL" bare 2>/dev/null)"
-IW=(--skip-idle-calib --idle-w-of "$W_OF" --idle-w-fn "$W_FN" --idle-w-kn "$W_KN" --idle-w-ow "$W_OW")
+IW=(--skip-idle-calib --idle-w-source "$CAL" --idle-w-of "$W_OF" --idle-w-fn "$W_FN" --idle-w-kn "$W_KN" --idle-w-ow "$W_OW")
 
 failed=0
 for c in 1 2 4 8; do
