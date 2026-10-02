@@ -117,19 +117,21 @@ say "session launched as service '$UNIT'"
 # 5. leave the desktop
 echo
 echo "  Close Claude Code / opencode / browser now. Keep the laptop on AC, lid open."
-echo "  The screen switches to a text status page in 60 s -- that is NOT a hang;"
+echo "  The screen switches to a text status page (tty8) in 60 s -- that is NOT a hang;"
 echo "  do not press the power button (it kills the session). Press Ctrl+C to stay on the desktop"
 echo "  (the session then waits up to 20 min for the desktop to close, then gives up)."
 echo "  When the desktop comes back by itself (~2 h, at most ${MAX_H} h 15 min), run:"
 echo "      sudo bash tools/go.sh --status"
 echo "  Stuck in text mode? Ctrl+Alt+F3, log in, then: sudo bash $REPO/tools/go.sh --stop"
 for s in $(seq 60 -10 10); do echo "  ... $s s"; sleep 10; done
+# Status page first, as its own system service: go.sh runs in a desktop terminal
+# that dies with gdm, so anything after "stop display-manager" never runs (2 Oct:
+# the page never appeared and the boot splash sat there for 13 min). The unit
+# waits for gdm to go, then switches to tty8 itself.
+systemctl stop saqef-screen 2>/dev/null || true
+systemctl reset-failed saqef-screen 2>/dev/null || true
+systemd-run --unit saqef-screen bash "$REPO/tools/screen_status.sh" >/dev/null
 # Only stop the display manager. NOT "systemctl isolate multi-user.target": isolate
 # also stops every unit that target does not pull in -- including the transient
 # saqef-final service just launched (that killed the 2 Oct session after 60 s).
 systemctl stop display-manager
-# Without this the console stays black and looks frozen (2 Oct: power-key press
-# killed a healthy session 80 s into calibration). Status page on tty2 instead.
-systemctl reset-failed saqef-screen 2>/dev/null || true
-systemd-run --unit saqef-screen bash "$REPO/tools/screen_status.sh" >/dev/null
-chvt 2 2>/dev/null || true
