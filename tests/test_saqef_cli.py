@@ -506,6 +506,16 @@ class TestHarnessAggregation(unittest.TestCase):
         self.assertEqual(self.h.median_summary([s1, s2])["container_inventory"],
                          ["a", "b", "c"])
 
+    def test_median_summary_list_of_unhashable_elements(self):
+        # attribution.docker_inventory[name] = [image, [labels]]: the nested
+        # list made the set-based dedup raise TypeError after all runs.
+        inv = ["hello:latest", ["com.docker.swarm.service.name=hello"]]
+        s1 = {"attribution": {"docker_inventory": {"hello.1": inv}}}
+        s2 = {"attribution": {"docker_inventory": {"hello.1": list(inv)}}}
+        med = self.h.median_summary([s1, s2])
+        self.assertEqual(med["attribution"]["docker_inventory"]["hello.1"],
+                         ["hello:latest", ["com.docker.swarm.service.name=hello"]])
+
     def test_median_summary_dict_keys_still_union(self):
         s1 = {"delta_check_map": {"fnserver": "ok"}}
         s2 = {"delta_check_map": {"fnserver": "ok", "wsk0_3_guest_hello": "ok"}}

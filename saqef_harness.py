@@ -1819,14 +1819,19 @@ def median_summary(summaries):
                     # would silently drop later runs' entries from the
                     # aggregate (the exact bug fixed for dicts above, applied
                     # to container_inventory). Dedup, preserve first-seen
-                    # order, skip None/non-list values.
+                    # order, skip None/non-list values. Elements may themselves
+                    # be lists/dicts (attribution.docker_inventory values are
+                    # [image, [labels...]]), so dedup on a canonical JSON key
+                    # rather than the element itself (unhashable -> TypeError
+                    # after all N runs had finished, losing summary.json).
                     merged, seen = [], set()
                     for it in present:
                         v = it[k]
                         if isinstance(v, list):
                             for item in v:
-                                if item not in seen:
-                                    seen.add(item)
+                                key = json.dumps(item, sort_keys=True, default=str)
+                                if key not in seen:
+                                    seen.add(key)
                                     merged.append(item)
                     out[k] = merged
                 elif isinstance(sample, (int, float)):
