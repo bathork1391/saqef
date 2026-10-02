@@ -1572,7 +1572,7 @@ record of what the desktop-session, unbounded-log condition produced. It is neve
 | headless (`multi-user.target`), no agents | §24.2: ~0.65 of the 1.078-core idle baseline is the desktop + agent. Contention of ~1.5 cores moved shares 3–5 pp (24.7.2). |
 | idle_w recalibrated in-session (5 states × 3 × 60 s) | idle_w is measured per stack state and enters every energy figure as `idle_w × wall`. Leaving the desktop changes it, so inherited values would be wrong by an unknown offset. |
 | OW `--repeat 6 --discard-warmup 1` | OW run_1 cp CPU-s is 2.1–2.4× steady in every OW leg (post-deploy JIT/classload), and the light platforms do not show it. The drift gate then compares run_2 to run_6 (`run_lock_session.sh` drift block uses the post-discard list). |
-| `psys` recorded (`e_psys_j`), JVM per-thread CPU on OW legs | Reporting only; neither enters a gate or the share. |
+| `psys` recorded (`e_psys_j`, `psys_wrap`, `psys_status`), 1 Hz `energy_trace.csv` per run, JVM per-thread CPU on OW legs | Reporting only; none enters a gate or the share. The trace makes the within-run power-vs-load check (25.6) possible offline. |
 
 This is a deliberate, non-default deployment configuration and the paper's setup section must state it
 as such, with the A/B as the reason. Stock dockerd has no rotation. With it, OW throughput is not
@@ -1618,8 +1618,9 @@ comparison.
 
 `tools/run_final.sh` drives it. Pre-flight hard gates (abort, nothing measured):
 - root
-- `hey` on PATH (root's PATH lacks `~/go/bin`; without it every run silently falls back to the Python
-  loadgen and fails the fallback gate)
+- `hey` resolves to the corpus build, checked by sha256 (`/usr/local/bin/hey -> /root/go/bin/hey`,
+  `952be8d7…`). PATH is pinned to root's. `~/go/bin/hey` is a different build (`6666d178…`) and must
+  not be picked up. See 25.6.
 - daemon.json cap present, dockerd restarted after it, and a live `k8s_*` container carrying
   `max-size=64k`
 - knative-serving Ready
@@ -1768,3 +1769,43 @@ also the more representative condition, since production hosts are headless.
   OpenFaaS gateway / provider; Fn fnserver) come from the per-container data already recorded. The
   paper must state that OW's breakdown is intra-process and the others' are inter-container: same
   axis, different granularity.
+
+### 25.6 Load-generator provenance, and the energy checks that replace the model gate
+
+**Two `hey` builds exist on this box.** `/usr/local/bin/hey -> /root/go/bin/hey` (sha256 `952be8d7…`,
+2026-08-08) is what `sudo` resolves, so it is the build behind every leg in the corpus.
+`/home/imran/go/bin/hey` (`6666d178…`, 2026-08-06) is what an interactive shell resolves. Nothing
+recorded which build ran until now. From 2026-10-02 every run records `env.loadgen_bin` and
+`env.loadgen_sha256`, and `run_final.sh` refuses any build but `952be8d7…`. For the existing corpus,
+the build is inferred from `sudo` resolution, not recorded. State it as inferred.
+
+**A requested-but-missing `hey` is now fatal before the window opens.** Previously `run_hey` returned
+`None` and the run silently used the Python loadgen, flagged only by `loadgen_fallback` afterwards.
+`run_lock_session` gated on that flag, so a leg would fail rather than be cited. But a whole
+unattended session could still burn its time producing nothing but failed legs. A `hey` that exists
+but fails mid-run still falls back and is still gated.
+
+**The ">15 %" flag is the model's residual, and its message now says so.** `rapl_validation_err_pct`
+keeps its name: the repo removed an alias of this field once already ("one name for this value, not
+two"), and every summary and reader uses it. But `saqef` now prints "MODEL RESIDUAL", not "RAPL FIT
+DEGRADED". Note that its value depends on `idle_w`, so it shifts between desktop and headless sessions
+for reasons unrelated to RAPL.
+
+**Model-free energy checks (offline, from the new per-run files; no global constant):**
+- *Within-run linearity.* `energy_trace.csv` (1 Hz package + psys) is aligned against host busy cores
+  from the same interval. A power-vs-busy-cores slope that is stable across the run's intervals means
+  energy scales linearly with load inside that run. A slope that grows with load is the superlinearity
+  §24.6 suspected. The per-interval CPU in `samples_raw.csv` is container-only, so host busy cores
+  come from the same 1 Hz windows via `/proc/stat` in the analysis, or from `host_cpu_sec` at
+  run granularity.
+- *Idle cross-check.* The 60 s idle probe after each leg is RAPL at zero traffic in the same stack
+  state as that leg's `idle_w`. |probe W − calibrated idle_w| is a within-session drift detector for
+  the baseline every energy figure subtracts.
+
+Neither gates tonight's session. Both are pre-registered here so their thresholds are not picked
+after seeing the data. Reported as-is, they are:
+- linearity: slope CV across intervals, reported per leg
+- idle cross-check: absolute difference, flagged if it exceeds the max − min spread of that state's
+  own three calibration reads in `final_calib`. No fixed wattage: no per-read calibration file
+  survives from any earlier session (every `results/idle_w_calibration/lock_*` dir is empty, because
+  each session reused inherited values), so there is no measured spread to anchor a number on.

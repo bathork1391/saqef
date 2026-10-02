@@ -145,36 +145,49 @@ def rapl_energy():
         return None
 
 
+def _psys_dir():
+    return os.path.join(RAPL_DIR, "intel-rapl:1")
+
+
+def psys_status():
+    """'ok' | 'absent' (no psys domain) | 'unreadable' (present but energy_uj is
+    root-only and this process is not root). Recorded so that e_psys_j=null is
+    never ambiguous between "not on this box" and "not attempted"."""
+    try:
+        with open(os.path.join(_psys_dir(), "name")) as f:
+            if f.read().strip() != "psys":
+                return "absent"
+    except OSError:
+        return "absent"
+    try:
+        with open(os.path.join(_psys_dir(), "energy_uj")) as f:
+            int(f.read().strip())
+        return "ok"
+    except (OSError, ValueError):
+        return "unreadable"
+
+
 def psys_energy():
-    """Return platform (psys) energy in J, or None if the domain is absent.
+    """Return platform (psys) energy in J, or None (see psys_status for why).
 
     psys (intel-rapl:1 on this box) is the platform-level RAPL domain: package
     plus what the platform power controller adds around it. It is recorded next
     to package as a bound on what package misses; it is never attributed."""
-    p = os.path.join(RAPL_DIR, "intel-rapl:1")
+    if psys_status() != "ok":
+        return None
     try:
-        with open(os.path.join(p, "name")) as f:
-            if f.read().strip() != "psys":
-                return None
-        with open(os.path.join(p, "energy_uj")) as f:
+        with open(os.path.join(_psys_dir(), "energy_uj")) as f:
             return int(f.read().strip()) / 1e6
-    except Exception:
+    except (OSError, ValueError):
         return None
 
 
-def psys_delta(start, end):
-    """psys energy over a window, corrected for a single counter wrap; None if unknown."""
-    if start is None or end is None:
-        return None
-    d = end - start
-    if d >= 0:
-        return d
+def psys_max_range_j():
     try:
-        with open(os.path.join(RAPL_DIR, "intel-rapl:1", "max_energy_range_uj")) as f:
-            d += int(f.read().strip()) / 1e6
-    except Exception:
+        with open(os.path.join(_psys_dir(), "max_energy_range_uj")) as f:
+            return int(f.read().strip()) / 1e6
+    except (OSError, ValueError):
         return None
-    return d if d >= 0 else None
 
 
 def rapl_max_range_j():
@@ -200,7 +213,7 @@ def rapl_max_range_j():
         return None
 
 
-def rapl_correct_wrap(raw_delta):
+def rapl_correct_wrap(raw_delta, range_fn=None):
     """Return (e_rapl, wrap_flag) for a raw RAPL (end - start) energy delta.
 
     Corrects for the energy_uj counter's wraparound: a single wrap is corrected
@@ -228,13 +241,68 @@ def rapl_correct_wrap(raw_delta):
     output from "RAPL not available" (rapl_available is a separate field)."""
     if raw_delta is None or raw_delta >= 0:
         return raw_delta, "none"
-    rng = rapl_max_range_j()
+    # range_fn lets the psys domain reuse this exact correction with its own
+    # range. Both domains wrap at ~262 kJ on this box (~2.4 h at 30 W), so a
+    # wrap inside a 17-420 s window is not reachable here; the flag exists so a
+    # re-analyser never has to assume that.
+    rng = (range_fn or rapl_max_range_j)()
     if not rng:
         return None, "uncertain_no_range"
     corrected = raw_delta + rng
     if corrected < 0:
         return None, "uncertain_double"
     return corrected, "corrected_single"
+
+
+class EnergyTrace(threading.Thread):
+    """1 Hz package + psys counter trace over the measurement window.
+
+    The window totals (e_rapl_j, e_psys_j) are two-point reads; this keeps the
+    shape in between, so power-vs-load linearity and within-run drift can be
+    checked offline against the per-interval CPU in samples_raw.csv without
+    referencing any global W/core constant. One sysfs read per domain per
+    second: negligible next to the cgroup sampler."""
+
+    def __init__(self, interval_s=1.0):
+        super().__init__(daemon=True)
+        self.interval_s = interval_s
+        self.rows = []
+        self._stop_ev = threading.Event()
+
+    def run(self):
+        while True:
+            self.rows.append((time.time(), rapl_energy(), psys_energy()))
+            if self._stop_ev.wait(self.interval_s):
+                break
+        self.rows.append((time.time(), rapl_energy(), psys_energy()))
+
+    def stop(self):
+        self._stop_ev.set()
+        self.join(timeout=5)
+
+
+_LOADGEN_ID = {}
+
+
+def loadgen_identity():
+    """(resolved absolute path, sha256) of the hey binary this process will run.
+
+    This box has two different hey builds: /usr/local/bin/hey -> /root/go/bin/hey
+    (what every `sudo` leg resolves) and ~/go/bin/hey (an interactive shell's).
+    Recording which one ran makes a mid-corpus switch visible instead of silent."""
+    if "v" not in _LOADGEN_ID:
+        import hashlib
+        path = shutil.which("hey")
+        digest = None
+        if path:
+            path = os.path.realpath(path)
+            h = hashlib.sha256()
+            with open(path, "rb") as f:
+                for chunk in iter(lambda: f.read(1 << 20), b""):
+                    h.update(chunk)
+            digest = h.hexdigest()
+        _LOADGEN_ID["v"] = (path, digest)
+    return _LOADGEN_ID["v"]
 
 
 def env_frequency():
@@ -598,6 +666,8 @@ def run_hey(url, total, concurrency, deadline_s=None, headers=None, timeout_ms=3
     post-run wall assertion), because hey's -z/-n precedence varies by build and
     must not silently truncate a window."""
     if shutil.which("hey") is None:
+        # Unreachable from run_once (it refuses to start without hey when
+        # --loadgen hey is requested); kept for direct callers.
         print("hey: binary not found on PATH (wanted --loadgen hey); falling back")
         return None
     # hey's -t is SECONDS per request (default 20), not milliseconds: passing
@@ -1325,9 +1395,21 @@ def run_once(args, cp_sub):
     # no stable name pattern -- classification then depends ENTIRELY on the
     # image/label allowlist. Currently ~0 measured impact (containers persist
     # for the whole window in every citable run), but structurally fragile.
+    # A requested-but-missing hey used to fall back to the python loadgen INSIDE
+    # the window and only flag loadgen_fallback afterwards: a whole unattended
+    # session could silently switch instruments. Missing binary = refuse to start.
+    # (A hey that exists but fails mid-run still falls back and is gated by
+    # run_lock_session's LOADGEN FALLBACK check.)
+    if args.loadgen == "hey" and not args.idle_probe and shutil.which("hey") is None:
+        sys.exit("FATAL: --loadgen hey requested but no hey on PATH (%s); refusing to "
+                 "measure with a different load generator" % os.environ.get("PATH", ""))
+    loadgen_bin, loadgen_sha256 = loadgen_identity() if args.loadgen == "hey" else (None, None)
     inv_before = docker_inventory()
     rapl_start = rapl_energy()
     psys_start = psys_energy()
+    psys_state = psys_status()
+    etrace = EnergyTrace()
+    etrace.start()
     samples, stop, first_sample, th = start_sampler(args.sampler, args.rescan_s, args.sample_s)
     if th is None:
         print("WARNING: %s sampler unavailable -> falling back to docker stats" % args.sampler)
@@ -1398,6 +1480,7 @@ def run_once(args, cp_sub):
     steal_after = steal_ticks()
     stop.set()
     th.join(timeout=10)
+    etrace.stop()
     rapl_end = rapl_energy()
     psys_end = psys_energy()
     freq_after, _ = env_frequency()
@@ -1576,6 +1659,8 @@ def run_once(args, cp_sub):
     # Bound before the branch: summary always emits e_rapl_j, and a box with no
     # RAPL (or a failed read) never enters it.
     e_rapl = None
+    e_psys, psys_wrap = (rapl_correct_wrap(psys_end - psys_start, psys_max_range_j)
+                         if psys_start is not None and psys_end is not None else (None, None))
     if rapl_start is not None and rapl_end is not None:
         e_rapl, rapl_wrap = rapl_correct_wrap(rapl_end - rapl_start)
         rapl_validation = (abs(e_total - e_rapl) / e_rapl * 100
@@ -1665,6 +1750,8 @@ def run_once(args, cp_sub):
                 "loadgen": "hey" if ld is not None else "py",
                 "loadgen_requested": args.loadgen,
                 "loadgen_fallback": bool(args.loadgen == "hey" and ld is None),
+                "loadgen_bin": loadgen_bin,
+                "loadgen_sha256": loadgen_sha256,
                 # Rate-control provenance: a run that INTENDED to be
                 # rate-limited but silently ran unthrottled is otherwise
                 # indistinguishable from a correct one in the committed JSON
@@ -1684,8 +1771,10 @@ def run_once(args, cp_sub):
         "e_rapl_j": round(e_rapl, 3) if e_rapl is not None else None,
         "rapl_wrap": rapl_wrap,
         "rapl_available": rapl_start is not None,
-        "e_psys_j": (round(psys_delta(psys_start, psys_end), 3)
-                     if psys_delta(psys_start, psys_end) is not None else None),
+        "e_psys_j": round(e_psys, 3) if e_psys is not None else None,
+        "psys_wrap": psys_wrap,
+        "psys_status": psys_state,
+        "_energy_trace": etrace.rows,
         # Re-analysability (1a). The window is the single input that decides
         # which samples count, so a run whose JSON does not carry it cannot be
         # re-derived by an offline tool -- it can only be trusted. That is
@@ -1791,6 +1880,15 @@ def write_samples_raw(path, raw_samples):
 
 def write_run(outdir, summary, all_snaps, reqs, raw_samples=None):
     os.makedirs(outdir, exist_ok=True)
+    # Popped before summary.json/runs.json are written: the trace is a per-run
+    # file, not a summary field (runs.json would otherwise carry every row).
+    trace = summary.pop("_energy_trace", None)
+    if trace:
+        with open(os.path.join(outdir, "energy_trace.csv"), "w", newline="") as f:
+            w = csv.writer(f)
+            w.writerow(["t_epoch", "pkg_energy_j", "psys_energy_j"])
+            for t, pkg, ps in trace:
+                w.writerow([round(t, 3), pkg, ps])
     with open(os.path.join(outdir, "summary.json"), "w") as f:
         json.dump(clean_json(summary), f, indent=2)
     with open(os.path.join(outdir, "samples.csv"), "w", newline="") as f:

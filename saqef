@@ -168,10 +168,12 @@ def gates_for(out):
         # idle_w only supplies 4.2-5.7 W of a 3.1-101 s window, so it cannot account
         # for a 25-60% gap. So: still flag loud, but point at busy_core_w's linearity
         # and say explicitly that recalibrating idle_w is NOT the remedy.
-        raplflag = ("  <-- RAPL FIT DEGRADED (>15%): energy/carbon from this run "
-                   "are NOT citable. Do NOT just recalibrate --idle-w: check whether "
-                   "the error tracks load (superlinear power vs the linear "
-                   "busy_core_w model) before spending a calibration cycle"
+        # 2026-10-02 (runbook 24.8.2/25.5): this number is |e_model - e_rapl| /
+        # e_rapl, i.e. the residual of the 3.5 W/core MODEL against RAPL. It judges
+        # the model, not RAPL, so the message names the model as what is not citable.
+        raplflag = ("  <-- MODEL RESIDUAL >15%: the busy_core_w model disagrees with "
+                   "RAPL; model energy (e_model_j) and carbon derived from it are NOT "
+                   "citable. This does not judge RAPL itself (runbook 25.5)"
                    ) if rapl_err is not None and rapl_err > 15.0 else ""
         # Neither of the next two existed before the 2026-08-13 OpenWhisk
         # --duration regression (TROUBLESHOOTING_RUNBOOK.md #11): a run whose

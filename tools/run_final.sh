@@ -23,7 +23,10 @@
 set -uo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-export PATH="/home/imran/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+# Root's PATH, pinned. It resolves /usr/local/bin/hey -> /root/go/bin/hey, the build every
+# earlier `sudo` leg used. ~/go/bin/hey is a DIFFERENT build and must not be picked up.
+export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+HEY_SHA256="952be8d731a8fd264a75cd40c08fde38a0737c5be7a8e00a2b512b210484b3f3"   # /root/go/bin/hey
 export KUBECONFIG="${KUBECONFIG:-/etc/rancher/k3s/k3s.yaml}"
 
 PFX="final_"
@@ -81,7 +84,14 @@ preflight() {
     problems=()
     echo "== pre-flight ($(ts))"
     [ "$(id -u)" -eq 0 ] || bad "must run as root (sudo / systemd-run)"
-    command -v hey >/dev/null || bad "hey not on PATH ($PATH) -- loadgen would fall back to python"
+    local heyp heys
+    heyp=$(readlink -f "$(command -v hey 2>/dev/null)" 2>/dev/null)
+    if [ -z "$heyp" ]; then bad "hey not on PATH ($PATH)"
+    else
+        heys=$(sha256sum "$heyp" | cut -d' ' -f1)
+        [ "$heys" = "$HEY_SHA256" ] || bad "hey resolves to $heyp sha256 $heys, not the corpus build $HEY_SHA256"
+        echo "  hey: $heyp (corpus build)"
+    fi
 
     # 1. log cap: configured, loaded, and present on running containers
     if ! python3 - "$LOG_MAX_SIZE" <<'PY'
@@ -165,6 +175,7 @@ snapshot_box() {
         echo "ts_utc: $(ts)"
         echo "git: $(git -C "$REPO" describe --always --dirty --tags 2>/dev/null) $(git -C "$REPO" rev-parse HEAD)"
         echo "uname: $(uname -a)"
+        echo "hey: $(readlink -f "$(command -v hey)") $(sha256sum "$(readlink -f "$(command -v hey)")" | cut -d' ' -f1)"
         echo "power_profile: $(powerprofilesctl get 2>/dev/null)"
         echo "epp: $(epp_values)"
         echo "governor: $(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor)"
