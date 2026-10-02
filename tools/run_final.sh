@@ -280,6 +280,15 @@ fi
 mkdir -p "$SESS"
 exec >> "$SESS/session.log" 2>&1
 say "final session start, repo $REPO"
+# Safety net 1: whatever happens from here -- normal end, abort, crash, or being
+# killed by the RuntimeMaxSec watchdog go.sh sets -- the desktop comes back.
+restore_gui() {
+    [ "$RESTORE_GUI" = 1 ] || return 0
+    systemctl stop saqef-guard.timer 2>/dev/null || true
+    systemctl isolate graphical.target || true
+}
+trap 'rc=$?; say "session exiting (rc=$rc); restoring desktop"; restore_gui' EXIT
+trap 'say "session terminated by signal"; exit 143' TERM INT HUP
 if ! wait_for_box; then
     preflight
     say "ABORT: box never became headless/agent-free/Knative-Ready within ${WAIT_HEADLESS_S}s"
@@ -326,5 +335,4 @@ done
 say "final session done: $failed leg(s) failed twice. Checkpoint: $CKPT"
 echo "failed_legs=$failed" > "$SESS/DONE"
 snapshot_box
-if [ "$RESTORE_GUI" = 1 ]; then systemctl isolate graphical.target || true; fi
-exit 0
+exit 0   # the EXIT trap restores the desktop

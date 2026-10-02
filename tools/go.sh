@@ -3,6 +3,11 @@
 #
 #   sudo bash tools/go.sh            set up, check, launch, then drop the desktop
 #   sudo bash tools/go.sh --status   how far it got (run after the desktop comes back)
+#   sudo bash tools/go.sh --stop     stop the session now and bring the desktop back
+#
+# If the desktop does not come back: press Ctrl+Alt+F3, log in, run
+#   sudo bash ~/faas-work/SAQEF/saqef/tools/go.sh --stop
+# (or just reboot: the default boot target is still the desktop).
 #
 # What it does, so you don't have to remember it:
 #   1. writes /etc/docker/daemon.json (64k log cap) and restarts docker -- only if needed
@@ -22,6 +27,14 @@ export KUBECONFIG="${KUBECONFIG:-/etc/rancher/k3s/k3s.yaml}"
 UNIT=saqef-final
 WANT='{ "log-driver": "json-file", "log-opts": { "max-size": "64k", "max-file": "1" } }'
 
+MAX_H=4   # hard ceiling for the session; a normal one takes ~2 h
+if [ "${1:-}" = "--stop" ]; then
+    systemctl stop "$UNIT" 2>/dev/null || true
+    systemctl stop saqef-guard.timer 2>/dev/null || true
+    systemctl isolate graphical.target
+    echo "stopped; desktop restored. Partial results: sudo bash tools/go.sh --status"
+    exit 0
+fi
 if [ "${1:-}" = "--status" ]; then
     echo "== service"; systemctl status "$UNIT" --no-pager 2>/dev/null | sed -n 1,5p || echo "  not running"
     if [ -f "$REPO/results/final_session/DONE" ]; then echo "== FINISHED: $(cat "$REPO/results/final_session/DONE")"; fi
@@ -85,8 +98,16 @@ if [ -n "$real" ]; then
 fi
 say "pre-flight OK (desktop/agents are handled next)"
 
-# 4. launch
-systemd-run --unit "$UNIT" \
+# 4. launch, with two more safety nets besides run_final.sh's own exit trap:
+#    - RuntimeMaxSec: systemd kills the session if it runs past MAX_H (a hang),
+#      which fires the trap and restores the desktop;
+#    - saqef-guard: an independent timer that restores the desktop 15 min after
+#      that, even if the session process is wedged beyond a clean kill.
+systemctl stop saqef-guard.timer 2>/dev/null || true
+systemctl reset-failed saqef-guard.service 2>/dev/null || true
+systemd-run --unit saqef-guard --on-active="$((MAX_H * 60 + 15))min" \
+    systemctl isolate graphical.target >/dev/null
+systemd-run --unit "$UNIT" -p RuntimeMaxSec="${MAX_H}h" \
     systemd-inhibit --what=sleep:idle:handle-lid-switch --why="SAQEF final corpus" \
     bash "$REPO/tools/run_final.sh" >/dev/null
 say "session launched as service '$UNIT'"
@@ -96,6 +117,8 @@ echo
 echo "  Close Claude Code / opencode / browser now. Keep the laptop on AC, lid open."
 echo "  The screen switches to text mode in 60 s. Press Ctrl+C to stay on the desktop"
 echo "  (the session then waits up to 20 min for the desktop to close, then gives up)."
-echo "  When the desktop comes back by itself (~2 h), run:  sudo bash tools/go.sh --status"
+echo "  When the desktop comes back by itself (~2 h, at most ${MAX_H} h 15 min), run:"
+echo "      sudo bash tools/go.sh --status"
+echo "  Stuck in text mode? Ctrl+Alt+F3, log in, then: sudo bash $REPO/tools/go.sh --stop"
 for s in $(seq 60 -10 10); do echo "  ... $s s"; sleep 10; done
 systemctl isolate multi-user.target
