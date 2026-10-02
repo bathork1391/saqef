@@ -1273,20 +1273,24 @@ silently overwritten.
 The mistake that cost `bridge_tier1c1` was running first and adjudicating later. Freeze these
 before the first leg:
 
-- **Revision.** **`v9.14.1-remeasure`** — the tag the re-measurement runs under, and it sits on the
-  branch tip, so no detached checkout is needed:
+- **Revision.** **`v9.14.1-remeasure`** — the tag the re-measurement runs under, cited by name and never
+  by SHA. Two checks, because either failure alone makes the whole session uncitable:
   ```bash
-  git describe --tags --exact-match   # must print: v9.14.1-remeasure
-  git status --porcelain              # must be empty
+  git status --porcelain                          # must be empty
+  git diff --stat v9.14.1-remeasure..HEAD         # must list TROUBLESHOOTING_RUNBOOK.md alone, or be empty
   ```
-  **The tag is the citation, not a literal SHA.** A SHA quoted here goes stale the moment a
-  runbook-only commit lands — which is exactly what happened twice while writing this section
-  (a trailer strip rewrote 7 commits, and the hash remap that followed was itself a commit). So the
-  check above is `describe --exact-match`, which cannot rot. If the tag is ever *not* the tip,
-  everything between them must be documentation-only, and that is the thing to verify:
-  ```bash
-  git diff --stat v9.14.1-remeasure..HEAD    # must list TROUBLESHOOTING_RUNBOOK.md only
-  ```
+  **A SHA quoted here goes stale** the moment a runbook-only commit lands — which happened twice while
+  writing this section (a trailer strip rewrote 7 commits, and the hash remap that followed was itself
+  a commit). Hence the tag name, and hence the second check.
+
+  Note the deliberate absence of `git describe --tags --exact-match`: it passes only while the tag sits
+  *on* the tip, so a single documentation commit would break the pre-flight for a session that is in
+  fact perfectly citable. `v9.14.1-remeasure` is therefore already behind the tip by exactly the
+  documentation commits that corrected §24.7.7's CPU-frequency claim, and that is the state this
+  protocol is written for. **The invariant is not "tag equals tip", it is "nothing between the tag and
+  HEAD touches anything a measurement depends on"** — which is exactly what the `diff --stat` line
+  asserts, and what the empty `git status` guarantees for the working tree.
+
   This is enforced, not advisory: `tools/run_tier1_conc.sh` refuses to start on a dirty working tree
   (provenance gate, `--allow-dirty` to override for exploratory work). All 15 `bridge_tier1c1` legs
   recorded `git_dirty=true` and that alone made them uncitable, with no measured number wrong.
@@ -1294,25 +1298,45 @@ before the first leg:
   `v9.14.1` exists because this section was amended **after** `v9.14-remeasure` was frozen — the
   idle-w rule, the acceptance rule and the run command all changed — and amending a pre-registration
   in place would destroy the only thing the tag was for. The old tag stays where it is, so a reader
-  can see what was frozen when and what was corrected before any leg ran.
+  can see what was frozen when and what was corrected before any leg ran. The same rule applies to the
+  correction after it: documentation-only, so the tag is left alone and the gap is verified rather
+  than erased.
 - **Stamps.** `remeasure_shares_` — distinct, as it must be (never bare `tier1c<N>`, or pre- and
   post-`c05a9df` datasets can be confused or overwritten), and it *names the scope*, so nobody can
   mistake a void-energy run for a fully citable one without opening it. The commands, frozen:
   ```bash
   # 1. pre-flight — both must hold before the first leg
-  git describe --tags --exact-match   # must print: v9.14.1-remeasure
-  git status --porcelain              # must be empty
+  git status --porcelain                  # must be empty
+  git diff --stat v9.14.1-remeasure..HEAD # must be empty, or list TROUBLESHOOTING_RUNBOOK.md alone
 
-  # 2. rehearsal — prints every stamp and command, measures nothing
+# 2. snapshot the box state, so a frequency question later has a record to answer from
+  mkdir -p results/remeasure_shares_box_state
+  { date -u +"utc=%Y-%m-%dT%H:%M:%SZ"; uname -r | sed 's/^/kernel=/'
+    echo "profile=$(powerprofilesctl get 2>&1)"
+    echo "ac_online=$(cat /sys/class/power_supply/AC/online 2>&1)"
+    for f in scaling_driver scaling_governor energy_performance_preference scaling_min_freq scaling_max_freq; do
+      echo "cpufreq.$f=$(cat /sys/devices/system/cpu/cpu0/cpufreq/$f 2>&1)"; done
+    for f in no_turbo min_perf_pct max_perf_pct status; do
+      echo "intel_pstate.$f=$(cat /sys/devices/system/cpu/intel_pstate/$f 2>&1)"; done
+    for z in /sys/class/thermal/thermal_zone*/; do
+      echo "thermal.$(cat $z/type 2>&1)=$(cat $z/temp 2>&1)"; done
+  } > results/remeasure_shares_box_state/cpufreq.txt
+  cat results/remeasure_shares_box_state/cpufreq.txt
+
+  # 3. rehearsal — prints every stamp and command, measures nothing
   bash tools/run_tier1_conc.sh --stamp-prefix remeasure_shares_ --rapl-fit-warn --dry-run
 
-  # 3. the session — ~2.5-3 h, all four platforms, bare shell, agents quit
+  # 4. the session — ~2.5-3 h, all four platforms, bare shell, agents quit
   bash tools/run_tier1_conc.sh --stamp-prefix remeasure_shares_ --rapl-fit-warn
   ```
+  Step 2 exists because §24.7.7's whole point is that `governor` is recorded per run but EPP is
+  recorded nowhere — so the one setting that cannot be recovered from the data is the one worth
+  writing down *before* the run rather than reconstructing after it.
+
   Output lands in `results/<platform>_cpubound_lock_remeasure_shares_tier1c<N>/`, the medians in
   `results/lock_session_remeasure_shares_tier1c<N>/lock_summary.json`, and the per-leg background
   probe in `results/idle_probe_remeasure_shares_tier1c<N>/<platform>/`. `run_lock_session` refuses
-  to clobber, so a re-run needs a fresh prefix rather than an overwrite. Step 2 is not optional
+  to clobber, so a re-run needs a fresh prefix rather than an overwrite. Step 3 is not optional
   ceremony: it is how the c=1 OW duration and the per-leg stamps get checked without spending a leg.
 - **Acceptance rule, decided in advance.** This campaign's job is to replace uncitable bridge data
   with citable data, **not** to pass a test. So there is exactly one pass/fail in the protocol, and it
@@ -1377,24 +1401,70 @@ the ratio are recoverable from the first five runs of the re-measurement** — s
   cannot be *verified* for the reference side, only asserted. It is also imprecise: the bridge
   isolates `c05a9df` *plus* §19–§22, which 24.7.2 bounds at 0.0012 pp. New runs are stamped; these
   are not.
-- **CPU frequency is uncontrolled in both corpora — and already recorded.** `governor=powersave` with
-  `energy_performance_preference=balance_performance` held throughout, and the delivered clock swings
-  from 517 to 3800 MHz across runs *and within them*: one `bridge_tier1c1` leg recorded
-  `env.freq_mhz_before` 3299.8 → `env.freq_mhz_after` 707.8. No gate reads it. It is *not* the
-  explanation for 24.7.1 — it is equally variable on both sides — but it is an uncontrolled variable
-  that inflates the noise floor against which every tolerance in 24.2 is judged.
+- **CPU frequency is uncontrolled in both corpora — and partly recorded.** `governor=powersave` is
+  recorded in every run, and the delivered clock swings from 517 to 3800 MHz across runs *and within
+  them*: one `bridge_tier1c1` leg recorded `env.freq_mhz_before` 3299.8 → `env.freq_mhz_after` 707.8.
+  No gate reads it. It is *not* the explanation for 24.7.1 — it is equally variable on both sides — but
+  it is an uncontrolled variable that inflates the noise floor against which every tolerance in 24.2
+  is judged.
 
-  Two corrections to what this section previously recommended. First, **"recording per run" is
-  already done**: `saqef_harness.py` writes `env.freq_mhz_before` / `env.freq_mhz_after` /
-  `env.governor` into every `summary.json`, verified in `results/fn_cpubound_lock_bridge_tier1c1/`.
-  What is missing is a gate and an analysis habit, not a field. Second, **pinning is deliberately not
-  done for this campaign.** This box runs the `intel_pstate` driver, where `scaling_governor` is a
-  passive hint and the real knobs (`intel_pstate/no_turbo`, `min_perf_pct`,
-  `cpufreq/energy_performance_preference`) are root-owned — pinning needs `sudo`. It is also the wrong
-  move *here* even with root: the reference corpus was collected under `balance_power`, so switching
-  the machine state between the two series would introduce an undeclared protocol deviation, which is
-  the exact failure that made `bridge_tier1c1` uncitable. Pins belong in a dedicated like-for-like
-  session that re-measures a reference leg *and* a new leg under the same pinned state, so both sides
-  of any comparison share it. For this campaign the discipline is narrower and free: **report each
-  cell's `freq_mhz_before`/`after` swing beside its numbers**, so a swing-driven outlier is visible
-  rather than silently absorbed into a median.
+  The finer-grained setting is a **blind spot, and one this section previously got wrong by asserting
+  it as fact.** Under the `intel_pstate` driver the `governor` string is only a passive hint; the real
+  bias lives in `cpufreq/energy_performance_preference` (EPP). **`governor` is the only frequency
+  control any run records** — checked across all 127 `summary.json` files in `results/`, whose `env`
+  blocks contain `cpu_count`, `freq_mhz_after`, `freq_mhz_before`, `governor`, `interarrival_ms`,
+  `loadgen`, `loadgen_fallback`, `loadgen_requested`, `sampler`, `target_qps` and nothing else. No EPP
+  value is recorded in either corpus or in the bridge, and the file name for it is not even a distinct
+  grep hit. So any statement about what EPP was during the reference runs is an **assumption, not a
+  record**. This box reads `balance_performance` today under the `balanced` profile; that is today's
+  value and nothing more — it is **not** evidence about the reference runs, and the fact that it did
+  not even hold steady within one working session (it also read `balance_power`) is the reason not to
+  read anything into it. §24.7.7 previously wrote that the reference corpus "was collected under
+  `balance_power`"; that was an assumption dressed as a measurement, and it is corrected here.
+
+  Two corrections to what this section previously recommended. First, **"recording per run" is partly
+  done**: `saqef_harness.py` writes `env.freq_mhz_before` / `env.freq_mhz_after` / `env.governor`
+  into every `summary.json`, verified in `results/fn_cpubound_lock_bridge_tier1c1/`. What is missing is
+  EPP and a gate — not the frequency fields. Second, **pinning is deliberately not done for this
+  campaign.** This box runs the `intel_pstate` driver, where the real knobs (`intel_pstate/no_turbo`,
+  `min_perf_pct`, `cpufreq/energy_performance_preference`) are root-owned, so pinning needs `sudo`.
+  The move is also questionable *here* even with root, though the honest reason is weaker than the one
+  previously given: we cannot show the reference corpus ran under this EPP, so we cannot show that
+  changing it would break comparability — only that we do not know either way. What *is* certain is
+  that the reference corpus and this campaign were **never recorded as matching**, and that switching
+  a root-owned machine setting between the two series would introduce an undeclared protocol
+  deviation — the exact failure that made `bridge_tier1c1` uncitable. Pins belong in a dedicated
+  like-for-like session that re-measures a reference leg *and* a new leg under the same pinned state,
+  so both sides of any comparison demonstrably share it. For this campaign the discipline is narrower
+  and free: **snapshot the box state before the first leg** (recorded in
+  `results/remeasure_shares_box_state/cpufreq.txt`) and **report each cell's `freq_mhz_before`/`after`
+  swing beside its numbers**, so a swing-driven outlier is visible rather than silently absorbed into
+  a median.
+
+- **The box is a laptop, and two daemons own the frequency policy.** This is the part that actually
+  governs whether the re-measurement is repeatable, and it was not written down until now. The host is
+  a **Dell Latitude 3420** (`chassis_type=10`, notebook), running on AC, with the
+  **`power-profiles-daemon`** (currently profile `balanced`, EPP `balance_performance`) and
+  **`thermald --adaptive`** both active.
+  - `power-profiles-daemon` is the thing that *writes* `energy_performance_preference`. Nothing in
+    this repo records it, and it is not stable over the life of the box: it read `balance_power` and
+    `balance_performance` within a single working session. Leaving the profile at whatever the daemon
+    last chose means a variable the protocol needs fixed is owned by software the protocol never
+    records. **Set the profile deliberately before the run** (`powerprofilesctl set performance`) so
+    the value is known and matches the snapshot, rather than inherited by accident. This needs no
+    `sudo`, unlike the `intel_pstate` knobs.
+  - `thermald --adaptive` throttles on a laptop chassis with no sustained-load cooling budget.
+    `x86_pkg_temp` was already at **67 °C at idle** before the session began, with `TCPU` 63 °C and
+    `TSKN` (skin) 59 °C. A 2.5–3 h run with a 420 s × 5 OpenWhisk leg will very plausibly cross the
+    throttle threshold partway through, and delivered frequency will then fall *within* the campaign —
+    which is the same uncontrolled variable as above, arriving from the thermal side and recorded
+    nowhere.
+  - What follows for the numbers: throttling does not obviously damage `cp_dynamic_share_pct`, since
+    that is a ratio of CPU-seconds and both platforms are throttled together — but it degrades
+    *absolute* figures and widens the noise floor, so it is one more reason §24.7.4's energy void
+    stands and one more reason the freq swing must be reported per cell. It is **not** a reason to
+    skip the campaign: the shares are the citable output and they are the robust one.
+  - The honest summary is that this box is a laptop being used as a bench, and no amount of runbook
+    text makes it a server. A machine-state pin plus the per-cell swing report is the best available
+    mitigation; a proper fix is a dedicated, thermally stable, pinned host, which is a hardware
+    decision rather than a protocol one.
