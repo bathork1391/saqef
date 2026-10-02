@@ -1809,3 +1809,22 @@ after seeing the data. Reported as-is, they are:
   own three calibration reads in `final_calib`. No fixed wattage: no per-read calibration file
   survives from any earlier session (every `results/idle_w_calibration/lock_*` dir is empty, because
   each session reused inherited values), so there is no measured spread to anchor a number on.
+
+## 26. Roadmap from here (agreed 2026-10-02)
+
+Rule: nothing measured in `final_*` is re-measured. Every later step is either analysis of `final_*`
+or a new experiment that asks a question `final_*` cannot answer, pre-registered before its data.
+
+| # | step | type | machine time | answers |
+|---|---|---|---|---|
+| 1 | Final corpus (`tools/run_final.sh`, §24.8) | measurement | ~2 h, headless | citable shares, throughput, latency, energy for all 4 platforms |
+| 2 | Adjudicate P1–P3, write paper numbers + figures, close §24.2 action item (1) | analysis | none | the paper's main tables |
+| 3 | E2 — control-plane anatomy: per-component CPU (OW JVM threads, Knative activator/queue-proxy/autoscaler, OpenFaaS gateway/provider, Fn fnserver) | analysis of step 1 data | none | *why* OW costs 21–45× more CP CPU (novel contribution) |
+| 4 | Energy checks from §25.6 (within-run linearity, idle cross-check); energy per request; idle CP power | analysis | none | supervisor's energy-trust question |
+| 5 | E1 — open-loop overload (`--qps` above measured capacity, per platform) | new experiment, pre-register as §27 first | ~1–1.5 h | supervisor's success-rate question: drops, 429s, timeouts, and CP cost under overload |
+| 6 | E4 — packet-loss injection (`tc netem` on the docker bridge) | optional new experiment | ~1 h | retry behaviour and its CP cost |
+| 7 | E3 — fifth platform (Fission) | only if supervisor/reviewer asks | ~1 day incl. adapter | whether OW is an outlier or a class |
+
+Decision points:
+- after step 2, if P2 fails (OW share moves > 3 pp), explain it before step 3
+- after step 5, decide whether step 6 adds anything E1 did not already show
