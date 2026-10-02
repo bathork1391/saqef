@@ -80,7 +80,10 @@ RAPL_FIT_WARN=0          # 1 (--rapl-fit-warn): a run whose RAPL fit is >15% is
                          # recorded as a WARNING, not a gate failure. Only for
                          # sessions whose question is the CP/fn CPU share, which
                          # RAPL does not enter (runbook 24.1, 24.6). Every other
-                         # gate stays fatal; energy from such a run is not citable.
+                         # gate stays fatal. The >15% figure is the residual against
+                         # the retired 3.5 W/core model (runbook 25.1, 25.6), so it
+                         # makes MODEL-based energy non-citable; RAPL-based energy
+                         # (e_rapl_j - idle_w*wall) is unaffected (25.2, 27.5).
 CPU_PROBE_S=0            # >0: after the bench, run one native --idle-probe of CPU_PROBE_S
                          # seconds with the same stack state and save cp/fn CPU rates.
                          # This is the direct per-leg background-rate measurement the
@@ -744,8 +747,10 @@ else:
 meta = {"stamp": stamp, "platforms": order, "idle_w_by_platform": w,
         "max_drift_pct": max_drift,
         "max_sample_gap_s": max_sample_gap_s,
-        # "warn" means RAPL FIT did not gate this session: its energy figures
-        # are not citable even where all_gates_ok is true.
+        # "warn" means the >15% model residual did not gate this session. It
+        # measures disagreement with the retired 3.5 W/core model, not RAPL's
+        # quality: model-based energy is not citable, RAPL-based energy is
+        # (runbook 25.1, 25.2, 25.6, 27.5).
         "rapl_fit_gate": "warn" if rapl_fit_warn else "fail",
         "discard_warmup": discard_warmup,
         "usable_runs_per_leg": int(repeat) - discard_warmup,
@@ -760,8 +765,9 @@ if not all_ok:
 tier = "quick-tier (REPEAT<5, exploratory, NOT citable until promoted to REPEAT=5)" if int(repeat) < 5 else "citable"
 print("ALL GATES OK -- session is %s under the same-discipline rules (quiet-gated, same day, same box)." % tier)
 if rapl_fit_warn:
-    print("NOTE: --rapl-fit-warn was set -- CP/fn shares are gated as usual, but ENERGY "
-          "figures from this session are not citable (RAPL FIT was not enforced).")
+    print("NOTE: --rapl-fit-warn was set -- CP/fn shares are gated as usual; the >15%% model "
+          "residual was recorded, not gated. Cite RAPL-based energy (e_rapl_j - idle_w*wall), "
+          "never the 3.5 W/core model's energy_J (runbook 25.2, 27.5).")
 PY
 
 echo

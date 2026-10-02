@@ -1006,7 +1006,10 @@ class TestSingleRunArtifactShape(unittest.TestCase):
         rc, txt = self._multi_run_gate(degraded, extra=("1.0", "1"))
         self.assertEqual(rc, 0, "RAPL FIT alone must not fail under warn: %s" % txt)
         self.assertIn("WARN run_4 RAPL FIT", txt)
-        self.assertIn("ENERGY figures from this session are not citable", txt)
+        # The note must point at RAPL-based energy, not call all energy uncitable
+        # (runbook 27.5): the residual is against the retired 3.5 W/core model.
+        self.assertIn("Cite RAPL-based energy", txt)
+        self.assertNotIn("not citable (RAPL FIT", txt)
         rc, txt = self._multi_run_gate(degraded, extra=("1.0", "0"))
         self.assertNotEqual(rc, 0, "without the flag RAPL FIT still gates: %s" % txt)
         rc, txt = self._multi_run_gate(
