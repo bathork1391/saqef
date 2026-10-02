@@ -73,7 +73,8 @@ else
 fi
 # a restart is also needed if docker was started before the file was written
 dj=$(stat -c %Y /etc/docker/daemon.json)
-dk=$(date -d "$(systemctl show docker -p ActiveEnterTimestamp --value)" +%s 2>/dev/null || echo 0)
+# unix form: date -d cannot parse zone abbreviations like PKT
+dk=$(systemctl show docker --timestamp=unix -p ActiveEnterTimestamp --value | tr -d @)
 if [ "$dk" -le "$dj" ]; then say "restarting docker to load the log cap"; systemctl restart docker; fi
 
 # 2. wait for Knative

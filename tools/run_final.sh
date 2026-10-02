@@ -109,7 +109,7 @@ PY
     else
         local dj_m dk_m
         dj_m=$(stat -c %Y /etc/docker/daemon.json)
-        dk_m=$(date -d "$(systemctl show docker -p ActiveEnterTimestamp --value)" +%s 2>/dev/null || echo 0)
+        dk_m=$(systemctl show docker --timestamp=unix -p ActiveEnterTimestamp --value | tr -d @)
         [ "$dk_m" -gt "$dj_m" ] || bad "dockerd started before daemon.json was written -- restart docker"
         local cid ms
         cid=$(docker ps -q --filter name=k8s_ | head -1)
