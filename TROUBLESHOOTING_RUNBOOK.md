@@ -1258,8 +1258,11 @@ direction. Two consequences:
 - **`cp_dynamic_share_pct` is unaffected by idle-w, but energy and carbon are not.** The share is a
   ratio of CPU-seconds; `energy_J` multiplies by `idle_w`, and idle watts are a property of the box
   state that the sampler change perturbed (host overhead fell ~21 CPU-s). **Every energy, carbon
-  and gCO2/invocation figure must be treated as void**, independently of the share outcome, and
-  idle-w must be re-calibrated rather than carried over.
+  and gCO2/invocation figure must be treated as void**, independently of the share outcome. Idle-w
+  must be re-calibrated rather than carried over **in any session whose energy is cited**; §24.7.5
+  records one deliberate, scoped exception — a shares-only re-measurement that inherits the lock4
+  medians and inherits exactly the same voidness. Recalibration stops being optional the moment
+  energy is on the page.
 
 The old corpus is **retained, not deleted**, and relabelled pre-`c05a9df`/instrument-contaminated so
 a reviewer can see both series. Superseded numbers are struck in `VERIFIED_RESULTS.md`, never
@@ -1270,10 +1273,10 @@ silently overwritten.
 The mistake that cost `bridge_tier1c1` was running first and adjudicating later. Freeze these
 before the first leg:
 
-- **Revision.** **`v9.14-remeasure`** — the tag the re-measurement runs under, and it sits on the
+- **Revision.** **`v9.14.1-remeasure`** — the tag the re-measurement runs under, and it sits on the
   branch tip, so no detached checkout is needed:
   ```bash
-  git describe --tags --exact-match   # must print: v9.14-remeasure
+  git describe --tags --exact-match   # must print: v9.14.1-remeasure
   git status --porcelain              # must be empty
   ```
   **The tag is the citation, not a literal SHA.** A SHA quoted here goes stale the moment a
@@ -1282,22 +1285,78 @@ before the first leg:
   check above is `describe --exact-match`, which cannot rot. If the tag is ever *not* the tip,
   everything between them must be documentation-only, and that is the thing to verify:
   ```bash
-  git diff --stat v9.14-remeasure..HEAD    # must list TROUBLESHOOTING_RUNBOOK.md only
+  git diff --stat v9.14.1-remeasure..HEAD    # must list TROUBLESHOOTING_RUNBOOK.md only
   ```
   This is enforced, not advisory: `tools/run_tier1_conc.sh` refuses to start on a dirty working tree
   (provenance gate, `--allow-dirty` to override for exploratory work). All 15 `bridge_tier1c1` legs
   recorded `git_dirty=true` and that alone made them uncitable, with no measured number wrong.
-- **Stamps.** A distinct prefix, never bare `tier1c<N>`, so pre- and post-`c05a9df` datasets can
-  never be confused or overwritten.
-- **Acceptance rule, decided in advance.** Report new-vs-old side by side. Do **not** accept or
-  reject on median-difference-inside-a-tolerance: §23.2 records a 3-sample MAD deciding a bias, and
-  §24.2's own 0.50 pp floor exists because a 5-run MAD can be spuriously small (fn c=4: 0.02 pp). The
-  repo already has the right test — TOST equivalence (`saqef_harness.py`, `tests/` `TestTier1StatsHygiene`)
-  — which fails when noise alone cannot exclude the margin. Use it: state a margin of practical
-  equivalence per cell, then *prove* the new data is inside it or declare it different. Note
-  `test_tost_rejects_the_openwhisk_c1_case` — OW has already failed this test once.
-- **No mid-session re-anchoring.** Idle-w is recalibrated per leg as the protocol already requires
-  (§19), never inherited from a pre-`c05a9df` session.
+
+  `v9.14.1` exists because this section was amended **after** `v9.14-remeasure` was frozen — the
+  idle-w rule, the acceptance rule and the run command all changed — and amending a pre-registration
+  in place would destroy the only thing the tag was for. The old tag stays where it is, so a reader
+  can see what was frozen when and what was corrected before any leg ran.
+- **Stamps.** `remeasure_shares_` — distinct, as it must be (never bare `tier1c<N>`, or pre- and
+  post-`c05a9df` datasets can be confused or overwritten), and it *names the scope*, so nobody can
+  mistake a void-energy run for a fully citable one without opening it. The commands, frozen:
+  ```bash
+  # 1. pre-flight — both must hold before the first leg
+  git describe --tags --exact-match   # must print: v9.14.1-remeasure
+  git status --porcelain              # must be empty
+
+  # 2. rehearsal — prints every stamp and command, measures nothing
+  bash tools/run_tier1_conc.sh --stamp-prefix remeasure_shares_ --rapl-fit-warn --dry-run
+
+  # 3. the session — ~2.5-3 h, all four platforms, bare shell, agents quit
+  bash tools/run_tier1_conc.sh --stamp-prefix remeasure_shares_ --rapl-fit-warn
+  ```
+  Output lands in `results/<platform>_cpubound_lock_remeasure_shares_tier1c<N>/`, the medians in
+  `results/lock_session_remeasure_shares_tier1c<N>/lock_summary.json`, and the per-leg background
+  probe in `results/idle_probe_remeasure_shares_tier1c<N>/<platform>/`. `run_lock_session` refuses
+  to clobber, so a re-run needs a fresh prefix rather than an overwrite. Step 2 is not optional
+  ceremony: it is how the c=1 OW duration and the per-leg stamps get checked without spending a leg.
+- **Acceptance rule, decided in advance.** This campaign's job is to replace uncitable bridge data
+  with citable data, **not** to pass a test. So there is exactly one pass/fail in the protocol, and it
+  is mechanical:
+  1. **Is the cell citable?** Clean tree (`git_dirty=false`), revision named, no `LOADGEN FALLBACK`,
+     ambient < 15 %, `rapl_fit_gate=warn` recorded. A cell failing any of these is void however good
+     its numbers look. That single rule is what made all 15 `bridge_tier1c1` legs uncitable, with no
+     measured number wrong.
+  2. **Frozen questions for the new data.** Report the answers; do not score them:
+     - Does the grouping hold at every concurrency (OpenFaaS < {Fn, Knative})?
+     - What is OpenWhisk's level on the current sampler? It has never been measured there, and
+       §24.7.4 makes it the one genuinely open number in the paper.
+     - Do the three §24.3 shape claims still describe what is seen — Fn falling and staying down,
+       OpenFaaS dipping at c=2, Knative turning up at c=8? Recorded as descriptions **of this
+       corpus**, not as pass/fail. They are the claims the bridge could not confirm, so re-asking
+       "do they hold" would re-import exactly the post-hoc judgement §24.7 exists to remove.
+  3. **No practical-equivalence margin is stated here, deliberately.** TOST equivalence is in the
+     repo (`saqef_harness.py`, `tests/TestTier1StatsHygiene`) and OW has already failed it once
+     (`test_tost_rejects_the_openwhisk_c1_case`) — but a margin chosen at this moment, with the
+     pre-`c05a9df` corpus already visible, is chosen knowing the answer. That is precisely the
+     failure mode §23.2 already records (a 3-sample MAD deciding a bias). If an equivalence claim is
+     wanted, its margin must be fixed from an independent basis — §24.2's QoS floor is the obvious
+     candidate — **before** the data it judges, in its own pre-registration.
+  4. **Old-vs-new is descriptive.** §24.7 has already adjudicated c=1, so scoring new data against
+     old and calling it pass or fail is circular: the comparison is already decided. Both series are
+     reported side by side, and superseded numbers are struck in `VERIFIED_RESULTS.md`, never
+     overwritten (§24.7.4).
+- **Idle-w is inherited here, on purpose, and energy is therefore void.** This campaign's driver
+  passes `--skip-idle-calib` with the lock4 N=5 medians (OF 4.235 / Fn 4.249 / Kn 5.739 / OW 4.882)
+  instead of recalibrating per leg as §19 requires. That is a **recorded deviation with a stated
+  scope**, not an oversight, and it is the only point where this protocol departs from §19:
+  - `cp_dynamic_share_pct` and CP/fn per-invocation are ratios of CPU-seconds. They do not consume
+    idle-w, so every citable output of this campaign is unaffected by the inheritance.
+  - **Every `energy_J`, carbon and gCO2/invocation figure this session produces is void**, struck on
+    sight, exactly as §24.7.4 rules for the pre-`c05a9df` corpus. The stamp prefix records the scope
+    (`remeasure_shares_`) and the driver prints `shares only; energy NOT citable` on every leg, so the
+    constraint travels with the data instead of depending on someone reading this section first.
+  - Recalibration is deferred to one separate §19 idle-w calibration, run with the platform stack
+    up, before any energy figure is cited again. Dropping `--skip-idle-calib` here would cost
+    ~25–30 min of box time and buy no citable number, because §24.7.6 has not settled what energy
+    should even be compared against yet.
+  - **No mid-session re-anchoring.** Within the session the medians are fixed. Re-anchoring partway
+    through would make the per-leg background probe incomparable across legs, which is the one
+    cross-check this campaign actually retains.
 - **RAPL FIT stays demoted to a warning** (`--rapl-fit-warn`) for share sessions. It is uninformative
   here: it fails the *reference* data too (tier1c4 24–43 %, tier1c8 11–40 %), so it cannot
   discriminate. Energy stays model-only until 24.7.6 settles what it should compare.
@@ -1318,8 +1377,24 @@ the ratio are recoverable from the first five runs of the re-measurement** — s
   cannot be *verified* for the reference side, only asserted. It is also imprecise: the bridge
   isolates `c05a9df` *plus* §19–§22, which 24.7.2 bounds at 0.0012 pp. New runs are stamped; these
   are not.
-- **CPU frequency is uncontrolled in both corpora.** `governor=powersave` held throughout, but the
-  delivered clock swings from 517 to 3800 MHz across runs within a single reference cell, and no
-  gate reads it. It is *not* the explanation for 24.7.1 — it is equally variable on both sides — but
-  it is an uncontrolled variable that inflates the noise floor against which every tolerance in 24.2
-  is judged. Worth pinning or recording per run.
+- **CPU frequency is uncontrolled in both corpora — and already recorded.** `governor=powersave` with
+  `energy_performance_preference=balance_performance` held throughout, and the delivered clock swings
+  from 517 to 3800 MHz across runs *and within them*: one `bridge_tier1c1` leg recorded
+  `env.freq_mhz_before` 3299.8 → `env.freq_mhz_after` 707.8. No gate reads it. It is *not* the
+  explanation for 24.7.1 — it is equally variable on both sides — but it is an uncontrolled variable
+  that inflates the noise floor against which every tolerance in 24.2 is judged.
+
+  Two corrections to what this section previously recommended. First, **"recording per run" is
+  already done**: `saqef_harness.py` writes `env.freq_mhz_before` / `env.freq_mhz_after` /
+  `env.governor` into every `summary.json`, verified in `results/fn_cpubound_lock_bridge_tier1c1/`.
+  What is missing is a gate and an analysis habit, not a field. Second, **pinning is deliberately not
+  done for this campaign.** This box runs the `intel_pstate` driver, where `scaling_governor` is a
+  passive hint and the real knobs (`intel_pstate/no_turbo`, `min_perf_pct`,
+  `cpufreq/energy_performance_preference`) are root-owned — pinning needs `sudo`. It is also the wrong
+  move *here* even with root: the reference corpus was collected under `balance_power`, so switching
+  the machine state between the two series would introduce an undeclared protocol deviation, which is
+  the exact failure that made `bridge_tier1c1` uncitable. Pins belong in a dedicated like-for-like
+  session that re-measures a reference leg *and* a new leg under the same pinned state, so both sides
+  of any comparison share it. For this campaign the discipline is narrower and free: **report each
+  cell's `freq_mhz_before`/`after` swing beside its numbers**, so a swing-driven outlier is visible
+  rather than silently absorbed into a median.

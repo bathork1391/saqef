@@ -47,8 +47,17 @@
 #     gives the direct background rate b for that exact leg (the visible-level
 #     cross-check of the regression intercepts).
 #   * idle-w: lock4 N=5 medians via --skip-idle-calib (OF 4.235 / Fn 4.249 /
-#     Kn 5.739 / OW 4.882). Energy not a goal; c=8 host_sat ~88-90% makes QoS
+#     Kn 5.739 / OW 4.882). This INHERITS idle-w instead of recalibrating per
+#     leg as S19 requires, which is a recorded deviation with a stated scope,
+#     not an oversight: shares and CP/fn per-inv are CPU-second ratios and do
+#     not consume idle-w, so every citable output is unaffected. Every energy_J,
+#     carbon and gCO2/invocation figure this session emits is VOID and must be
+#     struck, exactly as runbook 24.7.4 rules for the pre-c05a9df corpus. Use a
+#     --stamp-prefix that says so (remeasure_shares_) so the constraint travels
+#     with the data. Recalibrate per S19 before citing any energy number again.
+#     Energy is not otherwise a goal here: c=8 host_sat ~88-90% makes QoS
 #     uncitable there (share and CP/fn per-inv are contention-robust outputs).
+#     Full statement: runbook 24.7.5.
 #   * OW c=1: --ow-duration 420 (lock4 p50 ~110 ms implies ~330 s wall; the
 #     loadgen kill-switch is duration+120 s, so 300 would leave <90 s margin --
 #     if ANY OW leg prints LOADGEN FALLBACK, that is duration, raise it).
