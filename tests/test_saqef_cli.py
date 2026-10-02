@@ -996,6 +996,45 @@ class TestSingleRunArtifactShape(unittest.TestCase):
                             "a run the harness calls NOT citable must fail: %s" % txt)
         self.assertIn("RAPL FIT", txt)
 
+    def test_lock_summary_records_why_a_leg_failed(self):
+        # bridge_tier1c1 (2026-10-02) wrote gates_ok=false for every leg with
+        # no reason: the problem strings went to stdout only, and the run
+        # summaries kept just the RAPL error %, not the joules behind it.
+        # Real shape: ambient sits on the LEG summary only, never on run_N.
+        block = self._block(self.LOCK, "lock summary written")
+        with tempfile.TemporaryDirectory() as td:
+            out = os.path.join(td, "results", "openwhisk_cpubound_lock_X")
+            os.makedirs(os.path.join(td, "results", "lock_session_X"))
+            reps = [{}, {}, {}, {"rapl_validation_err_pct": 58.45,
+                                 "e_model_j": 135.7, "e_rapl_j": 326.6}, {}]
+            for i, over in enumerate(reps, 1):
+                d = os.path.join(out, "run_%d" % i)
+                os.makedirs(d)
+                s = self._base_summary()
+                del s["ambient"]
+                s.update(over)
+                with open(os.path.join(d, "summary.json"), "w") as f:
+                    json.dump(s, f)
+            with open(os.path.join(out, "summary.json"), "w") as f:
+                json.dump(self._base_summary(), f)
+            with open(os.path.join(out, "runs.json"), "w") as f:
+                json.dump([self._base_summary() for _ in reps], f)
+            rc, txt = self._run(block, td, "X", "ow", "5",
+                                "4.235", "4.249", "5.739", "4.882", "20", "0")
+            self.assertNotEqual(rc, 0, txt)
+            lock = json.load(open(os.path.join(
+                td, "results", "lock_session_X", "lock_summary.json")))
+        leg = lock["platforms"]["openwhisk"]
+        self.assertFalse(leg["gates_ok"])
+        self.assertTrue(leg["ambient_present"],
+                        "ambient is leg-level; run_N never carries it")
+        self.assertTrue(any(p.startswith("run_4 RAPL FIT") for p in leg["problems"]),
+                        leg["problems"])
+        self.assertEqual(len(leg["runs"]), 5)
+        self.assertEqual(leg["runs"][3]["e_rapl_j"], 326.6)
+        self.assertEqual(leg["runs"][3]["e_model_j"], 135.7)
+        self.assertEqual(leg["runs"][3]["rapl_fit_err_pct"], 58.45)
+
     def test_gate_rejects_monotone_throughput_decay(self):
         # the real tier1ow8 shape: rps halves across the repeats while every
         # per-run gate still passes. A median over a decaying sequence is not a

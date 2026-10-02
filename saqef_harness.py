@@ -1539,6 +1539,9 @@ def run_once(args, cp_sub):
     # --- RAPL validation -------------------------------------------------------
     rapl_validation = None
     rapl_wrap = "none"
+    # Bound before the branch: summary always emits e_rapl_j, and a box with no
+    # RAPL (or a failed read) never enters it.
+    e_rapl = None
     if rapl_start is not None and rapl_end is not None:
         e_rapl, rapl_wrap = rapl_correct_wrap(rapl_end - rapl_start)
         rapl_validation = (abs(e_total - e_rapl) / e_rapl * 100
@@ -1638,6 +1641,9 @@ def run_once(args, cp_sub):
                 "target_qps": round(qps, 4),
                 "interarrival_ms": args.interarrival_ms},
         "rapl_validation_err_pct": round(rapl_validation, 2) if rapl_validation is not None else None,
+        "rapl_fit_err_pct": round(rapl_validation, 2) if rapl_validation is not None else None,
+        "e_model_j": round(e_total, 3),
+        "e_rapl_j": round(e_rapl, 3) if e_rapl is not None else None,
         "rapl_wrap": rapl_wrap,
         "rapl_available": rapl_start is not None,
         # Re-analysability (1a). The window is the single input that decides

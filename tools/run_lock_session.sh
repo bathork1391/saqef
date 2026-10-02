@@ -505,7 +505,11 @@ for plat in [p for p in ("openfaas", "fn", "knative", "openwhisk") if short[p] i
         s = json.load(open(os.path.join(out, "summary.json")))
         all_runs = sorted(glob.glob(os.path.join(out, "run_*")))
     except Exception as e:
-        print("%-10s FAIL -- no summary under %s (%s)" % (order[plat], out, e)); all_ok = False; continue
+        print("%-10s FAIL -- no summary under %s (%s)" % (order[plat], out, e)); all_ok = False
+        summary[plat] = {"label": order[plat], "outdir": os.path.relpath(out, repo),
+                         "gates_ok": False,
+                         "problems": ["no summary.json (%s)" % type(e).__name__]}
+        continue
     # Discard the warm-up repeats BEFORE gating: a cold first repeat is an
     # outlier, and gating on it can fail a leg for a transient that the protocol
     # explicitly throws away.
@@ -521,12 +525,28 @@ for plat in [p for p in ("openfaas", "fn", "knative", "openwhisk") if short[p] i
     # rapl_wrap, ambient) still applies to quick-tier runs.
     if int(repeat) >= 5 and len(runs) != 5:
         problems.append("runs=%d (want 5)" % len(runs))
+    run_details = []
     for p in runs:
         try:
             r = json.load(open(os.path.join(p, "summary.json")))
         except Exception:
             problems.append("%s unreadable" % os.path.basename(p)); continue
         nm = os.path.basename(p)
+        # Raw energies, so the RAPL FIT verdict can be re-derived (and its sign
+        # seen) offline. Pre-2026-10-02 runs carry only the error %, so the two
+        # joule fields read null there. No per-run gates_ok: run summaries have
+        # no such key -- the per-run verdicts are the "<run_N> ..." entries in
+        # the leg's "problems" list.
+        fit = r.get("rapl_fit_err_pct")
+        run_details.append({
+            "name": nm,
+            "e_model_j": r.get("e_model_j"),
+            "e_rapl_j": r.get("e_rapl_j"),
+            "rapl_validation_err_pct": r.get("rapl_validation_err_pct"),
+            "rapl_fit_err_pct": fit if fit is not None else r.get("rapl_validation_err_pct"),
+            "rapl_wrap": r.get("rapl_wrap"),
+            "rapl_available": r.get("rapl_available"),
+        })
         if r.get("host_plausible") is not True:
             problems.append("%s host_plausible" % nm)
         dm = r.get("delta_check_map") or {}
@@ -629,8 +649,15 @@ for plat in [p for p in ("openfaas", "fn", "knative", "openwhisk") if short[p] i
     summary[plat] = {"label": order[plat], "cp_dynamic_share_pct": share,
                      "outdir": os.path.relpath(out, repo), "idle_w_used": w.get(plat),
                      "cv_pct": round(cv, 2), "host_saturation_pct": sat,
+                     # leg-level s, NOT run_N: ambient never lands on run_N
+                     # summaries (see the ambient gate above).
                      "ambient_present": "ambient" in s,
-                     "gates_ok": (ok == "OK")}
+                     "gates_ok": (ok == "OK"),
+                     # Same strings the table prints. Before 2026-10-02 they
+                     # went to stdout only, so a FAIL in lock_summary.json
+                     # could not be traced without replaying every gate.
+                     "problems": problems,
+                     "runs": run_details}
 calib_dir = os.path.join(repo, "results", "idle_w_calibration", "lock_%s" % stamp)
 calib_states = sorted(os.listdir(calib_dir)) if os.path.isdir(calib_dir) else []
 calib_states = [d for d in calib_states if os.path.isdir(os.path.join(calib_dir, d))]
