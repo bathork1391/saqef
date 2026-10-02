@@ -1051,7 +1051,69 @@ class TestSingleRunArtifactShape(unittest.TestCase):
         self.assertEqual(len(leg["runs"]), 5)
         self.assertEqual(leg["runs"][3]["e_rapl_j"], 326.6)
         self.assertEqual(leg["runs"][3]["e_model_j"], 135.7)
-        self.assertEqual(leg["runs"][3]["rapl_fit_err_pct"], 58.45)
+        self.assertEqual(leg["runs"][3]["rapl_validation_err_pct"], 58.45)
+        self.assertNotIn("rapl_fit_err_pct", leg["runs"][3],
+                         "one name for the value; 90d153f's alias is read-only")
+
+    def test_lock_summary_reads_the_legacy_rapl_alias_but_does_not_republish_it(self):
+        # 90d153f shipped rapl_fit_err_pct on the 2026-10-02 legs. Those
+        # summaries are already on disk and must still aggregate, but the key
+        # is not re-emitted: the summary schema has exactly one RAPL-error name.
+        block = self._block(self.LOCK, "lock summary written")
+        with tempfile.TemporaryDirectory() as td:
+            out = os.path.join(td, "results", "openwhisk_cpubound_lock_X")
+            os.makedirs(os.path.join(td, "results", "lock_session_X"))
+            reps = [{}, {}, {}, {"rapl_fit_err_pct": 58.45}, {}]
+            for i, over in enumerate(reps, 1):
+                d = os.path.join(out, "run_%d" % i)
+                os.makedirs(d)
+                s = self._base_summary()
+                del s["ambient"]
+                s.update(over)
+                with open(os.path.join(d, "summary.json"), "w") as f:
+                    json.dump(s, f)
+            with open(os.path.join(out, "summary.json"), "w") as f:
+                json.dump(self._base_summary(), f)
+            with open(os.path.join(out, "runs.json"), "w") as f:
+                json.dump([self._base_summary() for _ in reps], f)
+            rc, txt = self._run(block, td, "X", "ow", "5",
+                                "4.235", "4.249", "5.739", "4.882", "20", "0")
+            self.assertNotEqual(rc, 0, txt)
+            lock = json.load(open(os.path.join(
+                td, "results", "lock_session_X", "lock_summary.json")))
+        leg = lock["platforms"]["openwhisk"]
+        self.assertTrue(any(p.startswith("run_4 RAPL FIT") for p in leg["problems"]),
+                        "the alias must still reach the gate: %s" % leg["problems"])
+        self.assertEqual(leg["runs"][3]["rapl_validation_err_pct"], 58.45,
+                         "alias read back under the canonical name")
+        self.assertNotIn("rapl_fit_err_pct", leg["runs"][3])
+
+    def test_leg_entry_for_a_missing_summary_carries_the_full_key_set(self):
+        # The no-summary.json branch used to emit only label/outdir/gates_ok/
+        # problems. A consumer reading cp_dynamic_share_pct or ambient_present
+        # on any leg would then KeyError -- and rule 1 of runbook 24.3 needs to
+        # read exactly those keys across all four platforms.
+        block = self._block(self.LOCK, "lock summary written")
+        with tempfile.TemporaryDirectory() as td:
+            os.makedirs(os.path.join(td, "results", "lock_session_X"))
+            # No leg outdir at all: every platform takes the missing-summary path.
+            rc, txt = self._run(block, td, "X", "ow,fn", "5",
+                                "4.235", "4.249", "5.739", "4.882", "20", "0")
+            self.assertNotEqual(rc, 0, txt)
+            lock = json.load(open(os.path.join(
+                td, "results", "lock_session_X", "lock_summary.json")))
+        full = {"label", "outdir", "cp_dynamic_share_pct", "idle_w_used", "cv_pct",
+                "host_saturation_pct", "ambient_present", "gates_ok", "problems", "runs"}
+        for plat in ("openwhisk", "fn"):
+            leg = lock["platforms"][plat]
+            self.assertEqual(set(leg), full,
+                             "%s leg key set differs: %s" % (plat, set(leg) ^ full))
+            self.assertFalse(leg["gates_ok"])
+            self.assertIsNone(leg["cp_dynamic_share_pct"])
+            self.assertFalse(leg["ambient_present"])
+            self.assertEqual(leg["runs"], [])
+            self.assertTrue(any("no summary.json" in p for p in leg["problems"]),
+                            leg["problems"])
 
     def test_gate_rejects_monotone_throughput_decay(self):
         # the real tier1ow8 shape: rps halves across the repeats while every

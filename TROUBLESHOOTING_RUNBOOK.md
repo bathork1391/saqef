@@ -1006,13 +1006,19 @@ records what happens when a bias is judged against noise-on-noise.
 | openwhisk | 4 | `openwhisk_cpubound_lock_tier1ow4` | 5 | 83.41 | 0.64 | ±1.28 |
 | openwhisk | 8 | `openwhisk_cpubound_lock_tier1ow8` | 5 | 84.18 | 0.70 | ±1.40 |
 
-**The three OW reference rows are not committed.** They live in `saqef/results/`, which
-`.gitignore` excludes in that repo — unlike `saqef-paper/results/`, which is fully tracked (1435
-files, 316 of them tier-1). So the OW medians below are recoverable only from this box's disk. Two
-consequences: copy `results/openwhisk_cpubound_lock_tier1ow{1,4,8}/` and the matching
-`results/idle_probe_tier1ow{1,4,8}/` somewhere durable **before** the bridge (and note in §24.x
-where), and do not treat an OW rule-1 failure as reproducible-from-git until that copy exists. The
-OF/Fn/Kn rows have no such problem.
+**The three OW reference rows are not committed — CORRECTED 2026-10-02, this was 2/3 out of date.**
+They live in `saqef/results/`, which `.gitignore` excludes in that repo — unlike
+`saqef-paper/results/`, which is fully tracked (1435 files, 316 of them tier-1). On re-checking:
+`tier1ow1` and `tier1ow4` (all 5 runs each) and `idle_probe_tier1ow{1,4}` were **already** tracked in
+`saqef-paper/results/`. What was genuinely unbacked was the **c=8 pair** —
+`openwhisk_cpubound_lock_tier1ow8/` and `idle_probe_tier1ow8/` — now copied and byte-verified with
+`diff -r`, committed as `8349eb9` in `saqef-paper`. All three OW cells are now recoverable from git.
+The OF/Fn/Kn rows never had this problem.
+
+**Remaining risk, and it is not about these six directories.** `saqef-paper` has **no git remote** —
+1435 tracked result files live on this one disk. Tracking is not durability. Until a private remote
+exists, a disk failure loses the entire paper-side corpus, not just the OW legs. The medians in the
+table above are reproducible from git as of `8349eb9`; that is the only durability they now have.
 
 **Read the OW rows before quoting them.** Each of the three OW cells has a first leg at
 89.7–90.8 % and four later legs within ~1 pp of each other — the known OW post-deploy transient
@@ -1134,8 +1140,9 @@ At c=1, rule 2's grouping holds (OF < Fn < Kn), and all three cells are far outs
 lower, which is the direction expected if the old sampler's own CPU inflated the CP bucket. Rule 1
 failing means step 4 (the interleaved A/B) applies. Do not update paper numbers from this table.
 
-**Resume command** (bare shell, agents quit, `git status --porcelain` empty: commit or stash
-`hello/func.yaml` first):
+**Resume command — SUPERSEDED by §24.7, do not run.** The adjudication below changed the plan;
+this command is kept verbatim so the record shows what was decided before the rule was applied.
+See §24.7 for what runs instead.
 
 ```bash
 bash tools/run_tier1_conc.sh --stamp-prefix bridge_ --skip-ow --light-from-c 2 --rapl-fit-warn --dry-run   # check stamps
@@ -1144,11 +1151,11 @@ bash tools/run_tier1_conc.sh --stamp-prefix bridge_ --skip-ow --light-from-c 2 -
 
 The final aggregation reads `bridge_tier1c1` from disk, so the table covers c = 1/2/4/8.
 
-**Next steps, in order:**
-1. Run the resume command above. Then apply rules 1–3 to all twelve OF/Fn/Kn cells.
-2. For every cell that fails rule 1, run the interleaved A/B from 24.3 step 4 in **one** session
-   (`tools/contamination_ab.py` as template): old sampler vs current. A ≠ B means the old sampler
-   inflated the shares; supersede those cells. A = B means day drift; report both.
+**Next steps, in order — SUPERSEDED by §24.7. Kept for the record, NOT the plan:**
+1. ~~Run the resume command above. Then apply rules 1–3 to all twelve OF/Fn/Kn cells.~~
+2. ~~For every cell that fails rule 1, run the interleaved A/B from 24.3 step 4 in **one** session~~
+   ~~(`tools/contamination_ab.py` as template): old sampler vs current. A ≠ B means the old sampler~~
+   ~~inflated the shares; supersede those cells. A = B means day drift; report both.~~
 3. OpenWhisk bridge cells (c = 1/4/8): only after step 2, and only if its outcome makes them
    necessary.
 4. Energy: using the new `e_model_j` / `e_rapl_j`, decide what RAPL FIT should compare (fn+CP
@@ -1157,3 +1164,149 @@ The final aggregation reads `bridge_tier1c1` from disk, so the table covers c = 
 5. Then new experiments instead of more replication. Candidates: an I/O-bound or memory-heavy
    function (the I/O variant exists but is undeveloped), cold-start / scale-from-zero
    (Knative/OpenWhisk), and bursty arrivals instead of a steady rate.
+
+### 24.7 Amendment (2026-10-02, after adjudicating c=1): rule 1 fails, bridge STOPPED, re-measure instead
+
+24.6 left the c=1 cells "not adjudicated" and proposed finishing the bridge. Applying the rule to
+the cells that exist reverses that plan. **This section supersedes 24.6's resume command and its
+"Next steps" list.** 24.6's factual record of what the legs did is unchanged and still stands.
+
+#### 24.7.1 Rule 1 is adjudicated: it fails on all three c=1 cells
+
+The rule does not require all cells to exist. Rule 1 is a per-cell predicate — "cell validated: |
+bridge median − reference median| ≤ that cell's tolerance" — and each cell is decidable on its own
+five runs. The twelve unrun cells do not make the three decided ones undecidable; they only add
+more of the same verdict.
+
+| cell | reference median | bridge median | Δ | tolerance | verdict | miss |
+|---|---|---|---|---|---|---|
+| openfaas c=1 | 7.78 | 4.94 | −2.84 | ±0.50 | **FAIL** | 5.7× |
+| fn c=1 | 13.97 | 9.32 | −4.65 | ±0.50 | **FAIL** | 9.3× |
+| knative c=1 | 14.49 | 10.77 | −3.72 | ±0.50 | **FAIL** | 7.4× |
+
+The run distributions do not touch: openfaas 7.09–7.92 vs 4.62–5.40; fn 13.78–14.21 vs 8.84–9.46;
+knative 14.04–14.64 vs 9.89–11.13. **15 of 15 bridge runs sit below their reference cell's minimum.**
+This is not drift. Drift at the observed scale would need ~5–9× the cell's own noise.
+
+**Rule 2 holds.** openfaas 4.94 < fn 9.32 < knative 10.77 — the grouping, which is the paper's
+actual claim, survives. What moved is the *level* of every share, not the order. That distinction
+governs everything below: the paper's central claim is not in question; its absolute numbers are.
+
+#### 24.7.2 The gap is in the data, not in the attribution code
+
+This closes off the cheapest possible explanation before acting on it. `c22dff9` / `34b4f26` /
+`908bece` (§19–§22) changed how CPU is attributed to the load window, so the reference datasets
+might simply be mis-attributed rather than differently measured. They are not:
+
+```
+$ python3 tools/legacy_reattribute.py results/openfaas_cpubound_lock_tier1c1 --verify
+legs scanned      : 5
+reconstruction ok : 5
+verify failed     : 0
+reconstruction err: median 0.0305%  max 0.0697%
+share shift unclipped : median 0.0012 pp  max 0.0035 pp
+```
+
+Re-attributing the old data with today's `sample_totals()` reproduces its stored totals to 0.03%
+and moves the share by **0.0012 pp**. A 2.84–4.65 pp difference cannot come from a 0.001 pp
+code change. The sampler produced different measurements.
+
+Corroborating, from the same legs: `host_overhead_cpu_sec` fell ~36.0 → ~15.0 CPU-s over a ~18 s
+window (~1.5 cores of host CPU, not the ~3 cores `c05a9df` estimated for Knative — the honest
+figure is the one measured), and `host_saturation_pct` fell 35.9 → 23.5. The control-plane bucket
+is the term that moved (1.62 → 0.92 CPU-s for openfaas c=1, −43%) while the function bucket barely
+moved (19.41 → 17.76, −8.5%), which is exactly the shape a shared-host contention removal predicts.
+For scale: runbook §1 records a ~2.8-core background agent shifting this metric by 0.3–1 pp. The old
+sampler burned comparable CPU *continuously, for the whole window*, and moved it 5–9× further.
+
+#### 24.7.3 Decision: stop the bridge, re-measure tier-1 on the current harness
+
+The bridge is **stopped after c=1**. The remaining twelve OF/Fn/Kn cells and the three OW cells are
+**not** run under the `bridge_` prefix. Reasoning:
+
+1. **The bridge has answered its question.** It existed to detect whether the old sampler perturbed
+   the system. It did, by 5–9× the pre-registered tolerance, with no distribution overlap. Running
+   twelve more cells re-confirms a known verdict at ~1 h of box time.
+2. **24.3 step 4's contingency has no tool.** It prescribes an interleaved old-sampler-vs-current
+   A/B "in one session", naming `tools/contamination_ab.py` as a template. That tool exists but
+   A/Bs *background load*, not *sampler versions*. Building it is unbudgeted work, and it would
+   be needed for a verdict 24.7.2 has already reached by a cheaper route.
+3. **Re-measurement yields citable data; bridge completion does not.** 24.3 step 4 says a
+   confirmed sampler effect means "redo only that platform's affected legs on the current harness and
+   supersede them" — i.e. a full re-measurement anyway, *after* the bridge. Skipping the bridge
+   spends ~3 h on data that is superseded by construction rather than ~3 h on data that can be
+   cited.
+4. **OW was to be run last, and is the cell most at risk.** OW's 81–84% share is the most
+   control-plane-dominated number in the paper, so it is the most exposed to exactly the mechanism
+   above. It has never been measured on the current sampler. It should be in the re-measurement,
+   not deferred behind an experiment whose outcome no longer branches.
+
+#### 24.7.4 Supersession scope is the whole corpus, not tier-1
+
+24.5 assumed the failure would be scoped to "some cells". It is not. **Every dataset measured before
+`c05a9df` shares the contaminated sampler**, so every absolute share in the paper is provisional:
+the lock4 headline table (openfaas 7.58 / fn 11.29 / knative 11.47 / openwhisk 81.78), the
+core-count experiment, the contamination A/B and the ablations. The three OW reference rows in
+24.2 were taken under it too.
+
+This is stated now, before the re-measurement, so the scope cannot be argued afterwards in either
+direction. Two consequences:
+
+- **The grouping claim is safe; the levels are not.** Every pre-`c05a9df` set has the same sign and
+  roughly the same relative size of shift (openfaas ×0.63, fn ×0.67, knative ×0.74 at c=1), so any
+  ordering asserted across the corpus is preserved. OW's level is the open question.
+- **`cp_dynamic_share_pct` is unaffected by idle-w, but energy and carbon are not.** The share is a
+  ratio of CPU-seconds; `energy_J` multiplies by `idle_w`, and idle watts are a property of the box
+  state that the sampler change perturbed (host overhead fell ~21 CPU-s). **Every energy, carbon
+  and gCO2/invocation figure must be treated as void**, independently of the share outcome, and
+  idle-w must be re-calibrated rather than carried over.
+
+The old corpus is **retained, not deleted**, and relabelled pre-`c05a9df`/instrument-contaminated so
+a reviewer can see both series. Superseded numbers are struck in `VERIFIED_RESULTS.md`, never
+silently overwritten.
+
+#### 24.7.5 Protocol for the re-measurement (freeze before running)
+
+The mistake that cost `bridge_tier1c1` was running first and adjudicating later. Freeze these
+before the first leg:
+
+- **Revision.** The tag the re-measurement runs under is recorded here, and
+  `tools/run_tier1_conc.sh` now **refuses to start on a dirty working tree** (new provenance gate,
+  `--allow-dirty` to override for exploratory work). All 15 `bridge_tier1c1` legs recorded
+  `git_dirty=true` and that alone made them uncitable, with no measured number wrong.
+- **Stamps.** A distinct prefix, never bare `tier1c<N>`, so pre- and post-`c05a9df` datasets can
+  never be confused or overwritten.
+- **Acceptance rule, decided in advance.** Report new-vs-old side by side. Do **not** accept or
+  reject on median-difference-inside-a-tolerance: §23.2 records a 3-sample MAD deciding a bias, and
+  §24.2's own 0.50 pp floor exists because a 5-run MAD can be spuriously small (fn c=4: 0.02 pp). The
+  repo already has the right test — TOST equivalence (`saqef_harness.py`, `tests/` `TestTier1StatsHygiene`)
+  — which fails when noise alone cannot exclude the margin. Use it: state a margin of practical
+  equivalence per cell, then *prove* the new data is inside it or declare it different. Note
+  `test_tost_rejects_the_openwhisk_c1_case` — OW has already failed this test once.
+- **No mid-session re-anchoring.** Idle-w is recalibrated per leg as the protocol already requires
+  (§19), never inherited from a pre-`c05a9df` session.
+- **RAPL FIT stays demoted to a warning** (`--rapl-fit-warn`) for share sessions. It is uninformative
+  here: it fails the *reference* data too (tier1c4 24–43 %, tier1c8 11–40 %), so it cannot
+  discriminate. Energy stays model-only until 24.7.6 settles what it should compare.
+
+#### 24.7.6 RAPL FIT: what to do with the 42–60 % error
+
+Not a regression — the same magnitude is present in the reference corpus — but it must be explained
+before any energy figure is cited again. 24.6's hypothesis stands and is now testable rather than
+speculative: the model counts fn+CP CPU, RAPL meters the whole package, and 27–54 % of host CPU
+falls outside the model. `90d153f` now records `e_model_j` and `e_rapl_j` per run, so **the sign and
+the ratio are recoverable from the first five runs of the re-measurement** — settle this from
+`run_1`, not after the campaign. Until then energy is model-only, as 24.6 already states.
+
+#### 24.7.7 Provenance gaps found while adjudicating
+
+- **The reference datasets carry no `harness.git_rev` at all** (the field predates them). So 24.1's
+  "the two reference values and the bridge values are computed by identical `saqef_harness.py`"
+  cannot be *verified* for the reference side, only asserted. It is also imprecise: the bridge
+  isolates `c05a9df` *plus* §19–§22, which 24.7.2 bounds at 0.0012 pp. New runs are stamped; these
+  are not.
+- **CPU frequency is uncontrolled in both corpora.** `governor=powersave` held throughout, but the
+  delivered clock swings from 517 to 3800 MHz across runs within a single reference cell, and no
+  gate reads it. It is *not* the explanation for 24.7.1 — it is equally variable on both sides — but
+  it is an uncontrolled variable that inflates the noise floor against which every tolerance in 24.2
+  is judged. Worth pinning or recording per run.

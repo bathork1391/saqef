@@ -515,9 +515,18 @@ for plat in [p for p in ("openfaas", "fn", "knative", "openwhisk") if short[p] i
         all_runs = sorted(glob.glob(os.path.join(out, "run_*")))
     except Exception as e:
         print("%-10s FAIL -- no summary under %s (%s)" % (order[plat], out, e)); all_ok = False
-        summary[plat] = {"label": order[plat], "outdir": os.path.relpath(out, repo),
+        # Full key set, nulls for the values that need a summary.json. The gate
+        # table and every downstream reader (runbook 24.3 rule 1 walks
+        # cp_dynamic_share_pct / ambient_present on all four platforms) index
+        # these keys, so a leg that failed for lack of a summary must still
+        # carry them rather than 4 keys and a KeyError later.
+        summary[plat] = {"label": order[plat], "cp_dynamic_share_pct": None,
+                         "outdir": os.path.relpath(out, repo), "idle_w_used": w.get(plat),
+                         "cv_pct": None, "host_saturation_pct": None,
+                         "ambient_present": False,
                          "gates_ok": False,
-                         "problems": ["no summary.json (%s)" % type(e).__name__]}
+                         "problems": ["no summary.json (%s)" % type(e).__name__],
+                         "runs": []}
         continue
     # Discard the warm-up repeats BEFORE gating: a cold first repeat is an
     # outlier, and gating on it can fail a leg for a transient that the protocol
@@ -547,13 +556,17 @@ for plat in [p for p in ("openfaas", "fn", "knative", "openwhisk") if short[p] i
         # joule fields read null there. No per-run gates_ok: run summaries have
         # no such key -- the per-run verdicts are the "<run_N> ..." entries in
         # the leg's "problems" list.
-        fit = r.get("rapl_fit_err_pct")
+        # One output name, "rapl_validation_err_pct" (what the corpus uses).
+        # rapl_fit_err_pct is accepted on READ only: 90d153f wrote it for the
+        # 2026-10-02 legs, and those summaries are the only ones that have it.
+        fit = r.get("rapl_validation_err_pct")
+        if fit is None:
+            fit = r.get("rapl_fit_err_pct")
         run_details.append({
             "name": nm,
             "e_model_j": r.get("e_model_j"),
             "e_rapl_j": r.get("e_rapl_j"),
-            "rapl_validation_err_pct": r.get("rapl_validation_err_pct"),
-            "rapl_fit_err_pct": fit if fit is not None else r.get("rapl_validation_err_pct"),
+            "rapl_validation_err_pct": fit,
             "rapl_wrap": r.get("rapl_wrap"),
             "rapl_available": r.get("rapl_available"),
         })
@@ -569,8 +582,11 @@ for plat in [p for p in ("openfaas", "fn", "knative", "openwhisk") if short[p] i
         # but nothing here read it: tier1ow8 printed a FIT DEGRADED warning for
         # runs 4 and 5 (24.7%, 29.2%) and this gate still reported ALL GATES OK.
         # Same key and same 15% threshold as saqef_harness.py/saqef so the lock
-        # verdict can never be greener than the per-run table.
-        re_ = r.get("rapl_validation_err_pct")
+        # verdict can never be greener than the per-run table. Uses `fit`, which
+        # already folded in the read-only 90d153f alias -- reading the key again
+        # here would silently skip the gate on the 2026-10-02 legs, which is
+        # exactly the "gate reports OK on a FIT DEGRADED run" bug above.
+        re_ = fit
         if re_ is not None and re_ > 15.0:
             (warnings if rapl_fit_warn else problems).append(
                 "%s RAPL FIT %.1f%% (>15%%, NOT citable)" % (nm, re_))

@@ -66,6 +66,7 @@
 #   --rapl-fit-warn  -> pass through to run_lock_session.sh (RAPL FIT warns, not gates)
 #   --skip-ow    -> skip the three OpenWhisk legs (lightweight curve only)
 #   --dry-run    -> print the plan only
+#   --allow-dirty-> run even if the working tree is dirty (see the guard below)
 #   --stamp-prefix PFX -> write results to <prefix>tier1c<N> / <prefix>tier1ow<N>
 #       instead of the bare tier1c<N> / tier1ow<N>. run_lock_session.sh REFUSES
 #       to clobber an existing outdir, so a re-run of this script against the
@@ -76,14 +77,15 @@ set -uo pipefail
 die() { echo "ERROR: $*" >&2; exit 1; }
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DRY_RUN=0 DO_OW=1 STAMP_PFX="" LIGHT_FROM_C=1 RAPL_FIT_WARN=()
+DRY_RUN=0 DO_OW=1 STAMP_PFX="" LIGHT_FROM_C=1 RAPL_FIT_WARN=() ALLOW_DIRTY=0
 while [ $# -gt 0 ]; do
     case "$1" in
         --skip-ow) DO_OW=0 ;;
         --dry-run) DRY_RUN=1 ;;
+        --allow-dirty) ALLOW_DIRTY=1 ;;
         --stamp-prefix) [ $# -ge 2 ] || { echo "--stamp-prefix needs a value" >&2; exit 2; }
                        STAMP_PFX="$2"; shift ;;
-        --stamp-prefix=*) STAMP_PFX="${1#--stamp-prefix=}" ;;
+        --stamp-prefix=*) STAMP_PFX="${1#--stamp-prefix#=}" ;;
         --light-from-c) [ $# -ge 2 ] || { echo "--light-from-c needs a value" >&2; exit 2; }
                         LIGHT_FROM_C="$2"; shift ;;
         --rapl-fit-warn) RAPL_FIT_WARN=(--rapl-fit-warn) ;;
@@ -112,6 +114,34 @@ TOTAL=3000
 REPEAT=5
 
 banner() { echo; echo "============================================================"; echo "  $1"; echo "============================================================"; }
+
+# PROVENANCE GATE (added 2026-10-02). Refuse to start a citable session on a
+# dirty tree. bridge_tier1c1 is the reason: all 15 legs recorded
+# git_dirty=true, which 24.1 lists as a protocol deviation, and the whole cell
+# became uncitable -- not because a measured number was wrong, but because the
+# revision it ran under could not be named. That cost ~20 min of quiet box time
+# and, worse, left the runbook arguing about whether f47af8f was close enough to
+# the prereg tag. A dirty tree is knowable BEFORE the session; make it loud.
+#
+# --allow-dirty exists for deliberate exploratory work (a quick-tier leg, a
+# dry-run rehearsal). It prints what is dirty so the run can be labelled after
+# the fact. It does NOT make a leg citable.
+if [ "$ALLOW_DIRTY" = 0 ]; then
+    dirty="$(git -C "$REPO" status --porcelain 2>/dev/null)"
+    if [ -n "$dirty" ]; then
+        echo >&2
+        echo "ERROR: working tree is dirty. Every run summary stamps git_dirty=true," >&2
+        echo "       which runbook 24.1 treats as a protocol deviation: the legs" >&2
+        echo "       cannot be cited, and the revision they ran under is unnamed." >&2
+        echo >&2
+        echo "$dirty" | sed 's/^/         /' >&2
+        echo >&2
+        echo "       Commit it, stash it, or pass --allow-dirty to run anyway" >&2
+        echo "       (exploratory only)." >&2
+        echo >&2
+        exit 1
+    fi
+fi
 
 echo "SAQEF Tier-1 Experiment B -- concurrency at a single clean tier"
 echo "  repo   : $REPO"

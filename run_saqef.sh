@@ -152,7 +152,18 @@ setup_fn() {
   echo "=== [setup] function + trigger ==="
   export FN_API_URL=http://localhost:8080
   [ -d hello ] || fn init --runtime python hello
-  (cd hello && fn deploy --create-app --app app1 --local) || true
+  # --no-bump: a bare `fn deploy` rewrites hello/func.yaml's version, which
+  # leaves the working tree dirty. runbook 24.1 requires `git status --porcelain`
+  # to be empty before a citable session, and the harness stamps git_dirty into
+  # every run summary -- so an incidental version bump makes the whole session
+  # uncitable without changing a single measured number. It also means the
+  # function version cannot drift between legs of one session, which is what we
+  # want: all five repeats must execute identical code.
+  #
+  # UNTESTED on this box: --no-bump reuses the version already in func.yaml, and
+  # whether the Fn server treats an unchanged version as a no-op (skipping the
+  # image update) is not established. Watch the first Fn leg after this change.
+  (cd hello && fn deploy --create-app --app app1 --local --no-bump) || true
   fn create trigger -s /hello -t http app1 hello http-hello 2>/dev/null || echo "trigger already exists"
 
   echo "=== [setup] sanity ==="

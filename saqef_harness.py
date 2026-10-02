@@ -1640,8 +1640,12 @@ def run_once(args, cp_sub):
                 # reading as unthrottled.
                 "target_qps": round(qps, 4),
                 "interarrival_ms": args.interarrival_ms},
+        # One name for this value, not two. 90d153f added rapl_fit_err_pct as an
+        # alias of rapl_validation_err_pct; the committed corpus already uses the
+        # latter, so the alias bought nothing and invited the two to drift.
+        # rapl_fit_err_pct is READ (never written) for the 2026-10-02 legs that
+        # were produced with it; see run_lock_session.sh.
         "rapl_validation_err_pct": round(rapl_validation, 2) if rapl_validation is not None else None,
-        "rapl_fit_err_pct": round(rapl_validation, 2) if rapl_validation is not None else None,
         "e_model_j": round(e_total, 3),
         "e_rapl_j": round(e_rapl, 3) if e_rapl is not None else None,
         "rapl_wrap": rapl_wrap,
