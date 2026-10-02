@@ -966,7 +966,7 @@ class TestSingleRunArtifactShape(unittest.TestCase):
     # "NOT citable") and throughput decayed monotonically 57.0 -> 29.1 rps
     # across the five repeats. Nothing compared either, so the session reported
     # ALL GATES OK. These lock both holes down.
-    def _multi_run_gate(self, reps, repeat="5", discard="0"):
+    def _multi_run_gate(self, reps, repeat="5", discard="0", extra=()):
         """Run the gate block over a leg with one run_N/summary.json per rep."""
         block = self._block(self.LOCK, "lock summary written")
         with tempfile.TemporaryDirectory() as td:
@@ -986,7 +986,8 @@ class TestSingleRunArtifactShape(unittest.TestCase):
             with open(os.path.join(out, "runs.json"), "w") as f:
                 json.dump([dict(self._base_summary(), **o) for o in reps], f)
             return self._run(block, td, "X", "ow", repeat,
-                             "4.235", "4.249", "5.739", "4.882", "20", discard)
+                             "4.235", "4.249", "5.739", "4.882", "20", discard,
+                             *extra)
 
     def test_gate_rejects_a_run_whose_rapl_fit_is_degraded(self):
         rc, txt = self._multi_run_gate([
@@ -995,6 +996,23 @@ class TestSingleRunArtifactShape(unittest.TestCase):
         self.assertNotEqual(rc, 0,
                             "a run the harness calls NOT citable must fail: %s" % txt)
         self.assertIn("RAPL FIT", txt)
+
+    def test_rapl_fit_warn_demotes_only_the_rapl_gate(self):
+        # --rapl-fit-warn exists for share-only sessions (the bridge, runbook
+        # 24.6): bridge_tier1c1 aborted the whole driver on RAPL FIT, a gate
+        # 24.1 had already said does not govern the share. It must demote ONLY
+        # that gate -- argv: ..., drift, discard, max_sample_gap, rapl_fit_warn.
+        degraded = [{}, {}, {}, {"rapl_validation_err_pct": 53.5}, {}]
+        rc, txt = self._multi_run_gate(degraded, extra=("1.0", "1"))
+        self.assertEqual(rc, 0, "RAPL FIT alone must not fail under warn: %s" % txt)
+        self.assertIn("WARN run_4 RAPL FIT", txt)
+        self.assertIn("ENERGY figures from this session are not citable", txt)
+        rc, txt = self._multi_run_gate(degraded, extra=("1.0", "0"))
+        self.assertNotEqual(rc, 0, "without the flag RAPL FIT still gates: %s" % txt)
+        rc, txt = self._multi_run_gate(
+            [{}, {}, {}, {"rapl_validation_err_pct": 53.5, "host_plausible": False}, {}],
+            extra=("1.0", "1"))
+        self.assertNotEqual(rc, 0, "other gates must stay fatal under warn: %s" % txt)
 
     def test_lock_summary_records_why_a_leg_failed(self):
         # bridge_tier1c1 (2026-10-02) wrote gates_ok=false for every leg with

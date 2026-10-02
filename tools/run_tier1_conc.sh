@@ -61,6 +61,9 @@
 # x 5; c=8 ~1 min x 5) + the c=1 OW duration pilot ~= 2.5-3 h.
 #
 # Usage:  bash tools/run_tier1_conc.sh [--skip-ow] [--dry-run] [--stamp-prefix PFX]
+#                                      [--light-from-c N] [--rapl-fit-warn]
+#   --light-from-c N -> resume: skip lightweight legs at c < N (they must already exist)
+#   --rapl-fit-warn  -> pass through to run_lock_session.sh (RAPL FIT warns, not gates)
 #   --skip-ow    -> skip the three OpenWhisk legs (lightweight curve only)
 #   --dry-run    -> print the plan only
 #   --stamp-prefix PFX -> write results to <prefix>tier1c<N> / <prefix>tier1ow<N>
@@ -73,7 +76,7 @@ set -uo pipefail
 die() { echo "ERROR: $*" >&2; exit 1; }
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DRY_RUN=0 DO_OW=1 STAMP_PFX=""
+DRY_RUN=0 DO_OW=1 STAMP_PFX="" LIGHT_FROM_C=1 RAPL_FIT_WARN=()
 while [ $# -gt 0 ]; do
     case "$1" in
         --skip-ow) DO_OW=0 ;;
@@ -81,6 +84,9 @@ while [ $# -gt 0 ]; do
         --stamp-prefix) [ $# -ge 2 ] || { echo "--stamp-prefix needs a value" >&2; exit 2; }
                        STAMP_PFX="$2"; shift ;;
         --stamp-prefix=*) STAMP_PFX="${1#--stamp-prefix=}" ;;
+        --light-from-c) [ $# -ge 2 ] || { echo "--light-from-c needs a value" >&2; exit 2; }
+                        LIGHT_FROM_C="$2"; shift ;;
+        --rapl-fit-warn) RAPL_FIT_WARN=(--rapl-fit-warn) ;;
         *) echo "unknown option: $1" >&2; exit 2 ;;
     esac
     shift
@@ -90,6 +96,13 @@ done
 # of the stamp name.
 case "$STAMP_PFX" in
     *"/"*|*tier1c*|*tier1ow*) die "stamp prefix must not contain '/', 'tier1c' or 'tier1ow': $STAMP_PFX" ;;
+esac
+# --light-from-c resumes the lightweight curve after an aborted session: legs
+# below it are NOT re-run (run_lock_session.sh refuses to clobber them), but the
+# aggregation still reads them, since it finds legs by prefix + c on disk.
+case "$LIGHT_FROM_C" in
+    1|2|4|8) ;;
+    *) die "--light-from-c must be one of 1 2 4 8: $LIGHT_FROM_C" ;;
 esac
 # stamp() <base> -> full stamp, e.g. stamp tier1c4 -> bridge_tier1c4
 stamp() { echo "${STAMP_PFX}$1"; }
@@ -114,6 +127,8 @@ echo "  idle-w : lock4 medians OF=$W_OF FN=$W_FN KN=$W_KN OW=$W_OW (--skip-idle-
 # one warning that matters most, and printed an OpenWhisk line for a platform it
 # was not running).
 echo "  NOTE   : bare shell, agents QUIT. Each leg self-certifies quiet (15% gate)."
+[ "$LIGHT_FROM_C" != 1 ] && echo "  RESUME : lightweight legs below c=$LIGHT_FROM_C are NOT re-run; existing ones are aggregated"
+[ ${#RAPL_FIT_WARN[@]} -gt 0 ] && echo "  RAPL   : --rapl-fit-warn -- RAPL FIT is a warning, not a gate (shares only; energy NOT citable)"
 [ "$DRY_RUN" = 1 ] && echo "  MODE   : DRY-RUN -- print plan only"
 
 # ---------------------------------------------------------------------------
@@ -121,18 +136,19 @@ echo "  NOTE   : bare shell, agents QUIT. Each leg self-certifies quiet (15% gat
 # ---------------------------------------------------------------------------
 run_light() {
     for c in 1 2 4 8; do
+        [ "$c" -lt "$LIGHT_FROM_C" ] && { echo; echo "  >>> concurrency=$c SKIPPED (--light-from-c $LIGHT_FROM_C)"; continue; }
         stamp=$(stamp "tier1c$c")
         echo
         echo "  >>> concurrency=$c (stamp $stamp, of+fn+kn, N=$REPEAT, idle-probe 60s)"
         if [ "$DRY_RUN" = 1 ]; then
             echo "      DRY-RUN: bash tools/run_lock_session.sh --stamp $stamp --repeat $REPEAT --total $TOTAL \\"
             echo "            --concurrency $c --platforms of,fn,kn --skip-idle-calib --cpu-probe 60 \\"
-            echo "            --idle-w-of $W_OF --idle-w-fn $W_FN --idle-w-kn $W_KN"
+            echo "            --idle-w-of $W_OF --idle-w-fn $W_FN --idle-w-kn $W_KN ${RAPL_FIT_WARN[*]}"
             continue
         fi
         bash "$REPO/tools/run_lock_session.sh" --stamp "$stamp" --repeat "$REPEAT" --total "$TOTAL" \
             --concurrency "$c" --platforms of,fn,kn --skip-idle-calib --cpu-probe 60 \
-            --idle-w-of "$W_OF" --idle-w-fn "$W_FN" --idle-w-kn "$W_KN" \
+            --idle-w-of "$W_OF" --idle-w-fn "$W_FN" --idle-w-kn "$W_KN" "${RAPL_FIT_WARN[@]}" \
             || die "tier1c$c lightweight legs failed"
     done
 }
@@ -154,7 +170,7 @@ run_ow() {
     else
     bash "$REPO/tools/run_lock_session.sh" --stamp "${stamp}_pilot" --repeat 1 --total "$TOTAL" \
         --concurrency 1 --platforms ow --skip-idle-calib --idle-w-ow "$W_OW" \
-        --deploy-only --requests-per-run "$TOTAL" --ow-duration 420 \
+        --deploy-only --requests-per-run "$TOTAL" --ow-duration 420 "${RAPL_FIT_WARN[@]}" \
         || die "OW c=1 pilot failed"
         # FIXED 2026-10-01 (expert review): the pilot's whole purpose is to learn
         # the TRUE wall time before committing 5 runs, so "an outdir appeared" is
@@ -220,12 +236,12 @@ PY
         if [ "$DRY_RUN" = 1 ]; then
             echo "      DRY-RUN: bash tools/run_lock_session.sh --stamp $stamp --repeat $REPEAT --total $TOTAL \\"
             echo "            --concurrency $c --platforms ow --skip-idle-calib --cpu-probe 60 \\"
-            echo "            --idle-w-ow $W_OW --ow-duration $dur"
+            echo "            --idle-w-ow $W_OW --ow-duration $dur ${RAPL_FIT_WARN[*]}"
             continue
         fi
         bash "$REPO/tools/run_lock_session.sh" --stamp "$stamp" --repeat "$REPEAT" --total "$TOTAL" \
             --concurrency "$c" --platforms ow --skip-idle-calib --cpu-probe 60 \
-            --idle-w-ow "$W_OW" --ow-duration "$dur" \
+            --idle-w-ow "$W_OW" --ow-duration "$dur" "${RAPL_FIT_WARN[@]}" \
             || die "tier1ow$c failed"
     done
 }

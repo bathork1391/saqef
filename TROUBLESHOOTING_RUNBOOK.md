@@ -1090,3 +1090,70 @@ Two of those margins are thinner than they look, and both were true before any b
   relevant reference numbers are the 0.18 pp lock4 gap and the 0.20 pp tier-1 c=2 gap, both inside
   their own spread — so a flip at either is the criterion working on an unresolved gap, not a
   refutation. No prose change and no re-run.
+
+### 24.6 Amendment (2026-10-02, after the c=1 legs): RAPL FIT demoted for the bridge; resume plan
+
+**What happened.** The c=1 legs (`bridge_tier1c1`, 11:07–11:22) ran at `f47af8f`, one commit past
+`v9.13.1-bridge-prereg`. That commit only fixes `median_summary`'s list union (aggregation, not
+attribution), and every median below is recomputed from `runs.json`, so it does not touch the
+compared quantity. All gates passed on all 15 runs (worst sampling gap 0.073 s, 3000/3000
+requests, no loadgen fallback, delta checks ok, no RAPL wrap, ambient 5.4–7.2 %) **except RAPL
+FIT: 42.6–60.5 % on 15/15 runs**. `run_lock_session.sh` exited non-zero, the driver's `|| die`
+stopped the session, and **c = 2, 4, 8 never ran**.
+
+**Why RAPL FIT is demoted here.** 24.1 already says the RAPL gate "governs energy, not the CP/fn
+share this bridge compares". The share is a ratio of CPU-seconds and RAPL never enters it. The
+large errors are also not new: tier1c4 (24–43 %) and tier1c8 (11–40 %) were just as far out and
+passed only because the gate was added on 2026-10-01. Likely cause, **unconfirmed**: the model
+counts only fn+CP CPU, while RAPL meters the whole package, which includes dockerd, containerd,
+k3s and `hey`. In the c=1 bridge runs, 27–54 % of host CPU lies outside the model. The sign was
+not recoverable, because runs saved only the error %. That is fixed in `90d153f`: runs now record
+`e_model_j` and `e_rapl_j`, and `lock_summary.json` now records each leg's `problems`.
+
+**Changes since the tag (none to attribution):**
+- `90d153f`: harness emits `e_model_j` / `e_rapl_j` / `rapl_fit_err_pct` (output fields only).
+  `lock_summary.json` gains `problems` and per-run energy details.
+- This amendment's commit: `run_lock_session.sh --rapl-fit-warn` moves RAPL FIT from `problems` to
+  `warnings`. Every other gate stays fatal, and the session meta records
+  `"rapl_fit_gate": "warn"`. `run_tier1_conc.sh` passes the flag through and adds
+  `--light-from-c N` to resume without re-running (or clobbering) legs that already exist.
+
+`git diff cec0bd9 HEAD -- saqef_harness.py` is limited to those output fields and the
+`median_summary` fix. The c = 2/4/8 legs record the new `git_rev`; cite it next to this section.
+**Bridge energy figures are not citable.** Only the shares are compared.
+
+**Preliminary c=1 observation. Not adjudicated: the rule is applied after all cells exist.**
+
+| platform | reference median | bridge c=1 median (runs) | Δ | tolerance |
+|---|---|---|---|---|
+| openfaas | 7.78 | 4.94 (4.69 4.62 4.94 4.99 5.40) | −2.84 | ±0.50 |
+| fn | 13.97 | 9.32 (9.32 8.84 9.46 8.94 9.40) | −4.65 | ±0.50 |
+| knative | 14.49 | 10.77 (10.02 9.89 11.13 10.77 10.84) | −3.72 | ±0.50 |
+
+At c=1, rule 2's grouping holds (OF < Fn < Kn), and all three cells are far outside rule 1. They are
+lower, which is the direction expected if the old sampler's own CPU inflated the CP bucket. Rule 1
+failing means step 4 (the interleaved A/B) applies. Do not update paper numbers from this table.
+
+**Resume command** (bare shell, agents quit, `git status --porcelain` empty: commit or stash
+`hello/func.yaml` first):
+
+```bash
+bash tools/run_tier1_conc.sh --stamp-prefix bridge_ --skip-ow --light-from-c 2 --rapl-fit-warn --dry-run   # check stamps
+bash tools/run_tier1_conc.sh --stamp-prefix bridge_ --skip-ow --light-from-c 2 --rapl-fit-warn             # ~1 h (c=1 took ~20 min)
+```
+
+The final aggregation reads `bridge_tier1c1` from disk, so the table covers c = 1/2/4/8.
+
+**Next steps, in order:**
+1. Run the resume command above. Then apply rules 1–3 to all twelve OF/Fn/Kn cells.
+2. For every cell that fails rule 1, run the interleaved A/B from 24.3 step 4 in **one** session
+   (`tools/contamination_ab.py` as template): old sampler vs current. A ≠ B means the old sampler
+   inflated the shares; supersede those cells. A = B means day drift; report both.
+3. OpenWhisk bridge cells (c = 1/4/8): only after step 2, and only if its outcome makes them
+   necessary.
+4. Energy: using the new `e_model_j` / `e_rapl_j`, decide what RAPL FIT should compare (fn+CP
+   model vs. a host-CPU model) before any energy figure is cited again. tier1c4/c8 also fail the
+   current gate. Until this is settled, energy is model-only.
+5. Then new experiments instead of more replication. Candidates: an I/O-bound or memory-heavy
+   function (the I/O variant exists but is undeveloped), cold-start / scale-from-zero
+   (Knative/OpenWhisk), and bursty arrivals instead of a steady rate.

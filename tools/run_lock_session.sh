@@ -73,6 +73,11 @@ MAX_SAMPLE_GAP_S=1.0     # gate: >this worst gap between CPU samples fails the
                          # set by --max-sample-gap.
                          # leg. 20% is ~4x the best observed legitimate run-to-run
                          # spread on a healthy leg, so it only trips on real decay.
+RAPL_FIT_WARN=0          # 1 (--rapl-fit-warn): a run whose RAPL fit is >15% is
+                         # recorded as a WARNING, not a gate failure. Only for
+                         # sessions whose question is the CP/fn CPU share, which
+                         # RAPL does not enter (runbook 24.1, 24.6). Every other
+                         # gate stays fatal; energy from such a run is not citable.
 CPU_PROBE_S=0            # >0: after the bench, run one native --idle-probe of CPU_PROBE_S
                          # seconds with the same stack state and save cp/fn CPU rates.
                          # This is the direct per-leg background-rate measurement the
@@ -117,6 +122,7 @@ while [ "$i" -lt "$#" ]; do
         --max-drift-pct=*) MAX_DRIFT_PCT="${arg#*=}" ;;
         --cpu-probe) i=$((i + 1)); [ "$i" -ge "$#" ] && { echo "--cpu-probe needs a value" >&2; exit 2; }; CPU_PROBE_S="${args[$i]}" ;;
         --cpu-probe=*) CPU_PROBE_S="${arg#*=}" ;;
+        --rapl-fit-warn) RAPL_FIT_WARN=1 ;;
         --*) echo "unknown option: $arg" >&2; exit 2 ;;
     esac
     i=$((i + 1))
@@ -476,7 +482,7 @@ if [ "$DRY_RUN" = 1 ]; then
     exit 0
 fi
 banner "gate validation + lock summary"
-python3 - "$REPO" "$STAMP" "$PLATFORMS" "$REPEAT" "$IDLE_OF" "$IDLE_FN" "$IDLE_KN" "$IDLE_OW" "$MAX_DRIFT_PCT" "$DISCARD_WARMUP" "$MAX_SAMPLE_GAP_S" <<'PY'
+python3 - "$REPO" "$STAMP" "$PLATFORMS" "$REPEAT" "$IDLE_OF" "$IDLE_FN" "$IDLE_KN" "$IDLE_OW" "$MAX_DRIFT_PCT" "$DISCARD_WARMUP" "$MAX_SAMPLE_GAP_S" "$RAPL_FIT_WARN" <<'PY'
 import glob, json, os, statistics, sys
 repo, stamp, platforms, repeat, w_of, w_fn, w_kn, w_ow = sys.argv[1:9]
 # max_drift_pct is the 9th arg, appended after the existing 8 so that callers
@@ -491,6 +497,9 @@ discard_warmup = int(sys.argv[10]) if len(sys.argv) > 10 else 0
 # max_sample_gap_s is the 11th arg, same convention. Gate threshold for the real
 # worst interval the CPU sampler went blind for; must match --max-sample-gap.
 max_sample_gap_s = float(sys.argv[11]) if len(sys.argv) > 11 else 1.0
+# rapl_fit_warn is the 12th arg, same convention. 1 -> RAPL FIT goes to the
+# leg's "warnings" instead of "problems" (see RAPL_FIT_WARN in the shell part).
+rapl_fit_warn = (sys.argv[12] == "1") if len(sys.argv) > 12 else False
 w = {"openfaas": w_of, "fn": w_fn, "knative": w_kn, "openwhisk": w_ow}
 order = {"openfaas": "OpenFaaS", "fn": "Fn", "knative": "Knative", "openwhisk": "OpenWhisk"}
 # short codes used by --platforms (of,fn,kn,ow), matching run_lock_session.sh's own case-statement matching
@@ -519,6 +528,7 @@ for plat in [p for p in ("openfaas", "fn", "knative", "openwhisk") if short[p] i
         print("%-10s note  -- discarded warm-up run(s): %s" % (order[plat], dropped))
     share = s.get("cp_dynamic_share_pct")
     problems = []
+    warnings = []   # recorded and printed, but do not fail the leg
     # quick-tier (REPEAT<5, _quick outdir) is exploratory by design and must
     # NOT fail the lock gate on run count -- only full REPEAT=5 citable sessions
     # require exactly 5 USABLE runs. Any other gate (host_plausible, delta_check,
@@ -562,7 +572,8 @@ for plat in [p for p in ("openfaas", "fn", "knative", "openwhisk") if short[p] i
         # verdict can never be greener than the per-run table.
         re_ = r.get("rapl_validation_err_pct")
         if re_ is not None and re_ > 15.0:
-            problems.append("%s RAPL FIT %.1f%% (>15%%, NOT citable)" % (nm, re_))
+            (warnings if rapl_fit_warn else problems).append(
+                "%s RAPL FIT %.1f%% (>15%%, NOT citable)" % (nm, re_))
         # SAMPLING QUALITY gate. sample_totals() computes the real worst gap
         # between CPU samples and sets sampling_gap_ok=False when it exceeds the
         # harness's --max-sample-gap. The harness only WARNED on that, so a leg
@@ -646,6 +657,8 @@ for plat in [p for p in ("openfaas", "fn", "knative", "openwhisk") if short[p] i
         qos.get("p50"), qos.get("p99"), s.get("throughput_rps") or 0,
         ("%.0f" % sat) if sat is not None else "n/a",
         ok, "; ".join(problems)))
+    for wmsg in warnings:
+        print("%-10s   WARN %s (--rapl-fit-warn: recorded, not gating)" % ("", wmsg))
     summary[plat] = {"label": order[plat], "cp_dynamic_share_pct": share,
                      "outdir": os.path.relpath(out, repo), "idle_w_used": w.get(plat),
                      "cv_pct": round(cv, 2), "host_saturation_pct": sat,
@@ -657,6 +670,7 @@ for plat in [p for p in ("openfaas", "fn", "knative", "openwhisk") if short[p] i
                      # went to stdout only, so a FAIL in lock_summary.json
                      # could not be traced without replaying every gate.
                      "problems": problems,
+                     "warnings": warnings,
                      "runs": run_details}
 calib_dir = os.path.join(repo, "results", "idle_w_calibration", "lock_%s" % stamp)
 calib_states = sorted(os.listdir(calib_dir)) if os.path.isdir(calib_dir) else []
@@ -671,6 +685,9 @@ else:
 meta = {"stamp": stamp, "platforms": order, "idle_w_by_platform": w,
         "max_drift_pct": max_drift,
         "max_sample_gap_s": max_sample_gap_s,
+        # "warn" means RAPL FIT did not gate this session: its energy figures
+        # are not citable even where all_gates_ok is true.
+        "rapl_fit_gate": "warn" if rapl_fit_warn else "fail",
         "discard_warmup": discard_warmup,
         "usable_runs_per_leg": int(repeat) - discard_warmup,
         "idle_w_provenance": idle_note,
@@ -683,6 +700,9 @@ if not all_ok:
     sys.exit("FAIL: one or more legs failed the gate check -- do NOT cite from this session until resolved.")
 tier = "quick-tier (REPEAT<5, exploratory, NOT citable until promoted to REPEAT=5)" if int(repeat) < 5 else "citable"
 print("ALL GATES OK -- session is %s under the same-discipline rules (quiet-gated, same day, same box)." % tier)
+if rapl_fit_warn:
+    print("NOTE: --rapl-fit-warn was set -- CP/fn shares are gated as usual, but ENERGY "
+          "figures from this session are not citable (RAPL FIT was not enforced).")
 PY
 
 echo
