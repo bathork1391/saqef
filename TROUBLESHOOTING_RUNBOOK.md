@@ -1029,6 +1029,92 @@ medians also sit above the lock4 OW anchor (81.14 / 83.41 / 84.18 here vs 81.78 
 a bridge OW leg landing near 81.8 is not a failure against these numbers; it is the transient's
 absence plus the different day, and is reported as such.
 
+**But the share is the *only* OW quantity that survives. OW throughput, latency and energy are not
+citable.** Added 2026-10-02 after `remeasure_shares_tier1ow1` failed the drift gate at 73.2 → 45.4 rps
+(−38.0 % against a 20 % limit), and the decay is systematic, not a bad day. All four OW legs show it,
+run over run, at every concurrency, across two days:
+
+| leg | rps run_1 → run_5 | loss | untracked host CPU |
+|---|---|---|---|
+| `tier1ow1` (2026-10-01) | 58.5 → 35.1 | −40 % | 114 → 278 CPU-s |
+| `tier1ow4` (2026-10-01) | 61.8 → 29.7 | −52 % | 109 → 333 |
+| `tier1ow8` (2026-10-01) | 57.0 → 29.1 | −49 % | 121 → 339 |
+| `remeasure_shares_tier1ow1` (2026-10-02) | 73.2 → 45.4 | −38 % | 48 → 129 |
+
+The signature, measured rather than inferred. Latency is flat *within* each run and steps up *between*
+runs, so this is cumulative state, not noise. `cpu_sec.control_plane` settles at ~59 CPU-s and
+`cpu_sec.function` at ~16.9 CPU-s and stays there — the stack does the **same work** over 41 s → 66 s.
+What grows is host CPU that belongs to no tracked container: `host_overhead_cpu_sec` climbs
+monotonically (1.17 → 1.95 cores of 8) while *total* host busy cores *fall* (4.77 → 3.11), because
+wall grows 61 % while host CPU-s grows 46 %. Per request that is 16 → 43 ms of extra untracked host
+CPU, which at c=1 lands directly in latency.
+
+Ruled out by measurement, not argument: container set is flat at 26 across all five runs;
+`unclassified_cpu_s` is 0.53–0.84 s and flat, so every container process is already charged to cp or
+fn; keep-alive is on (no `-disable-keepalive` at `saqef_harness.py:573`) and TIME-WAIT is flat at 21;
+RAPL J/CPU-s is stable at ~5.9 so frequency and thermal are not implicated. The harness's own sampler
+costs 0.038 cores, and the still-running Knative stack 0.013 cores idle, against a 0.167-core idle
+host — so neither the instrumentation nor the leftover stack explains 1–2 cores. Standalone OpenWhisk
+is a single Java process, so nginx/etcd are not in play; the missing CPU is host-side (dockerd,
+containerd or kernel).
+
+**Corrected 2026-10-02 by direct idle measurement (`tools/ow_host_attrib_ab.py`, 17 × 2 s intervals,
+nothing deployed).** The host baseline is *already* 1.078 cores with zero containers, and it decomposes:
+
+| | mean cores |
+|---|---|
+| host busy | 1.078 |
+| containerd | 0.240 |
+| dockerd | 0.167 |
+| k3s-server | 0.058 |
+| softirq | 0.012 |
+| containers | 0.012 |
+| **unaccounted** | **0.601** |
+
+Three consequences, and one of them undercuts the drift story above:
+
+1. **softirq is ruled out.** The "if logs stay flat, read `/proc/stat` softirq" branch is dead —
+   0.012 cores. Do not spend a cycle there.
+2. **`unaccounted` is the operator, not a hidden daemon.** Per-process `/proc` deltas over the same
+   window give opencode 0.49 + ptyxis 0.11 + gnome-shell 0.04 + chrome 0.01 = **0.65 cores**, which
+   is the 0.601 to within a few percent. There is no unexplained host consumer; "unaccounted" on this
+   box means *this GUI session and this agent*.
+3. **The 15 % quiet gate cannot pass on this box with a desktop logged in.** 1.2-core ceiling against
+   a 1.078-core baseline of which ~0.65 cores is the desktop itself. A quiet-gate failure on this
+   machine is therefore expected and is **not** evidence about the platform. Citable legs need a
+   headless box or a logged-out session; see action item (1).
+
+Because "unaccounted" means operator, the *absolute* untracked figure in the decaying legs is not a
+platform measurement, and the quiet-gate failure on this box proves nothing about OpenWhisk. But the
+operator does **not** explain the drift shape on its own: untracked host CPU *grows* run over run
+(1.17 → 1.95 cores), and a steady operator load would hold that flat. So platform-side growth stays
+the leading explanation, with operator load as an additive offset on top of it. The two are cleanly
+separable, and the way to separate them is one headless leg with zero polling compared against the
+existing arms: if untracked stays ~0.6 cores and drift persists, it is the platform; if untracked
+grows again, it is the measurement.
+
+**Why the three OW rows above still say `gates_ok`.** They were written 16:54, 17:21 and 18:30 on
+2026-10-01; the drift gate landed in `1b6b306` ("lock: reject runs with degraded RAPL fit or
+throughput decay") at 19:15 that evening. They passed because each repeat was an independent
+snapshot and nothing compared them. As **share** references they stand — the share denominator is
+cp + fn container CPU only, and the growing host overhead is in neither — but rule 1 must never be
+applied to OW throughput, and no OW throughput/latency/energy number from these datasets may be
+quoted.
+
+**Two action items.** (1) Establish whether the decaying-leg overhead is platform-side at all, before
+looking for an OpenWhisk defect. On this box "unaccounted" *is* the desktop/agent session, so the
+cleanest test is one headless leg with zero agent polling and no GUI session, compared against the
+existing arms. If the drift persists headless, the platform hypothesis stands and the next probes are
+the cumulative `dockerd` json-file log state (the `wsk0_*` action container IDs are byte-identical in
+all five runs, so their `LogPath` files grow monotonically across repeats) and
+`pidstat -u -p $(pidof dockerd),$(pidof containerd) 5` during the leg. If it vanishes, the earlier
+legs are operator-contaminated and no OpenWhisk defect was ever demonstrated.
+(2) The cold-JIT first leg is a separate, already-known defect that `--discard-warmup` exists for;
+the re-measure session ran with `--discard-warmup 0`, so `run_1` at 88.38 % sat inside the median.
+New OW legs should use `--discard-warmup 1 --repeat 6`. That fixes the share but **not** citability:
+the drift gate compares first to last surviving run, so it would compare `run_2` to `run_6` and
+still fail.
+
 ### 24.3 Decision rule
 
 Use bridge medians over 5 runs, computed by the same code that computed the reference.
@@ -1470,3 +1556,215 @@ the ratio are recoverable from the first five runs of the re-measurement** — s
     text makes it a server. A machine-state pin plus the per-cell swing report is the best available
     mitigation; a proper fix is a dedicated, thermally stable, pinned host, which is a hardware
     decision rather than a protocol one.
+
+
+### 24.8 Final corpus — pre-registered (written 2026-10-02, before any `final_` data)
+
+Supersedes 24.7.5 as the protocol for citable numbers. `remeasure_shares_*` stays on disk as the
+record of what the desktop-session, unbounded-log condition produced. It is never mixed with `final_*`.
+
+#### 24.8.1 What changes, and why each change is justified by data already in hand
+
+| change | justification |
+|---|---|
+| dockerd `json-file` `max-size: 64k`, `max-file: 1` | `owhead1` A/B, same session: unbounded logs give 67.9 → 35.9 rps over 6 repeats with dockerd at 1.24 cores. Truncated logs give 90.6–93.7 rps flat with dockerd at 0.46 cores. Log volume is ~219 B/activation, ~320 KB per run per action container. A 1 MB cap would bind only ~3.2 runs into a leg, so runs 2–4 would stay in the ramp. 64 KB binds after ~0.2 runs, which reproduces the truncate arm's condition natively. |
+| applies to **all** platforms | `k3s server --docker`: Knative/k3s pods are dockerd containers too. A daemon-level cap cannot be scoped to OW, so all four platforms are re-measured under it. |
+| headless (`multi-user.target`), no agents | §24.2: ~0.65 of the 1.078-core idle baseline is the desktop + agent. Contention of ~1.5 cores moved shares 3–5 pp (24.7.2). |
+| idle_w recalibrated in-session (5 states × 3 × 60 s) | idle_w is measured per stack state and enters every energy figure as `idle_w × wall`. Leaving the desktop changes it, so inherited values would be wrong by an unknown offset. |
+| OW `--repeat 6 --discard-warmup 1` | OW run_1 cp CPU-s is 2.1–2.4× steady in every OW leg (post-deploy JIT/classload), and the light platforms do not show it. The drift gate then compares run_2 to run_6 (`run_lock_session.sh` drift block uses the post-discard list). |
+| `psys` recorded (`e_psys_j`), JVM per-thread CPU on OW legs | Reporting only; neither enters a gate or the share. |
+
+This is a deliberate, non-default deployment configuration and the paper's setup section must state it
+as such, with the A/B as the reason. Stock dockerd has no rotation. With it, OW throughput is not
+stationary, so it is not measurable as a single number.
+
+The same applies to the OW throttle: `platforms/openwhisk.py:57-72` raises the standalone's default
+60 invocations/min/namespace limit (which 429s 40 % of calls at c=4) via JVM system properties. That is
+also a stated deviation from default.
+
+#### 24.8.2 Acceptance (per leg; evaluated mechanically from `lock_summary.json`)
+
+1. All existing gates pass (sampling gap, completeness, no loadgen fallback, host_plausible, delta
+   check, quiet gate per run).
+2. Drift (first usable run → last) ≤ 20 % throughput loss. For OW that is run_2 → run_6.
+3. RAPL FIT is **warn-only** (`--rapl-fit-warn`). It measures |e_model − e_rapl| / e_rapl
+   (`saqef_harness.py`, the `rapl_validation` line), i.e. the disagreement between RAPL and the
+   **retired** 3.5 W/core model (§25.1). It says nothing about RAPL's own quality, so it cannot gate a
+   RAPL-based energy figure.
+
+Predictions, stated now:
+- **P1.** OW c=1 runs 2–6 are flat (drift < 20 %) at ~90 rps (owhead1 truncate: 90.6–93.7).
+- **P2.** OW cp share stays in its previous 81–84 % band. The share never contained dockerd CPU
+  (§24.2), so bounding logs should not move it. A move > 3 pp would mean the logs were reaching cp
+  CPU, and that must be explained before citing.
+- **P3.** Ordering OpenFaaS < {Fn, Knative} < OpenWhisk holds at every concurrency. The Fn-vs-Knative
+  order is **not** predicted: in `remeasure_shares_` it flips at c=1 (12.73 vs 11.12).
+
+A failed prediction is reported, not tuned away.
+
+#### 24.8.3 Stop rule
+
+A leg that fails acceptance is retried once (`_r2`) inside the same session, automatically. A leg that
+fails twice is reported as failed with its reason. It is investigated further **only** if it breaks
+P3's OpenFaaS-lowest / OpenWhisk-highest claim. After this corpus, no further re-measurement on this
+machine. Open questions become stated limitations or new, separately pre-registered experiments.
+
+Comparing `final_*` to `remeasure_shares_*` is **descriptive only**. The two differ in three factors at
+once (log cap, headless, in-session idle_w), so no difference between them may be attributed to any
+one factor. The cap's effect on OW is isolated by `owhead1` (same session, one factor), not by this
+comparison.
+
+#### 24.8.4 How it is run
+
+`tools/run_final.sh` drives it. Pre-flight hard gates (abort, nothing measured):
+- root
+- `hey` on PATH (root's PATH lacks `~/go/bin`; without it every run silently falls back to the Python
+  loadgen and fails the fallback gate)
+- daemon.json cap present, dockerd restarted after it, and a live `k8s_*` container carrying
+  `max-size=64k`
+- knative-serving Ready
+- power profile `performance` with uniform EPP
+- no `final_*` results present
+- measurement-path code committed
+- no graphical session, no agent
+
+The job waits up to 20 min for the operator to leave the desktop and quit agents. It does not race a
+countdown. Then it calibrates (`final_calib`), runs 12 light legs and 3 OW legs, appends each verdict
+to `results/final_session/checkpoint.tsv` as it lands, snapshots box state before and after, and
+restores the desktop. Commands are in §24.8.5.
+
+#### 24.8.5 Operator commands
+
+```bash
+# 0. commit first (pre-flight refuses uncommitted measurement-path code)
+# 1. log cap (create; the file does not exist today)
+sudo tee /etc/docker/daemon.json >/dev/null <<'JSON'
+{ "log-driver": "json-file", "log-opts": { "max-size": "64k", "max-file": "1" } }
+JSON
+sudo systemctl restart docker          # restarts k3s pods too (k3s --docker); they come back on their own
+# 2. wait until Ready, then the pre-flight (expect ONLY desktop/agent problems)
+sudo k3s kubectl get pods -n knative-serving
+sudo bash tools/run_final.sh --check
+# 3. launch as a system unit (survives leaving the desktop), quit every agent/app, drop the desktop
+sudo systemd-run --unit saqef-final \
+  systemd-inhibit --what=sleep:idle:handle-lid-switch --why="SAQEF final corpus" \
+  bash /home/imran/faas-work/SAQEF/saqef/tools/run_final.sh
+sudo systemctl isolate multi-user.target
+# 4. ~2 h later the desktop comes back by itself. Then:
+systemctl status saqef-final
+column -t -s $'\t' results/final_session/checkpoint.tsv
+```
+
+## 25. Supervisor review questions (2026-10-02) — what the data already answers
+
+### 25.1 Is 3.5 W per busy core trustworthy? No — measured, it is not a constant
+
+`P_BUSY_CORE_W = 3.5` (`saqef_harness.py:50`) is an assumed literature value, never calibrated on this
+box. The data to calibrate it already exists: marginal W per busy core-second =
+`(e_rapl_j − idle_w × wall_s) / host_cpu_sec`, per run, from the `remeasure_shares_*` and `owhead1_*`
+legs (all RAPL package-0):
+
+| platform | c=1 | c=2 | c=4 | c=8 |
+|---|---|---|---|---|
+| openfaas | 6.17 | 5.27 | 5.17 | 3.75 |
+| fn | 6.08 | 6.49 | 4.57 | 3.21 |
+| knative | 4.98 | 6.25 | 4.60 | 3.61 |
+| openwhisk (c=1, owhead1 baseline / truncate) | 2.75 / 1.96 | | | |
+
+So the effective figure spans **1.7–7.7 W**. It falls with concurrency (more busy cores share one
+turbo/power budget, so each runs at a lower frequency and voltage) and differs between legs (OW ~2 W, the others 5–6 W at c=1; per 25.5 this is clock state, not a
+per-platform efficiency). To the supervisor's sub-questions:
+it **does** change with workload type (IPC, memory stalls, vector units), with core type and SMT (a
+hyperthread is not a core; P- vs E-cores differ several-fold), with hardware generation, process node,
+TDP and temperature (leakage), and with DVFS state. It does **not** change with the energy *source*:
+that changes carbon per joule (`ci`, gCO2/kWh), not watts. `PUE = 1.15` is a data-centre facility
+factor and has no meaning on a laptop.
+
+Consequence: `e_model_j` is CPU-seconds × an uncalibrated constant, contributes no evidence beyond
+CPU time, and is not cited. Energy claims come from RAPL directly (25.2).
+
+### 25.2 What energy *can* be claimed
+
+- **Per-platform dynamic energy, measured.** Legs run one platform at a time, so
+  `e_rapl − idle_w × wall` is the package energy that platform's leg added. No W/core model needed.
+- **Standing (idle) control-plane power, measured.** The per-platform idle calibration is already
+  model-free RAPL: knative 5.74 W vs openfaas 4.24 / fn 4.25 / openwhisk 4.30 W
+  (`lock_summary.json idle_w_by_platform`). Knative's deployed-but-idle control plane costs ~1.5 W
+  more. This is a real result.
+- **CP vs function split of dynamic energy** needs an attribution rule (proportional to CPU time).
+  Report it as attributed, never as measured.
+- **`psys`** (`/sys/class/powercap/intel-rapl:1`) is the platform-level domain. It cannot be broken
+  down by itself any more than package can; record it next to package as a bound on what package
+  misses (DRAM, PCH, etc.), not as a separate attribution.
+
+### 25.3 Success rate: measured, not assumed — but never stressed
+
+Not assumed. Every request is checked: `hey` rows count as successes only on an HTTP `2xx` status
+(`saqef_harness.py:631`), the Python fallback only on a completed response within the 10 s timeout
+(`:525-528`). `availability = successes / requests` is recorded per run, and non-2xx responses print a
+warning. In every leg so far it is **1.0 (3000/3000)**.
+
+That 100 % is a property of the test conditions, not of the platforms. Load comes over loopback (no
+packet loss), it is closed-loop (at most `c` requests in flight, so the platform is never pushed past
+capacity), and no faults are injected. The paper must state this as a limitation: the results describe
+the control-plane cost of *successful* steady-state invocations below saturation. They say nothing
+about how each platform behaves on drops, timeouts, retries or overload, and that behaviour is
+platform-specific (OW and Knative queue and retry inside the control plane; OpenFaaS sync calls fail
+fast). The way to test it later is fault injection (`tc netem loss` on the docker bridge) or open-loop
+overload. Both are new experiments, not fixes to this one.
+
+### 25.4 Desktop session vs headless
+
+All earlier legs ran with the GNOME desktop logged in (~0.65 cores idle, §24.2) and no agents. A
+headless final session changes that condition. The share is cp/(cp+fn) container CPU, so the desktop
+enters only through contention, and §24.7.2 showed contention of ~1.5 cores moved shares by 3–5 pp.
+So headless *can* move numbers. It is acceptable only because the final corpus re-measures **all four
+platforms** under the same condition: nothing headless is ever compared with anything desktop. It is
+also the more representative condition, since production hosts are headless.
+
+### 25.5 Corrections and additions after review (2026-10-02)
+
+- **Retracted: "OpenWhisk's Java control plane draws ~2 W per core".** The W/core figure falls
+  monotonically with concurrency on all three light platforms. That is DVFS (more busy cores sharing
+  one package power budget at a lower clock), not a platform property. The per-cell numbers in 25.1
+  show that 3.5 W is not a constant. They are **not** per-platform efficiencies and do not go in the
+  paper as such.
+- **Why OW's energy looks low per core-second but is high per request.** RAPL dynamic energy per
+  request at c=1: OpenFaaS 0.065 J, Fn 0.064 J, Knative 0.065 J, OW 0.084 J (truncate) / 0.186 J
+  (baseline, decaying). OW burns 128–216 host CPU-s per 3000 requests against 31–38 for the others.
+  Much of that is low-intensity work at a low clock, so each core-second is cheap, but there are 4–7×
+  more of them. **Per request, OW costs ~1.3× (bounded logs) to ~2.9× (unbounded) the energy of the
+  others.** Per request is the figure the paper reports.
+- **psys vs package.** Both are RAPL domains read the same way. `intel-rapl:0` (package) covers CPU
+  cores + uncore + iGPU. `intel-rapl:1` (psys) is the platform domain reported by the platform power
+  controller, so it includes package plus more of the SoC/board. It still excludes the display and
+  PSU losses. Neither can be broken down by itself. Per-platform figures come from differencing
+  (legs run one platform at a time, minus that state's idle_w), and the CP/fn split is an attribution.
+  psys is recorded as the wider bound, not attributed.
+- **CP-vs-fn energy "in proportion to CPU time"** is a CPU-time ratio expressed in joules. It must be
+  labelled as such, never as a measured energy split.
+- **RAPL is not "failing a third of runs".** The >15 % FIT flag is model-vs-RAPL disagreement (24.8.2,
+  item 3), not a RAPL defect.
+- **Success-rate regime (adds to 25.3).** Every citable leg is closed-loop: `hey -n -c` with no `-q`
+  (the rate flag exists at `saqef_harness.py` `run_hey` and is never passed by any driver). Offered
+  load is at most `c` outstanding requests and self-limits to what the platform retires, so overload
+  is unreachable by construction. 100 % success holds even at 90–92 % host saturation. That is real,
+  but only for this regime. The open-loop arm (`--qps` above measured capacity, drops/429s/timeouts
+  as the measurement) is a separate experiment and is pre-registered only as a stated limitation here.
+- **JVM thread → subsystem map (pre-registered before any `final_tier1ow*` data).** Thread names
+  are the 15-char pthread names in `results/final_session/jvm_threads_*.csv`:
+
+  | subsystem | thread-name pattern |
+  |---|---|
+  | JIT | `C1 CompilerThre*`, `C2 CompilerThre*` |
+  | GC / VM | `GC Thread*`, `G1 *`, `VM Thread`, `VM Periodic*` |
+  | actor system (controller + invoker logic, HTTP) | contains `akka` or `dispatcher` |
+  | thread pools (blocking I/O, clients) | `pool-*`, `ForkJoinPool*` |
+  | docker CLI spawned by the invoker | the `<children>` row (reaped-child CPU) |
+  | other | everything else |
+
+  If "other" exceeds 20 % of JVM CPU over a leg, the breakdown is reported as incomplete rather than
+  re-mapped after the fact. Inter-container breakdowns (Knative activator / queue-proxy / autoscaler;
+  OpenFaaS gateway / provider; Fn fnserver) come from the per-container data already recorded. The
+  paper must state that OW's breakdown is intra-process and the others' are inter-container: same
+  axis, different granularity.

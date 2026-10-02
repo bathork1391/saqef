@@ -145,6 +145,38 @@ def rapl_energy():
         return None
 
 
+def psys_energy():
+    """Return platform (psys) energy in J, or None if the domain is absent.
+
+    psys (intel-rapl:1 on this box) is the platform-level RAPL domain: package
+    plus what the platform power controller adds around it. It is recorded next
+    to package as a bound on what package misses; it is never attributed."""
+    p = os.path.join(RAPL_DIR, "intel-rapl:1")
+    try:
+        with open(os.path.join(p, "name")) as f:
+            if f.read().strip() != "psys":
+                return None
+        with open(os.path.join(p, "energy_uj")) as f:
+            return int(f.read().strip()) / 1e6
+    except Exception:
+        return None
+
+
+def psys_delta(start, end):
+    """psys energy over a window, corrected for a single counter wrap; None if unknown."""
+    if start is None or end is None:
+        return None
+    d = end - start
+    if d >= 0:
+        return d
+    try:
+        with open(os.path.join(RAPL_DIR, "intel-rapl:1", "max_energy_range_uj")) as f:
+            d += int(f.read().strip()) / 1e6
+    except Exception:
+        return None
+    return d if d >= 0 else None
+
+
 def rapl_max_range_j():
     """Return the RAPL counter's wraparound range in J, or None if unavailable.
 
@@ -1295,6 +1327,7 @@ def run_once(args, cp_sub):
     # for the whole window in every citable run), but structurally fragile.
     inv_before = docker_inventory()
     rapl_start = rapl_energy()
+    psys_start = psys_energy()
     samples, stop, first_sample, th = start_sampler(args.sampler, args.rescan_s, args.sample_s)
     if th is None:
         print("WARNING: %s sampler unavailable -> falling back to docker stats" % args.sampler)
@@ -1366,6 +1399,7 @@ def run_once(args, cp_sub):
     stop.set()
     th.join(timeout=10)
     rapl_end = rapl_energy()
+    psys_end = psys_energy()
     freq_after, _ = env_frequency()
     cp_cum_after = cp_read() if cp_read else None
 
@@ -1650,6 +1684,8 @@ def run_once(args, cp_sub):
         "e_rapl_j": round(e_rapl, 3) if e_rapl is not None else None,
         "rapl_wrap": rapl_wrap,
         "rapl_available": rapl_start is not None,
+        "e_psys_j": (round(psys_delta(psys_start, psys_end), 3)
+                     if psys_delta(psys_start, psys_end) is not None else None),
         # Re-analysability (1a). The window is the single input that decides
         # which samples count, so a run whose JSON does not carry it cannot be
         # re-derived by an offline tool -- it can only be trusted. That is

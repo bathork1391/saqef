@@ -689,8 +689,13 @@ for plat in [p for p in ("openfaas", "fn", "knative", "openwhisk") if short[p] i
                      "warnings": warnings,
                      "runs": run_details}
 calib_dir = os.path.join(repo, "results", "idle_w_calibration", "lock_%s" % stamp)
+# rapl_series() writes one idle_w_<state>.txt FILE per state. This used to count
+# subdirectories, which calibration never creates, so every session -- including
+# ones that did recalibrate -- was labelled "NOT recalibrated".
 calib_states = sorted(os.listdir(calib_dir)) if os.path.isdir(calib_dir) else []
-calib_states = [d for d in calib_states if os.path.isdir(os.path.join(calib_dir, d))]
+calib_states = [d for d in calib_states
+                if d.startswith("idle_w_") and d.endswith(".txt")
+                and os.path.isfile(os.path.join(calib_dir, d))]
 if calib_states:
     idle_note = ("idle-w recalibrated this session (%d state(s) under %s)"
                  % (len(calib_states), os.path.relpath(calib_dir, repo)))

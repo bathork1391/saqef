@@ -1315,14 +1315,17 @@ class TestSingleRunArtifactShape(unittest.TestCase):
                              "\n".join(doc["session"]["notes"]))
 
     def test_lock_summary_claims_calibration_only_when_state_files_exist(self):
-        # Positive branch: with a real calibration dir the claim must be made.
+        # Positive branch: with a real calibration file the claim must be made.
+        # rapl_series() writes idle_w_<state>.txt files, not per-state dirs.
         block = self._block(self.LOCK, "lock summary written")
         with tempfile.TemporaryDirectory() as td:
             out = os.path.join(td, "results", "openwhisk_cpubound_lock_X_quick")
             os.makedirs(out)
             os.makedirs(os.path.join(td, "results", "lock_session_X"))
-            os.makedirs(os.path.join(td, "results", "idle_w_calibration",
-                                     "lock_X", "openwhisk"))
+            cdir = os.path.join(td, "results", "idle_w_calibration", "lock_X")
+            os.makedirs(cdir)
+            with open(os.path.join(cdir, "idle_w_openwhisk.txt"), "w") as f:
+                json.dump({"state": "openwhisk", "median_w": 4.882}, f)
             with open(os.path.join(out, "summary.json"), "w") as f:
                 json.dump(self._base_summary(), f)
             with open(os.path.join(out, "runs.json"), "w") as f:
