@@ -203,10 +203,21 @@ case "$(cat /sys/class/power_supply/AC/online 2>/dev/null)" in
 esac
 
 # ------------------------------------------------------------ stamp clobber
-if ls -d "$REPO"/results/*"${PFX}"* >/dev/null 2>&1; then
-  info "note: ${PFX}* results already exist -- the driver refuses to clobber,"
-  info "      so this run needs a fresh prefix (edit PFX) or a cleanup."
+# Match the run's real output dirs only. The ${PFX}box_state/ dir this script
+# writes above also matches a bare *${PFX}* glob, which would make this warn on
+# every single run and train you to ignore it.
+collide="$(ls -d "$REPO"/results/*"_cpubound_lock_${PFX}"* \
+                   "$REPO"/results/lock_session_"${PFX}"* \
+                   "$REPO"/results/idle_probe_"${PFX}"* 2>/dev/null || true)"
+if [ -n "$collide" ]; then
+  bad "results already exist for prefix '${PFX}'. The driver refuses to"
+  bad "clobber a stamp, so it would fail partway into a 3 h session:"
+  printf '%s\n' "$collide" | sed "s|$REPO/|     |" >&2
+  bad "Either move those aside, or edit PFX at the top of this script and"
+  bad "re-tag -- a new prefix is a protocol change, so it needs a new tag."
+  exit 6
 fi
+ok "no existing results for prefix '${PFX}'"
 
 if [ "$CHECK_ONLY" = 1 ]; then
   say "--check only: stopping before the run"

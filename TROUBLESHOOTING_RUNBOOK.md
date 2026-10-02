@@ -1274,11 +1274,23 @@ The mistake that cost `bridge_tier1c1` was running first and adjudicating later.
 before the first leg:
 
 - **Revision.** **`v9.14.1-remeasure`** — the tag the re-measurement runs under, cited by name and never
-  by SHA. Two checks, because either failure alone makes the whole session uncitable:
+  by SHA. **One command runs the whole session**, and its step 1 is this gate:
   ```bash
-  git status --porcelain                          # must be empty
-  git diff --stat v9.14.1-remeasure..HEAD         # must list TROUBLESHOOTING_RUNBOOK.md alone, or be empty
+  bash tools/remeasure_shares.sh            # pre-flight, dry run, confirm, then ~2.5-3 h
+  bash tools/remeasure_shares.sh --check    # pre-flight only, measures nothing
   ```
+  Underneath, two conditions, because either failure alone makes the whole session uncitable:
+  ```bash
+  git status --porcelain                  # must be empty
+  git diff --name-only v9.14.1-remeasure..HEAD   # must be empty, or list ONLY:
+  #   TROUBLESHOOTING_RUNBOOK.md     -- where the protocol is written
+  #   tools/remeasure_shares.sh      -- the pre-flight wrapper doing this check
+  ```
+  Neither is on the measurement path, so neither can move a number. Anything else appearing in that
+  diff — `tools/run_tier1_conc.sh`, `tools/run_lock_session.sh`, `saqef_harness.py`, `tests/` — is a
+  **hard fail with the offending files listed**, not a warning: that is measurement code drifting past
+  the freeze, which is the exact failure that made the last campaign uncitable.
+
   **A SHA quoted here goes stale** the moment a runbook-only commit lands — which happened twice while
   writing this section (a trailer strip rewrote 7 commits, and the hash remap that followed was itself
   a commit). Hence the tag name, and hence the second check.
@@ -1286,58 +1298,48 @@ before the first leg:
   Note the deliberate absence of `git describe --tags --exact-match`: it passes only while the tag sits
   *on* the tip, so a single documentation commit would break the pre-flight for a session that is in
   fact perfectly citable. `v9.14.1-remeasure` is therefore already behind the tip by exactly the
-  documentation commits that corrected §24.7.7's CPU-frequency claim, and that is the state this
-  protocol is written for. **The invariant is not "tag equals tip", it is "nothing between the tag and
-  HEAD touches anything a measurement depends on"** — which is exactly what the `diff --stat` line
-  asserts, and what the empty `git status` guarantees for the working tree.
+  documentation and pre-flight commits that follow it, and that is the state this protocol is written
+  for. **The invariant is not "tag equals tip", it is "nothing between the tag and HEAD touches
+  anything a measurement depends on"** — which is what the `diff --name-only` allowlist asserts, and
+  what the empty `git status` guarantees for the working tree.
 
-  This is enforced, not advisory: `tools/run_tier1_conc.sh` refuses to start on a dirty working tree
-  (provenance gate, `--allow-dirty` to override for exploratory work). All 15 `bridge_tier1c1` legs
-  recorded `git_dirty=true` and that alone made them uncitable, with no measured number wrong.
+  The driver also refuses to start on a dirty tree independently (provenance gate, `--allow-dirty` to
+  override for exploratory work). All 15 `bridge_tier1c1` legs recorded `git_dirty=true` and that
+  alone made them uncitable, with no measured number wrong.
 
   `v9.14.1` exists because this section was amended **after** `v9.14-remeasure` was frozen — the
   idle-w rule, the acceptance rule and the run command all changed — and amending a pre-registration
   in place would destroy the only thing the tag was for. The old tag stays where it is, so a reader
   can see what was frozen when and what was corrected before any leg ran. The same rule applies to the
-  correction after it: documentation-only, so the tag is left alone and the gap is verified rather
-  than erased.
+  corrections after it: documentation and pre-flight only, so the tag is left alone and the gap is
+  verified rather than erased.
 - **Stamps.** `remeasure_shares_` — distinct, as it must be (never bare `tier1c<N>`, or pre- and
   post-`c05a9df` datasets can be confused or overwritten), and it *names the scope*, so nobody can
-  mistake a void-energy run for a fully citable one without opening it. The commands, frozen:
+  mistake a void-energy run for a fully citable one without opening it. **One command**, which does
+  the pre-flight, the box-state snapshot, a dry run and the session, in that order:
   ```bash
-  # 1. pre-flight — both must hold before the first leg
-  git status --porcelain                  # must be empty
-  git diff --stat v9.14.1-remeasure..HEAD # must be empty, or list TROUBLESHOOTING_RUNBOOK.md alone
-
-# 2. snapshot the box state, so a frequency question later has a record to answer from
-  mkdir -p results/remeasure_shares_box_state
-  { date -u +"utc=%Y-%m-%dT%H:%M:%SZ"; uname -r | sed 's/^/kernel=/'
-    echo "profile=$(powerprofilesctl get 2>&1)"
-    echo "ac_online=$(cat /sys/class/power_supply/AC/online 2>&1)"
-    for f in scaling_driver scaling_governor energy_performance_preference scaling_min_freq scaling_max_freq; do
-      echo "cpufreq.$f=$(cat /sys/devices/system/cpu/cpu0/cpufreq/$f 2>&1)"; done
-    for f in no_turbo min_perf_pct max_perf_pct status; do
-      echo "intel_pstate.$f=$(cat /sys/devices/system/cpu/intel_pstate/$f 2>&1)"; done
-    for z in /sys/class/thermal/thermal_zone*/; do
-      echo "thermal.$(cat $z/type 2>&1)=$(cat $z/temp 2>&1)"; done
-  } > results/remeasure_shares_box_state/cpufreq.txt
-  cat results/remeasure_shares_box_state/cpufreq.txt
-
-  # 3. rehearsal — prints every stamp and command, measures nothing
+  bash tools/remeasure_shares.sh
+  ```
+  The underlying invocation, for the record and for reproducing a single leg by hand:
+  ```bash
   bash tools/run_tier1_conc.sh --stamp-prefix remeasure_shares_ --rapl-fit-warn --dry-run
-
-  # 4. the session — ~2.5-3 h, all four platforms, bare shell, agents quit
   bash tools/run_tier1_conc.sh --stamp-prefix remeasure_shares_ --rapl-fit-warn
   ```
-  Step 2 exists because §24.7.7's whole point is that `governor` is recorded per run but EPP is
-  recorded nowhere — so the one setting that cannot be recovered from the data is the one worth
-  writing down *before* the run rather than reconstructing after it.
+  Both flags are load-bearing. **`tools/run_tier1_quiet.sh` is not a substitute** — it invokes the
+  driver as bare `bash "$DRIVER"` with no arguments, i.e. bare `tier1c<N>` stamps and no
+  `--rapl-fit-warn`, which is a different protocol from this one: stamps that can collide with the
+  pre-`c05a9df` datasets, and RAPL FIT gating rather than warning.
+
+  The wrapper snapshots box state because §24.7.7's whole point is that `governor` is recorded per run
+  but EPP is recorded nowhere — so the one setting that cannot be recovered from the data is the one
+  worth writing down *before* the run. It also pins the power profile to `performance`, refuses to
+  start on battery, and diffs the thermal zones afterwards.
 
   Output lands in `results/<platform>_cpubound_lock_remeasure_shares_tier1c<N>/`, the medians in
   `results/lock_session_remeasure_shares_tier1c<N>/lock_summary.json`, and the per-leg background
   probe in `results/idle_probe_remeasure_shares_tier1c<N>/<platform>/`. `run_lock_session` refuses
-  to clobber, so a re-run needs a fresh prefix rather than an overwrite. Step 3 is not optional
-  ceremony: it is how the c=1 OW duration and the per-leg stamps get checked without spending a leg.
+  to clobber, so a re-run needs a fresh prefix rather than an overwrite — and because a new prefix is
+  a protocol change, it needs a new tag.
 - **Acceptance rule, decided in advance.** This campaign's job is to replace uncitable bridge data
   with citable data, **not** to pass a test. So there is exactly one pass/fail in the protocol, and it
   is mechanical:
