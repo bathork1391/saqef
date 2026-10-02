@@ -1810,21 +1810,33 @@ after seeing the data. Reported as-is, they are:
   survives from any earlier session (every `results/idle_w_calibration/lock_*` dir is empty, because
   each session reused inherited values), so there is no measured spread to anchor a number on.
 
-## 26. Roadmap from here (agreed 2026-10-02)
+## 26. Roadmap from here (agreed 2026-10-02; corrected the same day)
 
-Rule: nothing measured in `final_*` is re-measured. Every later step is either analysis of `final_*`
-or a new experiment that asks a question `final_*` cannot answer, pre-registered before its data.
+Rule: nothing measured in `final_*` is re-measured. Every later step is either analysis or a new
+**workload**: the plan already set in §24.6 step 5 (I/O-bound, memory-bound, bursty, cold start).
+An "overload" arm proposed earlier the same day is **dropped**. Bursty arrivals answer the
+supervisor's success-rate question in a realistic form, because bursts are where requests queue,
+get rejected (429) or time out.
 
-| # | step | type | machine time | answers |
-|---|---|---|---|---|
-| 1 | Final corpus (`tools/run_final.sh`, §24.8) | measurement | ~2 h, headless | citable shares, throughput, latency, energy for all 4 platforms |
-| 2 | Adjudicate P1–P3, write paper numbers + figures, close §24.2 action item (1) | analysis | none | the paper's main tables |
-| 3 | E2 — control-plane anatomy: per-component CPU (OW JVM threads, Knative activator/queue-proxy/autoscaler, OpenFaaS gateway/provider, Fn fnserver) | analysis of step 1 data | none | *why* OW costs 21–45× more CP CPU (novel contribution) |
-| 4 | Energy checks from §25.6 (within-run linearity, idle cross-check); energy per request; idle CP power | analysis | none | supervisor's energy-trust question |
-| 5 | E1 — open-loop overload (`--qps` above measured capacity, per platform) | new experiment, pre-register as §27 first | ~1–1.5 h | supervisor's success-rate question: drops, 429s, timeouts, and CP cost under overload |
-| 6 | E4 — packet-loss injection (`tc netem` on the docker bridge) | optional new experiment | ~1 h | retry behaviour and its CP cost |
-| 7 | E3 — fifth platform (Fission) | only if supervisor/reviewer asks | ~1 day incl. adapter | whether OW is an outlier or a class |
+Every measurement night is one command: `sudo bash tools/go.sh`. Progress afterwards:
+`sudo bash tools/go.sh --status`.
 
-Decision points:
-- after step 2, if P2 fails (OW share moves > 3 pp), explain it before step 3
-- after step 5, decide whether step 6 adds anything E1 did not already show
+| # | step | type | answers |
+|---|---|---|---|
+| 1 | **CPU-bound final corpus** (`go.sh`, §24.8) | measurement, ~2 h | citable baseline for all 4 platforms |
+| 2 | Adjudicate P1–P3; paper tables/figures; close §24.2 action item (1) | analysis | main results |
+| 3 | Control-plane anatomy (OW JVM threads; Knative activator/queue-proxy/autoscaler; OpenFaaS gateway/provider; Fn fnserver) + energy per request, idle CP power, §25.6 checks | analysis of step-1 data | *why* OW costs 21–45× more CP CPU; whether the energy is trustworthy |
+| 4 | **W1 I/O-bound**: handler waits 5 ms (`time.sleep`, simulating a downstream call) instead of spinning | measurement, ~2 h | is CP cost a property of the platform or of the workload? An earlier quick-tier pass (old sampler) suggested CP ms/inv is workload-invariant but the share ordering is not. W1 settles that under the final protocol. |
+| 5 | **W2 memory-bound**: handler sweeps a resident buffer larger than cache (sized to stay under every platform's memory limit) | measurement, ~2 h | does memory pressure in the function inflate CP cost (cache/bandwidth contention on a shared host)? |
+| 6 | **W3 bursty**: on/off arrivals (bursts at high concurrency separated by idle gaps) instead of a steady closed loop | measurement, ~2 h; needs a burst mode in the load generator | success rate, latency tails and CP cost under realistic bursts; autoscaler reaction (Knative), container creation (OW) |
+| 7 | **W4 cold start / scale-from-zero** (Knative, OpenWhisk; Fn idle timeout) | measurement | CP cost per cold start |
+| — | fifth platform | only if supervisor/reviewer asks | |
+
+Build order for the tooling. Each piece is pre-registered (design + predictions) before its night:
+- `go.sh --workload cpu|io|mem`: generalise the existing handler swap in `tools/run_io_bound.sh`
+  (swap → rebuild images → measure → restore) into `run_final.sh`, so W1/W2 are the same one command
+  with a different flag.
+- W3: a burst arrival mode in the harness's load generator.
+- W4: scale-to-zero settings per platform.
+
+Decision point: after step 2, if P2 fails (OW share moves > 3 pp), explain it before step 3.
