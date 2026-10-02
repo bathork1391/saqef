@@ -1654,7 +1654,7 @@ sudo bash tools/run_final.sh --check
 sudo systemd-run --unit saqef-final \
   systemd-inhibit --what=sleep:idle:handle-lid-switch --why="SAQEF final corpus" \
   bash /home/imran/faas-work/SAQEF/saqef/tools/run_final.sh
-sudo systemctl isolate multi-user.target
+sudo systemctl stop display-manager   # NOT isolate multi-user.target: that also kills saqef-final
 # 4. ~2 h later the desktop comes back by itself. Then:
 systemctl status saqef-final
 column -t -s $'\t' results/final_session/checkpoint.tsv

@@ -31,7 +31,7 @@ MAX_H=4   # hard ceiling for the session; a normal one takes ~2 h
 if [ "${1:-}" = "--stop" ]; then
     systemctl stop "$UNIT" 2>/dev/null || true
     systemctl stop saqef-guard.timer 2>/dev/null || true
-    systemctl isolate graphical.target
+    systemctl start display-manager
     echo "stopped; desktop restored. Partial results: sudo bash tools/go.sh --status"
     exit 0
 fi
@@ -107,7 +107,7 @@ say "pre-flight OK (desktop/agents are handled next)"
 systemctl stop saqef-guard.timer 2>/dev/null || true
 systemctl reset-failed saqef-guard.service 2>/dev/null || true
 systemd-run --unit saqef-guard --on-active="$((MAX_H * 60 + 15))min" \
-    systemctl isolate graphical.target >/dev/null
+    systemctl start display-manager >/dev/null
 systemd-run --unit "$UNIT" -p RuntimeMaxSec="${MAX_H}h" \
     systemd-inhibit --what=sleep:idle:handle-lid-switch --why="SAQEF final corpus" \
     bash "$REPO/tools/run_final.sh" >/dev/null
@@ -122,4 +122,7 @@ echo "  When the desktop comes back by itself (~2 h, at most ${MAX_H} h 15 min),
 echo "      sudo bash tools/go.sh --status"
 echo "  Stuck in text mode? Ctrl+Alt+F3, log in, then: sudo bash $REPO/tools/go.sh --stop"
 for s in $(seq 60 -10 10); do echo "  ... $s s"; sleep 10; done
-systemctl isolate multi-user.target
+# Only stop the display manager. NOT "systemctl isolate multi-user.target": isolate
+# also stops every unit that target does not pull in -- including the transient
+# saqef-final service just launched (that killed the 2 Oct session after 60 s).
+systemctl stop display-manager

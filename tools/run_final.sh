@@ -285,7 +285,7 @@ say "final session start, repo $REPO"
 restore_gui() {
     [ "$RESTORE_GUI" = 1 ] || return 0
     systemctl stop saqef-guard.timer 2>/dev/null || true
-    systemctl isolate graphical.target || true
+    systemctl start --no-block display-manager || true
 }
 trap 'rc=$?; say "session exiting (rc=$rc); restoring desktop"; restore_gui' EXIT
 trap 'say "session terminated by signal"; exit 143' TERM INT HUP
