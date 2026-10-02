@@ -1020,6 +1020,10 @@ The OF/Fn/Kn rows never had this problem.
 exists, a disk failure loses the entire paper-side corpus, not just the OW legs. The medians in the
 table above are reproducible from git as of `8349eb9`; that is the only durability they now have.
 
+**Resolved 2026-10-02:** `saqef-paper` now has a private remote (`github.com/bathork1391/saqef-paper`,
+branch `master`). Every `saqef/results/` directory up to that date was copied in and pushed (`2bc7f26`).
+After each measurement night, copy the new `results/` directories across, commit and push.
+
 **Read the OW rows before quoting them.** Each of the three OW cells has a first leg at
 89.7–90.8 % and four later legs within ~1 pp of each other — the known OW post-deploy transient
 already recorded in the 2026-08-15 sweep. The medians above are unaffected (that is what a median
