@@ -1099,7 +1099,7 @@ Two of those margins are thinner than they look, and both were true before any b
 
 ### 24.6 Amendment (2026-10-02, after the c=1 legs): RAPL FIT demoted for the bridge; resume plan
 
-**What happened.** The c=1 legs (`bridge_tier1c1`, 11:07–11:22) ran at `f47af8f`, one commit past
+**What happened.** The c=1 legs (`bridge_tier1c1`, 11:07–11:22) ran at `425c490`, one commit past
 `v9.13.1-bridge-prereg`. That commit only fixes `median_summary`'s list union (aggregation, not
 attribution), and every median below is recomputed from `runs.json`, so it does not touch the
 compared quantity. All gates passed on all 15 runs (worst sampling gap 0.073 s, 3000/3000
@@ -1113,11 +1113,11 @@ large errors are also not new: tier1c4 (24–43 %) and tier1c8 (11–40 %) were 
 passed only because the gate was added on 2026-10-01. Likely cause, **unconfirmed**: the model
 counts only fn+CP CPU, while RAPL meters the whole package, which includes dockerd, containerd,
 k3s and `hey`. In the c=1 bridge runs, 27–54 % of host CPU lies outside the model. The sign was
-not recoverable, because runs saved only the error %. That is fixed in `90d153f`: runs now record
+not recoverable, because runs saved only the error %. That is fixed in `616812c`: runs now record
 `e_model_j` and `e_rapl_j`, and `lock_summary.json` now records each leg's `problems`.
 
 **Changes since the tag (none to attribution):**
-- `90d153f`: harness emits `e_model_j` / `e_rapl_j` / `rapl_fit_err_pct` (output fields only).
+- `616812c`: harness emits `e_model_j` / `e_rapl_j` / `rapl_fit_err_pct` (output fields only).
   `lock_summary.json` gains `problems` and per-run energy details.
 - This amendment's commit: `run_lock_session.sh --rapl-fit-warn` moves RAPL FIT from `problems` to
   `warnings`. Every other gate stays fatal, and the session meta records
@@ -1270,10 +1270,23 @@ silently overwritten.
 The mistake that cost `bridge_tier1c1` was running first and adjudicating later. Freeze these
 before the first leg:
 
-- **Revision.** The tag the re-measurement runs under is recorded here, and
-  `tools/run_tier1_conc.sh` now **refuses to start on a dirty working tree** (new provenance gate,
-  `--allow-dirty` to override for exploratory work). All 15 `bridge_tier1c1` legs recorded
-  `git_dirty=true` and that alone made them uncitable, with no measured number wrong.
+- **Revision.** **`v9.14-remeasure`** — the tag the re-measurement runs under, and it sits on the
+  branch tip, so no detached checkout is needed:
+  ```bash
+  git describe --tags --exact-match   # must print: v9.14-remeasure
+  git status --porcelain              # must be empty
+  ```
+  **The tag is the citation, not a literal SHA.** A SHA quoted here goes stale the moment a
+  runbook-only commit lands — which is exactly what happened twice while writing this section
+  (a trailer strip rewrote 7 commits, and the hash remap that followed was itself a commit). So the
+  check above is `describe --exact-match`, which cannot rot. If the tag is ever *not* the tip,
+  everything between them must be documentation-only, and that is the thing to verify:
+  ```bash
+  git diff --stat v9.14-remeasure..HEAD    # must list TROUBLESHOOTING_RUNBOOK.md only
+  ```
+  This is enforced, not advisory: `tools/run_tier1_conc.sh` refuses to start on a dirty working tree
+  (provenance gate, `--allow-dirty` to override for exploratory work). All 15 `bridge_tier1c1` legs
+  recorded `git_dirty=true` and that alone made them uncitable, with no measured number wrong.
 - **Stamps.** A distinct prefix, never bare `tier1c<N>`, so pre- and post-`c05a9df` datasets can
   never be confused or overwritten.
 - **Acceptance rule, decided in advance.** Report new-vs-old side by side. Do **not** accept or
@@ -1294,7 +1307,7 @@ before the first leg:
 Not a regression — the same magnitude is present in the reference corpus — but it must be explained
 before any energy figure is cited again. 24.6's hypothesis stands and is now testable rather than
 speculative: the model counts fn+CP CPU, RAPL meters the whole package, and 27–54 % of host CPU
-falls outside the model. `90d153f` now records `e_model_j` and `e_rapl_j` per run, so **the sign and
+falls outside the model. `616812c` now records `e_model_j` and `e_rapl_j` per run, so **the sign and
 the ratio are recoverable from the first five runs of the re-measurement** — settle this from
 `run_1`, not after the campaign. Until then energy is model-only, as 24.6 already states.
 
