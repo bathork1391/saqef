@@ -2104,8 +2104,26 @@ tables, captions and anatomy are all committed. The paper text is untouched by d
 branches from V5 after W1–W4.
 
 **Next: §26 step 4, W1 I/O-bound.** In order:
-(1) pre-register W1 as §28 (design, predictions, decision rule) **before** any W1 data. Include a
+(1) pre-register W1 as §28 (design, predictions, decision rule) **before** any W1 data. W1 was
+redefined as object-storage I/O, see §27.14. Include a
 one-leg `execsnoop`/strace of OW to settle §27.12 (a).
 (2) build `go.sh --workload io` by folding the handler swap from `tools/run_io_bound.sh` into
 `run_final.sh` (swap → rebuild images → measure → restore). Dry-run it.
 (3) one night: `sudo bash tools/go.sh --workload io`.
+
+### 27.14 W1 redefined (2026-10-03): real object-storage I/O, not a 5 ms sleep
+The §26 step-4 design ("handler waits 5 ms, `time.sleep`") is the experiment already run on 2026-08-15
+(`tools/run_io_bound.sh`; VERIFIED_RESULTS Part B §10). Re-running it under the final protocol would
+be a re-check, not a new result, and a sleep is idle waiting, not I/O. It does not exercise the
+network stack, data copies or disk. **Decision (user, 2026-10-03): W1 = object-storage I/O.**
+- Backend: one MinIO container (S3 API), run by plain Docker outside all four platforms, so every
+  platform calls the same service. Its CPU is a separate **backend** bucket, neither cp nor function,
+  which keeps cp/function comparable to the CPU corpus.
+- Handler: GET an input object from MinIO, PUT a result object back (the S3-triggered function pattern).
+  Object size, warm-object setup and the PUT key scheme are fixed in the pre-registration.
+- Built-in check: backend CPU per invocation should be the same on all four platforms. A platform
+  that differs points at a classification or request-path problem.
+- The sleep variant stays as the 2026-08-15 record (Part B §10). It is not re-run.
+
+Next: pre-register W1 as §28 (design, object size, predictions, decision rule, the OW execsnoop leg for
+§27.12 a), then build `go.sh --workload io` with the MinIO handler, dry-run, one night.
