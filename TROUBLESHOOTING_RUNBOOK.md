@@ -2063,3 +2063,47 @@ concurrency/container limits, or serialised docker CLI calls. Cap and spawn cost
 Both are W4-adjacent (container lifecycle) and are noted for that pre-registration.
 
 §27.10 status: step 3 done. Next is W1 (`go.sh --workload io`, pre-registered first).
+
+### 27.13 Record-keeping audit (2026-10-03) — what a reviewer needs is now in the repos
+Checked that someone opening `saqef-paper` cold can go from each figure to its data and back to the
+run that produced it. Four things were missing. All four are fixed in `saqef-paper`:
+
+1. **Captions.** `figures/final/` had figures and tables but no captions.
+   `figures/final/README.md` (hand-written) now holds a caption for F1–F4, the conventions
+   (what counts as cp, dynamic CPU, per invocation), caveats per figure, a table → figure map and an
+   input → producing-tool provenance table.
+2. **Table captions and anatomy tables.** `final_tables.md` (generated) now has numbered tables
+   T1–T9, each with a caption, plus a header stating the session, n and why OW has no c = 2.
+   T8 (light-platform cp by component at every c) and T9 (OW cp by component, c = 1/4/8) put the
+   §27.12 numbers in a table. Before this they were only in the runbook and a JSON file.
+3. **F4 overclaim.** The OW bar was labelled "docker CLI (child processes)". The child-process argv
+   was never recorded (§27.12 open item a), so the label is now "invoker child processes". The JSON
+   key `docker CLI children` stays as is. It is the §25.5 pre-registered row name, and README/T9 say so.
+   F2 gained a footer (n, definition, OW c = 2 absent).
+4. **`VERIFIED_RESULTS.md` scope.** The document calls itself the single source of truth, but it covers
+   only the V5 corpus (lock4, conc*). Its emitter now prints a scope note pointing to
+   `figures/final/` for the final_ corpus. Nothing it emits changed otherwise.
+
+**Aborted attempts on 2026-10-02 (backed up as `results/aborted_20261002T{1829,1837,1857}Z_*`), not
+used anywhere.** None of them got past idle_w calibration, so they contain no leg data. Each session.log
+ends with `Terminated … run_lock_session.sh --stamp final_calib` and rc = 143 (SIGTERM).
+The logs show only the signal: 18:29Z after 11 s of calibration, 18:48Z after 11 min, 18:59Z after 10 s.
+The third also shows a `poweroff.target` job queued, so the box was being shut down. They coincide
+with the go.sh display fixes committed between them (`63f3994`, `76b9292`, `48000da`: the desktop was
+stopped and the screen gave no progress). From the logs alone, the sender of the signal is
+not recorded. The completed session started at 19:11Z on `48000da`.
+
+**Mirror.** The three recomputed OW `lock_summary.json` files (§27.11) were copied back from
+`saqef-paper/results/` into this repo's `results/` (identical bytes, checked with `cmp`). `results/`
+is git-ignored here, so `saqef-paper` stays the committed record.
+
+**State at the end of §27.** The CPU-bound baseline (§26 steps 1–3) is closed: data, adjudication, figures,
+tables, captions and anatomy are all committed. The paper text is untouched by design. The final draft
+branches from V5 after W1–W4.
+
+**Next: §26 step 4, W1 I/O-bound.** In order:
+(1) pre-register W1 as §28 (design, predictions, decision rule) **before** any W1 data. Include a
+one-leg `execsnoop`/strace of OW to settle §27.12 (a).
+(2) build `go.sh --workload io` by folding the handler swap from `tools/run_io_bound.sh` into
+`run_final.sh` (swap → rebuild images → measure → restore). Dry-run it.
+(3) one night: `sudo bash tools/go.sh --workload io`.
