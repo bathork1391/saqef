@@ -25,6 +25,10 @@
 # swapped for the payload echo (workloads/payload/), every request is a text/plain POST of
 # 1 KiB / 64 KiB / 512 KiB, concurrency is 1, 4, 8 on all platforms, and results go under
 # the payload_ prefix. The handlers are restored when the session exits, however it exits.
+#
+# --arm owlog29 (runbook §29): OpenWhisk only, CPU-bound handler, c = 1/4/8, each c measured
+# twice in the same session: the standalone's default log collector (one `docker logs` per
+# activation) and SAQEF_OW_LOGSTORE=driver (none). Order alternates per c. Prefix owlog29_.
 set -uo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -44,7 +48,7 @@ WAIT_HEADLESS_S=1200     # how long to wait for the desktop/agents to go away
 WAIT_KNATIVE_S=900       # how long to wait for knative-serving to be Ready after a docker restart
 RESTORE_GUI=1
 
-CHECK_ONLY=0 DRY_RUN=0 WORKLOAD=cpu AMEND=""
+CHECK_ONLY=0 DRY_RUN=0 WORKLOAD=cpu AMEND="" ARM=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --check) CHECK_ONLY=1 ;;
@@ -53,6 +57,7 @@ while [ $# -gt 0 ]; do
         --workload) WORKLOAD="${2:-}"; shift ;;
         --workload=*) WORKLOAD="${1#*=}" ;;
         --amend) AMEND="${2:-}"; shift ;;
+        --arm) ARM="${2:-}"; shift ;;
         *) echo "unknown option: $1" >&2; exit 2 ;;
     esac
     shift
@@ -75,6 +80,18 @@ if [ -n "$AMEND" ]; then
         *) echo "unknown amendment '$AMEND' (known: 28.8)" >&2; exit 2 ;;
     esac
     PFX="payload_amend${AMEND/./_}_"
+fi
+# Arms: a fixed, named comparison under its own prefix, pre-registered in the committed
+# runbook (pre-flight check 7). ARM_LEGS entries: "c logstore".
+ARM_LEGS=()
+if [ -n "$ARM" ]; then
+    [ "$WORKLOAD" = cpu ] && [ -z "$AMEND" ] || { echo "--arm needs --workload cpu and no --amend" >&2; exit 2; }
+    case "$ARM" in
+        # §29: alternating order per c, so a slow drift cannot line up with one log store
+        owlog29) ARM_LEGS=("1 cli" "1 driver" "4 driver" "4 cli" "8 cli" "8 driver") ;;
+        *) echo "unknown arm '$ARM' (known: owlog29)" >&2; exit 2 ;;
+    esac
+    PFX="${ARM}_"
 fi
 
 SESS="$REPO/results/${PFX}session"
@@ -181,6 +198,10 @@ PY
     if [ -n "$AMEND" ] && ! git -c safe.directory="$REPO" -C "$REPO" show HEAD:TROUBLESHOOTING_RUNBOOK.md 2>/dev/null \
             | grep -qF "Amendment $AMEND: pre-registered"; then
         bad "amendment $AMEND is not pre-registered in the committed runbook (need the line 'Amendment $AMEND: pre-registered')"
+    fi
+    if [ -n "$ARM" ] && ! git -c safe.directory="$REPO" -C "$REPO" show HEAD:TROUBLESHOOTING_RUNBOOK.md 2>/dev/null \
+            | grep -qF "Arm $ARM: pre-registered"; then
+        bad "arm $ARM is not pre-registered in the committed runbook (need the line 'Arm $ARM: pre-registered')"
     fi
 
     # 6. headless + no agents
@@ -341,7 +362,12 @@ if [ "$CHECK_ONLY" = 1 ] || [ "$DRY_RUN" = 1 ]; then
             echo "  rebuild OF/Kn images from the working-tree handlers"
         fi
         echo "  ${PFX}calib: idle_w for bare, of, fn, kn, ow (3 x 60 s each), no leg"
-        if [ -n "$AMEND" ]; then
+        if [ -n "$ARM" ]; then
+            for leg in "${ARM_LEGS[@]}"; do
+                read -r c ls <<< "$leg"
+                echo "  ${PFX}tier1ow${c}_${ls}: SAQEF_OW_LOGSTORE=$ls --concurrency $c --repeat $OW_REPEAT --discard-warmup $OW_DISCARD + JVM thread sampler (arm $ARM)"
+            done
+        elif [ -n "$AMEND" ]; then
             for leg in "${AMEND_LEGS[@]}"; do
                 read -r sz c p <<< "$leg"
                 echo "  ${PFX}${sz}c${c}_${p}: POST body_${sz} --concurrency $c --repeat $LIGHT_REPEAT (amendment $AMEND)"
@@ -438,7 +464,19 @@ say "idle_w (this session): of=$W_OF fn=$W_FN kn=$W_KN ow=$W_OW bare=$(read_cali
 IW=(--skip-idle-calib --idle-w-source "$CAL" --idle-w-of "$W_OF" --idle-w-fn "$W_FN" --idle-w-kn "$W_KN" --idle-w-ow "$W_OW")
 
 failed=0
-if [ -n "$AMEND" ]; then
+if [ -n "$ARM" ]; then
+    say "=== arm $ARM: ${#ARM_LEGS[@]} OpenWhisk leg(s), CPU-bound, same protocol as final_ OW legs"
+    for leg in "${ARM_LEGS[@]}"; do
+        read -r c ls <<< "$leg"
+        dur=300; [ "$c" = 1 ] && dur=420
+        export SAQEF_OW_LOGSTORE="$ls"
+        say "    OW activation log store for this leg: $ls"
+        run_one "${PFX}tier1ow${c}_${ls}" ow openwhisk --concurrency "$c" --repeat "$OW_REPEAT" \
+            --discard-warmup "$OW_DISCARD" --ow-duration "$dur" "${IW[@]}" \
+            || failed=$((failed + 1))
+        unset SAQEF_OW_LOGSTORE
+    done
+elif [ -n "$AMEND" ]; then
     say "=== amendment $AMEND: ${#AMEND_LEGS[@]} leg(s), same protocol as the main session"
     for leg in "${AMEND_LEGS[@]}"; do
         read -r sz c p <<< "$leg"
@@ -486,7 +524,7 @@ if [ "$WORKLOAD" = payload ]; then
         say "    OW deploy for the trace failed; skipped"
     fi
     cleanup_platform openwhisk
-else
+elif [ -z "$ARM" ]; then   # an arm runs only its own legs, never the whole CPU corpus
 for c in 1 2 4 8; do
     for p in of fn kn; do
         run_one "${PFX}tier1c${c}_${p}" "$p" "${LONG[$p]}" --concurrency "$c" --repeat "$LIGHT_REPEAT" "${IW[@]}" \

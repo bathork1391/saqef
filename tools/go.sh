@@ -3,6 +3,7 @@
 #
 #   sudo bash tools/go.sh                     CPU-bound corpus (runbook 24.8)
 #   sudo bash tools/go.sh --workload payload  W1 payload I/O night (runbook §28)
+#   sudo bash tools/go.sh --arm owlog29       OpenWhisk log-collector A/B (runbook §29)
 #   sudo bash tools/go.sh --status            how far the latest session got
 #   sudo bash tools/go.sh --stop              stop the session now and bring the desktop back
 #
@@ -28,7 +29,7 @@ export KUBECONFIG="${KUBECONFIG:-/etc/rancher/k3s/k3s.yaml}"
 UNIT=saqef-final
 WANT='{ "log-driver": "json-file", "log-opts": { "max-size": "64k", "max-file": "1" } }'
 
-WORKLOAD=cpu ACTION=run AMEND=""
+WORKLOAD=cpu ACTION=run AMEND="" ARM=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --stop) ACTION=stop ;;
@@ -36,7 +37,8 @@ while [ $# -gt 0 ]; do
         --workload) WORKLOAD="${2:-}"; shift ;;
         --workload=*) WORKLOAD="${1#*=}" ;;
         --amend) AMEND="${2:-}"; shift ;;
-        *) echo "unknown option: $1 (use --workload cpu|payload, --amend ID, --status, --stop)" >&2; exit 2 ;;
+        --arm) ARM="${2:-}"; shift ;;
+        *) echo "unknown option: $1 (use --workload cpu|payload, --amend ID, --arm ID, --status, --stop)" >&2; exit 2 ;;
     esac
     shift
 done
@@ -50,6 +52,10 @@ AMEND_ARGS=() SESS_NAME="$([ "$WORKLOAD" = payload ] && echo payload || echo fin
 if [ -n "$AMEND" ]; then
     AMEND_ARGS=(--amend "$AMEND"); MAX_H=2; SESS_NAME="payload_amend${AMEND/./_}"
 fi
+# Arm (runbook §29 style): a named comparison under its own prefix; reuses AMEND_ARGS to reach run_final.
+if [ -n "$ARM" ]; then
+    AMEND_ARGS=(--arm "$ARM"); MAX_H=2; SESS_NAME="$ARM"
+fi
 if [ "$ACTION" = stop ]; then
     systemctl stop "$UNIT" 2>/dev/null || true
     systemctl stop saqef-guard.timer 2>/dev/null || true
@@ -59,7 +65,7 @@ if [ "$ACTION" = stop ]; then
     exit 0
 fi
 if [ "$ACTION" = status ]; then
-    S=$(ls -td "$REPO"/results/final_session "$REPO"/results/payload_session "$REPO"/results/payload_amend*_session 2>/dev/null | head -1)
+    S=$(ls -td "$REPO"/results/final_session "$REPO"/results/payload_session "$REPO"/results/payload_amend*_session "$REPO"/results/owlog*_session 2>/dev/null | head -1)
     echo "== service"; systemctl status "$UNIT" --no-pager 2>/dev/null | sed -n 1,5p || echo "  not running"
     [ -n "$S" ] || { echo "  no session yet"; exit 0; }
     echo "== session: $(basename "$S")"

@@ -2480,3 +2480,55 @@ settle fix (W1 is closed by §28.4 / §28.8 rules).
 
 **W1 is closed for machine time.** Next: W2 pre-registration (§29), using the settle fix and the
 stability record; decide there whether the OW log-store arm (Finding D) gets its own night.
+
+## 29. OpenWhisk log-collector arm — pre-registration (written 2026-10-04, before any arm data)
+Arm owlog29: pre-registered
+
+**Question.** How much of standalone OpenWhisk's control-plane cost is its activation-log collector?
+§28.9 D showed the standalone runs `docker logs` once per activation (`DockerCliLogStoreProvider`),
+and the image's own non-standalone config does not. `SAQEF_OW_LOGSTORE=driver` selects
+`LogDriverLogStoreProvider` (no per-activation collection; smoke test: 0 `docker logs`, 500/500 OK,
+throughput unchanged). This arm measures the CPU difference. It does not re-measure Part A: Part A's
+OW numbers stay as they are and remain the headline for "OpenWhisk standalone, default config".
+
+**Design (fixed).** One headless session, `sudo bash tools/go.sh --arm owlog29`, prefix `owlog29_`.
+OpenWhisk only, CPU-bound handler (Part A's), TOTAL = 3000, `--repeat 6 --discard-warmup 1`,
+`--cpu-probe 60`, JVM thread sampler, same gates as Part A, idle-w calibration in session, one
+`_r2` retry per leg (now with settle-after-verify, §28.9 fix 3; the two-sided drift flag stays off).
+Each c is measured with both log stores **in the same session**, order alternating so a slow drift
+cannot line up with one arm: c=1 cli → driver, c=4 driver → cli, c=8 cli → driver.
+Legs: `owlog29_tier1ow{1,4,8}_{cli,driver}`. Expected ≈ 1 h (calibration 24 min, 6 legs × ~5 min);
+watchdog 2 h. The comparison is cli vs driver **within this session**, so no cross-day bridge is
+needed. The cli legs are also compared with Part A, descriptively only (not pooled, no rule).
+
+**Anchors (Part A, `final_tier1ow*`, cp_anatomy):** cp 18.43 / 17.70 / 17.85 ms/inv; child-process
+row 12.16 / 11.86 / 11.94; actor system 3.99 / 3.78 / 3.78; fn 5.64 / 5.54 / 5.54; share
+76.6 / 76.2 / 76.3 %; untracked host 10.23 / 9.35 / 9.54 ms/inv; throughput 107 / 111 / 111 rps.
+
+**Predictions (per c, driver vs cli in this session).**
+- **Q1 — the child-process row disappears.** driver ≤ 1.0 ms/inv at every c (cli ≈ 12).
+- **Q2 — cp falls by most of that row.** cp ms/inv(cli) − cp ms/inv(driver) ≥ 9.0 at every c
+  (≈ 75 % of the ~12 ms row; the JVM also spends some actor-thread CPU handling each subprocess,
+  so the drop may exceed the row). Central expectation: driver cp ≈ 6 ms/inv.
+- **Q3 — OW's cp share falls to about half.** driver share in [40, 60] % at every c (central ≈ 52 %;
+  cli ≈ 76 %). OW stays the most expensive platform: driver cp ms/inv > 5× Part A's largest light
+  cp ms/inv at the same c (OpenFaaS/Fn/Knative ≤ 0.72).
+- **Q4 — throughput does not move.** driver rps within ±15 % of cli at every c (smoke test: 77.5 vs
+  78.5 rps). The ~110 rps cap is not the log collector (§27.12 b stays open).
+- **Q5 — host CPU outside every container falls.** untracked host ms/inv lower with driver at every
+  c (dockerd no longer serves a `docker logs` request per activation). Direction only.
+
+**Decision rules.**
+1. Each prediction is judged per c from this session's own legs. A failed prediction is a finding,
+   reported as such; no leg is re-run to rescue one.
+2. A leg that fails twice is recorded as missing; its c is then not evaluable for Q1–Q5.
+3. The cli legs vs Part A (cp, share, child row) are reported side by side with no pooling and no
+   pass/fail; differences are not called a "day shift" (§28.9: n = 5 short runs cannot size one).
+4. Results go into `VERIFIED_RESULTS.md` as their own part, labelled "OpenWhisk standalone,
+   log-driver log store (no per-activation log collection)". Paper wording: Part A stays the
+   default-config headline; this arm is the sensitivity that says how much is the standalone's
+   log collector. Function logs are not collected in the driver arm; say so.
+5. Nothing else is measured under this arm (no light platforms, no payload sizes, no other OW setting).
+6. Energy: RAPL, probe basis, as §27.5/§27.8; reported, no prediction.
+
+W2 (memory-bound) moves to §30.
