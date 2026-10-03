@@ -471,7 +471,9 @@ if [ "$WORKLOAD" = payload ]; then
     say ">>> OW execsnoop trace (unmeasured, 64k c=4)"
     if python3 "$REPO/saqef" deploy --platform openwhisk >> "$SESS/ow_execsnoop.log" 2>&1; then
         # bpftrace, not execsnoop-bpfcc: BCC cannot compile against kernel 7.0 headers.
-        timeout 90 bpftrace -e 'tracepoint:syscalls:sys_enter_execve { time("%H:%M:%S "); printf("%d %d %s %s\n", pid, curtask->real_parent->tgid, comm, str(args->filename)); }' \
+        # join(args->argv) records the full command line (runbook 28.9: filename alone
+        # showed one /usr/bin/docker per activation but not which subcommand).
+        timeout 90 bpftrace -e 'tracepoint:syscalls:sys_enter_execve { time("%H:%M:%S "); printf("%d %d %s ", pid, curtask->real_parent->tgid, comm); join(args->argv); }' \
             > "$SESS/ow_execsnoop.txt" 2>> "$SESS/ow_execsnoop.log" &
         tr_pid=$!
         sleep 10

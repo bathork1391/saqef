@@ -73,6 +73,15 @@ MAX_SAMPLE_GAP_S=1.0     # gate: >this worst gap between CPU samples fails the
                          # set by --max-sample-gap.
                          # leg. 20% is ~4x the best observed legitimate run-to-run
                          # spread on a healthy leg, so it only trips on real decay.
+DRIFT_TWO_SIDED=0        # 1 (--drift-two-sided): the drift gate also fails a throughput
+                         # RISE above --max-drift-pct, not only a loss. Off by default so
+                         # W1 and earlier sessions re-gate identically; W2 onward turns it
+                         # on (runbook 28.9: the 28.8 bridge rose 42.7 % and passed).
+SETTLE_AFTER_VERIFY=1    # 0 (--no-settle): skip the post-verify settle. Default on: wait
+                         # until /proc/stat shows <= 10 % busy (5 s windows, 180 s cap)
+                         # after deploy+scale+verify, right before the quiet-gated run.
+                         # Runbook 28.9: 5 of 10 Knative c=8 legs failed the 15 % gate
+                         # (15.4-18.0 %) on the post-scale burst, against a ~10-12 % floor.
 IDLE_SOURCE=""           # --idle-w-source DIR: the calibration the --idle-w-* values came
                          # from (another stamp's idle_w_calibration dir); recorded in the
                          # lock summary's idle_w_provenance and checked against it.
@@ -129,6 +138,8 @@ while [ "$i" -lt "$#" ]; do
         --cpu-probe) i=$((i + 1)); [ "$i" -ge "$#" ] && { echo "--cpu-probe needs a value" >&2; exit 2; }; CPU_PROBE_S="${args[$i]}" ;;
         --cpu-probe=*) CPU_PROBE_S="${arg#*=}" ;;
         --rapl-fit-warn) RAPL_FIT_WARN=1 ;;
+        --drift-two-sided) DRIFT_TWO_SIDED=1 ;;
+        --no-settle) SETTLE_AFTER_VERIFY=0 ;;
         --idle-w-source) i=$((i + 1)); [ "$i" -ge "$#" ] && { echo "--idle-w-source needs a value" >&2; exit 2; }; IDLE_SOURCE="${args[$i]}" ;;
         --idle-w-source=*) IDLE_SOURCE="${arg#*=}" ;;
         --*) echo "unknown option: $arg" >&2; exit 2 ;;
@@ -296,6 +307,28 @@ PY
 # ---------------------------------------------------------------------------
 # run_leg PLATFORM -- deploy (scale/verify) run gates teardown for one platform
 # ---------------------------------------------------------------------------
+# Wait for the post-deploy/scale/verify burst to pass before the harness's 15 % quiet
+# gate samples the box (runbook 28.9). Never fails the leg: on timeout the gate decides.
+settle_after_verify() {
+    local w=0 b
+    while [ $w -lt 180 ]; do
+        b=$(python3 - <<'PY'
+import time
+def busy():
+    v = list(map(int, open("/proc/stat").readline().split()[1:]))
+    return sum(v) - v[3] - v[4], sum(v)
+b0, t0 = busy(); time.sleep(5); b1, t1 = busy()
+print(round(100.0 * (b1 - b0) / max(1, t1 - t0), 1))
+PY
+)
+        w=$((w + 5))
+        if python3 -c "import sys; sys.exit(0 if float(sys.argv[1]) <= 10.0 else 1)" "$b"; then
+            echo ">>> settle after verify: ${b}% busy after ${w}s"; return 0
+        fi
+    done
+    echo ">>> settle after verify: still ${b}% busy after 180s; the quiet gate decides"
+}
+
 run_leg() {
     local platform="$1" idle_w="$2"
     local out="$REPO/results/${platform}_cpubound_lock_$STAMP"
@@ -321,6 +354,7 @@ run_leg() {
             openfaas|knative) echo "DRY-RUN: scale --platform $platform --replicas 16" ;;
         esac
         echo "DRY-RUN: verify --platform $platform"
+        [ "$SETTLE_AFTER_VERIFY" = 1 ] && echo "DRY-RUN: settle until <= 10% busy (180 s cap)"
         echo "DRY-RUN: run --platform $platform --total $TOTAL --concurrency $CONCURRENCY --duration $duration --repeat $REPEAT --idle-w $idle_w --out $out"
         [ "$CPU_PROBE_S" -gt 0 ] && echo "DRY-RUN: run --platform $platform --idle-probe --duration $CPU_PROBE_S --repeat 1 --idle-w $idle_w --out $REPO/results/idle_probe_${STAMP}/$platform"
         echo "DRY-RUN: gates --out $gate_out ; teardown --platform $platform"
@@ -348,6 +382,7 @@ run_leg() {
         sleep 5
         return 0
     fi
+    [ "$SETTLE_AFTER_VERIFY" = 1 ] && settle_after_verify
     echo ">>> run: total=$TOTAL concurrency=$CONCURRENCY duration=$duration repeat=$REPEAT out=$out"
     $SAQEF run --platform "$platform" --total "$TOTAL" --concurrency "$CONCURRENCY" \
         --duration "$duration" --repeat "$REPEAT" --idle-w "$idle_w" --out "$out"
@@ -490,7 +525,7 @@ if [ "$DRY_RUN" = 1 ]; then
     exit 0
 fi
 banner "gate validation + lock summary"
-python3 - "$REPO" "$STAMP" "$PLATFORMS" "$REPEAT" "$IDLE_OF" "$IDLE_FN" "$IDLE_KN" "$IDLE_OW" "$MAX_DRIFT_PCT" "$DISCARD_WARMUP" "$MAX_SAMPLE_GAP_S" "$RAPL_FIT_WARN" "$IDLE_SOURCE" <<'PY'
+python3 - "$REPO" "$STAMP" "$PLATFORMS" "$REPEAT" "$IDLE_OF" "$IDLE_FN" "$IDLE_KN" "$IDLE_OW" "$MAX_DRIFT_PCT" "$DISCARD_WARMUP" "$MAX_SAMPLE_GAP_S" "$RAPL_FIT_WARN" "$IDLE_SOURCE" "$DRIFT_TWO_SIDED" <<'PY'
 import glob, json, os, statistics, sys
 repo, stamp, platforms, repeat, w_of, w_fn, w_kn, w_ow = sys.argv[1:9]
 # max_drift_pct is the 9th arg, appended after the existing 8 so that callers
@@ -513,6 +548,9 @@ rapl_fit_warn = (sys.argv[12] == "1") if len(sys.argv) > 12 else False
 # (run_final.sh calibrates once under lock_final_calib, then runs each leg
 # under its own stamp). "" -> unknown source.
 idle_source = sys.argv[13] if len(sys.argv) > 13 else ""
+# drift_two_sided is the 14th arg, same convention. 1 -> a throughput rise beyond
+# max_drift also fails (runbook 28.9). Absent/0 -> loss only, as before.
+drift_two_sided = (sys.argv[14] == "1") if len(sys.argv) > 14 else False
 w = {"openfaas": w_of, "fn": w_fn, "knative": w_kn, "openwhisk": w_ow}
 order = {"openfaas": "OpenFaaS", "fn": "Fn", "knative": "Knative", "openwhisk": "OpenWhisk"}
 # short codes used by --platforms (of,fn,kn,ow), matching run_lock_session.sh's own case-statement matching
@@ -661,14 +699,15 @@ for plat in [p for p in ("openfaas", "fn", "knative", "openwhisk") if short[p] i
         if len(rp) >= 3 and all(v for v in rp):
             drop = (rp[0] - rp[-1]) / rp[0] * 100.0
             drift_pct = round(drop, 2)
-            if drop > max_drift:
+            if drop > max_drift or (drift_two_sided and -drop > max_drift):
                 # Name the actual run dirs: with --discard-warmup the surviving
                 # run_N no longer starts at 1, so a hardcoded "run_1..run_N"
                 # would point at a run this gate deliberately ignored.
                 first, last = os.path.basename(runs[0]), os.path.basename(runs[-1])
                 problems.append("DRIFT %s..%s throughput %.1f -> %.1f rps "
-                                "(%.1f%% loss > %.0f%%) -- median is not citable"
-                                % (first, last, rp[0], rp[-1], drop, max_drift))
+                                "(%.1f%% %s > %.0f%%) -- median is not citable"
+                                % (first, last, rp[0], rp[-1], abs(drop),
+                                   "loss" if drop > 0 else "rise", max_drift))
     except Exception as e:
         problems.append("drift check unreadable (%s)" % type(e).__name__)
     # ambient/quiet-gate is measured once per leg, before the whole --repeat
@@ -714,9 +753,25 @@ for plat in [p for p in ("openfaas", "fn", "knative", "openwhisk") if short[p] i
         ok, "; ".join(problems)))
     for wmsg in warnings:
         print("%-10s   WARN %s (--rapl-fit-warn: recorded, not gating)" % ("", wmsg))
+    # Stability of the two CITED quantities over the usable runs, recorded (not gated)
+    # for every leg (runbook 28.9: the throughput drift gate never looks at them).
+    stab = {}
+    try:
+        raw = json.load(open(os.path.join(out, "runs.json")))
+        names = {v["name"] for v in run_verdicts if v["usable"]}
+        use = [r for i, r in enumerate(raw) if "run_%d" % (i + 1) in names and r.get("successes")]
+        for key, lab in (("control_plane", "cp"), ("function", "fn")):
+            xs = [r["cpu_sec"][key] / r["successes"] * 1000.0 for r in use]
+            if len(xs) >= 2:
+                stab[lab + "_ms_inv_runs"] = [round(x, 4) for x in xs]
+                stab[lab + "_cv_pct"] = round(statistics.stdev(xs) / statistics.mean(xs) * 100.0, 2)
+                stab[lab + "_drift_pct"] = round((xs[-1] - xs[0]) / xs[0] * 100.0, 2)
+    except Exception as e:
+        stab = {"stability_unreadable": type(e).__name__}
     acc = {"stamp": stamp, "platform": plat, "leg_gates_ok": (ok == "OK"),
            "leg_problems": problems, "warnings": warnings,
            "drift_pct": drift_pct, "max_drift_pct": max_drift,
+           "drift_two_sided": drift_two_sided, "stability": stab,
            "usable_runs": [v["name"] for v in run_verdicts if v["usable"]],
            "runs": run_verdicts}
     json.dump(acc, open(os.path.join(out, "acceptance.json"), "w"), indent=2)

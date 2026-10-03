@@ -16,6 +16,41 @@ from *reported by a prior review pass and not independently re-checked here* —
 discipline every future entry should follow. A description of a fix is not the fix; when
 in doubt, trace to the file, not to a summary of the file.
 
+## Index: symptom → section (check here first)
+
+Added 2026-10-03. One line per known problem, so a repeat is a lookup, not a night. Append a row
+whenever a new section records a bug, a gotcha or a "do not repeat".
+
+| Symptom / question | Section |
+|---|---|
+| Shares drift ~0.5–1 pp; agents or desktop running during a session | §1, §2, Quiet-box runbook |
+| `FATAL: box not quiet` on Knative c=8 (15–18 %) | §28.9 A (settle after verify) |
+| Judging current CPU load from `ps %CPU` (it is a lifetime average) | §28.9 corrections |
+| OW HTTP 429 at bench speeds | §4 |
+| OW cannot spawn action containers (docker API 1.38 rejected) | §5 |
+| OW runs truncated by the 60 s duration cap; loadgen falls back to Python | §6, §11 |
+| OW throughput decays run over run; dockerd CPU climbs | §24.8 table (`owhead1`, log cap), §28.9 D |
+| OW "invoker child processes" ≈ 12–13 ms/inv: what are they? | §28.9 D (`docker logs` per activation, standalone only) |
+| OW JVM dies in run 3 at 512 KiB (in-memory activation store) | §28.7 |
+| OW headline share includes the discarded warm-up | §27.11 |
+| k3s stuck "activating" after reboot | §10 |
+| `docker stack rm openfaas` leaves the `hello` service | §7 |
+| Container-name collisions (`gateway`, `kn-hello`) misattribute CPU | §13, §14 |
+| Carbon 1000× too large | §12 |
+| RAPL counter wraparound mis-corrected | §15 |
+| "RAPL FIT > 15 %, NOT citable" warnings | §25.1 (retired 3.5 W/core model; warn only) |
+| Probe and calibration idle W disagree; which energy basis to cite | §27.8 (probe basis), §28.9 E |
+| CPU attributed outside the load window / pre-first-sample CPU lost | §19, §20, §22 |
+| A total read as a rate (60×); analyses over the wrong runs | §23 (always read `acceptance.json`) |
+| Drift gate passed a leg whose throughput rose 40 % | §28.9 C (one-sided; two-sided is not the fix) |
+| Is the run-to-run noise caused by short runs? Should TOTAL go down? | §28.9 B (no, and no) |
+| Bridge outside ±10 %: is that a day-to-day shift? | §28.9 (not quantifiable from n = 5 short runs) |
+| `cp_anatomy.py --prefix payload_ --legs '*'` picks up amendment legs | §28.9 tooling 2 |
+| git "dubious ownership" as root; handlers not restored | §28.7 bug 1 |
+| `execsnoop-bpfcc` fails on kernel 7.0 | §28.7 bug 5 (bpftrace; argv via `join`, §28.9) |
+| Gate step crashes on `median(None)` (0-success run) | §28.7 bug 4 |
+| `_r2` retry fails the quiet gate right after a Knative teardown | §28.7 bug 3, §28.9 A |
+
 ## 1. Noisy-neighbor contamination from background processes (incl. this agent)
 
 **Symptom:** `host_saturation_pct` reads much higher than expected for the same
@@ -1830,7 +1865,7 @@ Every measurement night is one command: `sudo bash tools/go.sh`. Progress afterw
 | 1 | **CPU-bound final corpus** (`go.sh`, §24.8) | measurement, ~2 h | citable baseline for all 4 platforms |
 | 2 | Adjudicate P1–P3; paper tables/figures; close §24.2 action item (1) | analysis | main results |
 | 3 | Control-plane anatomy (OW JVM threads; Knative activator/queue-proxy/autoscaler; OpenFaaS gateway/provider; Fn fnserver) + energy per request, idle CP power, §25.6 checks | analysis of step-1 data | *why* OW costs 21–45× more CP CPU; whether the energy is trustworthy |
-| 4 | **W1 I/O-bound**: handler waits 5 ms (`time.sleep`, simulating a downstream call) instead of spinning | measurement, ~2 h | is CP cost a property of the platform or of the workload? An earlier quick-tier pass (old sampler) suggested CP ms/inv is workload-invariant but the share ordering is not. W1 settles that under the final protocol. |
+| 4 | **W1 I/O-bound** *(superseded twice: §27.14, then §28.1 — W1 is the payload echo, done, §28.7–28.9)*: handler waits 5 ms (`time.sleep`, simulating a downstream call) instead of spinning | measurement, ~2 h | is CP cost a property of the platform or of the workload? An earlier quick-tier pass (old sampler) suggested CP ms/inv is workload-invariant but the share ordering is not. W1 settles that under the final protocol. |
 | 5 | **W2 memory-bound**: handler sweeps a resident buffer larger than cache (sized to stay under every platform's memory limit) | measurement, ~2 h | does memory pressure in the function inflate CP cost (cache/bandwidth contention on a shared host)? |
 | 6 | **W3 bursty**: on/off arrivals (bursts at high concurrency separated by idle gaps) instead of a steady closed loop | measurement, ~2 h; needs a burst mode in the load generator | success rate, latency tails and CP cost under realistic bursts; autoscaler reaction (Knative), container creation (OW) |
 | 7 | **W4 cold start / scale-from-zero** (Knative, OpenWhisk; Fn idle timeout) | measurement | CP cost per cold start |
@@ -2107,7 +2142,7 @@ branches from V5 after W1–W4.
 (1) pre-register W1 as §28 (design, predictions, decision rule) **before** any W1 data. W1 was
 redefined as object-storage I/O, see §27.14. Include a
 one-leg `execsnoop`/strace of OW to settle §27.12 (a).
-(2) build `go.sh --workload io` by folding the handler swap from `tools/run_io_bound.sh` into
+(2) build `go.sh --workload io` *(became `--workload payload`, §28)* by folding the handler swap from `tools/run_io_bound.sh` into
 `run_final.sh` (swap → rebuild images → measure → restore). Dry-run it.
 (3) one night: `sudo bash tools/go.sh --workload io`.
 
@@ -2326,3 +2361,112 @@ retry per leg, with the 28.7 quiet-wait. Afterwards the unmeasured OW exec trace
 2. A leg that fails twice is recorded as missing. These cells get no further amendment.
 3. Once pooled, P1–P5 for Knative c=8 are judged exactly as §28.3 states them. A failure is a finding.
 4. No other cell, platform or size is measured under this amendment.
+
+### 28.9 Amendment 28.8 outcome (2026-10-03, `payload_amend28_8_`), corrections, findings, fixes
+Ran on `014ea91`, 15:44–16:53 Z, rc = 0, handlers and images restored, box state pre/post equal apart
+from temperatures. Probe, idle-w calibration (of 6.11, fn 6.29, kn 7.37, ow 7.18, bare 6.21 W) and the
+OW exec trace all ran. Data backed up to `saqef-paper/results/*amend28_8*`.
+
+**Legs.** 1k c=8 passed first time (drift −0.3 %). 64k c=8 failed the quiet gate twice (18.0 %, 16.7 %)
+→ **missing (rule 2)**. 512k c=8 bridge failed the quiet gate once (16.3 %), passed on `_r2` (11.0 %).
+
+**Rule 1 (pooling): not pooled.** Bridge cp 2.557 vs 2.220 ms/inv (+15.2 %), fn 2.933 vs 2.627
+(+11.6 %): both outside ±10 %. The 1k c=8 cell (cp 0.587, fn 1.430 ms/inv; the main session's
+DRIFT-failed attempt had 0.570 / 1.433) is reported in its own column, `VERIFIED_RESULTS.md` W1-T10.
+No verdict changes: Knative P2 stays 2/2, P3 stays "fails".
+
+**What the bridge does and does not show.** Per usable run, cp ms/inv: main 2.19, 2.24, 2.14, 2.23, 2.22
+(CV 1.8 %); amendment 2.46, 2.27, 2.56, 2.73, 2.76 (CV 7.8 %, +12 % run_1 → run_5). Every amendment run
+is above the main maximum, so the amendment session did run higher. But by +2 % to +24 % depending on
+the run, so **the size of a day-to-day shift is not quantified**. Do not cite "+15 % day shift". The cp
+share barely moved (45.61 → 46.57 %): a ratio cancels what hits cp and fn alike.
+
+**Corrections to the first reading of this session (mine, in conversation, never committed).**
+1. "containerd + dockerd take ~60 % of a core while the gate measures" was wrong: `ps %CPU` is the
+   average over the process lifetime (daemons up since 10:42), not the 20 s gate window. Use
+   `/proc/stat` deltas or `pidstat`, never `ps %CPU`, for current load.
+2. "+15 % day shift" as a finding: withdrawn (above).
+Correction to the developer's review of it: "the main median sits inside the amendment run range" is
+not so; 2.22 is below every amendment run. Their conclusion (magnitude not supported) stands.
+
+**Finding A: the quiet gate is a coin flip for Knative c = 8, not a Knative property.** All ten
+Knative c=8 legs over both sessions: pass 6.5, 10.6, 11.0, 11.7, 12.2 %; fail 15.4, 16.3, 16.7, 17.6,
+18.0 %. The resting floor with k3s + Knative + docker is ~10–12 %, and the deploy/scale-to-16/verify
+burst eats the 3–5 pp of headroom about half the time. The run_final `wait_quiet` ran *before* the leg
+(before scale-up), so it could not help. Fix below.
+
+**Finding B: short runs do not explain the run-to-run noise (checked on 50 existing legs).** Per-run cp
+ms/inv CV does not fall with run length: Fn 64k c=8 at 0.9 s/run 1.8 %; Knative CPU-bound c=1 at
+19.5 s/run 5.8 %; OW 1k c=4 at 21 s/run 10.5 %. The noise depends on the platform (Knative and OW cp
+3–10 %, Fn and OpenFaaS ~1.5–3 %), not on run length. A proposed 3000-vs-30000-request experiment
+was dropped on this evidence. Lowering TOTAL to 500–1000 was also rejected: load is ~6 s of a ~7 min
+leg (deploy, scale, verify, quiet gate, 60 s probe dominate), so it saves seconds and leaves 0.4 s
+runs with ~7 cgroup samples at 2500 rps.
+
+**Finding C: the drift gate is one-sided, and making it two-sided is not the answer.** It fails only a
+throughput loss: the bridge's +42.7 % rise passed. But a two-sided 20 % throughput rule would also
+reject the main 512k c=8 leg (+31.9 % throughput, cp CV 1.8 %, the flattest Knative leg): 2 of 33
+gate-passing W1 legs fail it, one of them clean. Gating on cp CV ≤ 5 % would reject 10 of 33 (OW 1k at
+all c, several Knative and Fn cells). Throughput on 1–4 s runs is the wrong quantity to gate on, and a
+fixed CV bound rejects normal Knative/OW noise. Decision for W2: record stability per leg (below),
+report it as the cell's uncertainty, and pre-register any bridge as a comparison against the legs'
+own run spread, not a fixed ±10 %. `--drift-two-sided` exists but stays off.
+
+**Finding D: the OW "invoker child processes" row is `docker logs`, once per activation (§27.12 a
+closed).** Trace (bpftrace with argv, unmeasured, 2026-10-03 23:40, 500 requests, 1 KiB): **500 ×
+`/usr/bin/docker logs <cid> --since <t0> --until <t1> --timestamps`** from the `standalone-acto`
+threads, plus one `docker run` and one `docker inspect` (container creation). The session trace at
+64 KiB (filename only) gave 2004 docker execs / 2000 activations. Source: the image's
+`standalone.conf` sets `LogStoreProvider = DockerCliLogStoreProvider` (and `use-runc = false`);
+`DockerCliLogStore.collectLogs` calls `ExtendedDockerClient.logs`. The production default and the
+image's own `standalone-kcf.conf` use `DockerToActivationLogStoreProvider`, which reads the container's
+log file directly and spawns no process. Consequences:
+- ≈ 12–13 ms/inv of OW's ≈ 18–20 ms/inv cp (T9, W1-T5) is the standalone distribution's log
+  collection, not inherent OpenWhisk work. The dockerd side of each `docker logs` call is in untracked
+  host CPU (OW 8.8–10.8 ms/inv at 1 KiB, W1-T4), so it is not in cp at all.
+- The same call explains the settled decay (§24.8 table, `owhead1`): `docker logs --since` scans a
+  json log file that grows with every activation.
+- Every OW claim must say **"OpenWhisk standalone"** (as Parts A and C already label it). The 26–64×
+  cp premium is a measured property of the standalone distribution on this box, not of a production
+  OpenWhisk deployment (which also adds Kafka and CouchDB, so its net direction is not known from here).
+- What is left without the log store: the actor system ≈ 4 ms/inv at 1 KiB (W1-T5), still ≈ 6–14×
+  a light platform's whole cp.
+- Open question for a later, pre-registered arm: OW standalone with
+  `-Dwhisk.spi.LogStoreProvider=…DockerToActivationLogStoreProvider` (needs the host's
+  `/var/lib/docker/containers` mounted read-only into the container). Predicted: the child row → ~0.
+  Not run; not part of W1.
+
+**Finding E: W1 energy (§28.4 rule 5, owed since §28.7) is now in Part C (W1-T7).** Probe basis cited,
+calibration basis beside it; disagree beyond the calibration spread in 26 of 37 legs used. Energy does
+not rise strictly with size in 1 of 11 cells (Knative c=1: 23.5 → 26.9 → 24.9 mJ): that leg's probe
+read 1.6 W below its neighbours (one platform's probes span 2.6 W), and at c = 1 the long wall time makes
+the idle basis as large as the size effect. Cite energy per size as a trend at c = 4/8.
+
+**Finding F (post hoc, label it so): cost = fixed + per byte (W1-T9).** cp ms/inv per MiB of payload:
+Fn 1.9–2.0, OpenFaaS 3.0–3.8, Knative 3.1–3.2, OW 50–73. A straight line through 1k and 512k predicts
+64k within +1…+18 % (always under-predicts slightly). Crossover (byte cost = fixed cost) ≈ 90–260 KiB
+for the light platforms, ≈ 280–420 KiB for OW. Whole-host per MiB: Fn 6.9–8.4, Knative 7.6–9.5, OpenFaaS
+16.0–20.6, OW 104–118 ms. Knative P3 sensitivity (kourier as function) is W1-T8: P3 would hold
+(fn Δ +2.08 / +1.86 vs cp Δ +0.78 / +0.71); the pre-registered verdict stays "fails".
+
+**Tooling changes (no measured number changed).**
+1. `tools/idle_crosscheck.py`: `--legs PATTERN` (was hard-wired to `tier1*`), and usable runs from
+   `acceptance.json` (§23 / §28.7 bug class). Part A output reproduces byte-for-byte.
+2. **Gotcha:** `cp_anatomy.py --prefix payload_ --legs '*'` now also matches `payload_amend28_8_*`.
+   For the main session use `--legs '[0-9]*'` (reproduces `payload_analysis/cp_anatomy.json` exactly).
+3. `run_lock_session.sh`: **settle after verify** (default on; `--no-settle` to skip): after deploy +
+   scale + verify, wait until `/proc/stat` ≤ 10 % busy (5 s windows, 180 s cap), then run. Applies from
+   W2 on; W1 is closed. `--drift-two-sided` (default off, Finding C). Every leg's `acceptance.json` now
+   has `stability`: per-run cp and fn ms/inv, their CV and first → last drift (recorded, not gated).
+   Replayed on `payload_amend28_8_512kc8_kn_r2`: all old fields identical; two-sided flag fails it
+   with "42.7 % rise". 187/187 tests pass.
+4. `run_final.sh`: the OW trace records argv (`join(args->argv)`).
+5. `saqef-paper`: `make_payload_tables.py` W1-T7…T10, `payload_analysis/idle_crosscheck*.json`,
+   `cp_anatomy_amend28_8.json`, `ow_logstore_trace_20261003/`. Existing Part C lines unchanged.
+
+**Do not repeat:** the run-length experiment (Finding B), a two-sided throughput drift gate
+(Finding C), `ps %CPU` as current load, citing the bridge's +15 %, re-running W1 cells after the
+settle fix (W1 is closed by §28.4 / §28.8 rules).
+
+**W1 is closed for machine time.** Next: W2 pre-registration (§29), using the settle fix and the
+stability record; decide there whether the OW log-store arm (Finding D) gets its own night.

@@ -11,6 +11,10 @@ Offline, from data on disk; measures nothing. For each leg of a session prefix:
 
     python3 tools/idle_crosscheck.py                 # prefix final_, calib lock_final_calib
     python3 tools/idle_crosscheck.py --prefix final_ --calib lock_final_calib --json out.json
+    python3 tools/idle_crosscheck.py --prefix payload_ --legs '*' --calib lock_payload_calib
+
+Runs are the leg's acceptance.json "usable_runs" when it exists (runbook 28.7), else every
+run after the warm-up discard.
 """
 import argparse
 import glob
@@ -27,8 +31,19 @@ def calib_state(calib, plat):
     return float(c["median_w"]), max(c["reads_w"]) - min(c["reads_w"])
 
 
-def legs(prefix, calib):
-    for f in sorted(glob.glob(os.path.join(RES, "lock_session_%stier1*" % prefix, "lock_summary.json"))):
+def usable(outdir, disc):
+    dirs = sorted(glob.glob(os.path.join(outdir, "run_*")), key=lambda p: int(p.rsplit("_", 1)[1]))
+    acc = os.path.join(outdir, "acceptance.json")
+    if os.path.exists(acc):
+        keep = set(json.load(open(acc))["usable_runs"])
+        dirs = [d for d in dirs if os.path.basename(d) in keep]
+    else:
+        dirs = dirs[disc:]
+    return [json.load(open(os.path.join(d, "summary.json"))) for d in dirs]
+
+
+def legs(prefix, calib, pattern="tier1*"):
+    for f in sorted(glob.glob(os.path.join(RES, "lock_session_%s%s" % (prefix, pattern), "lock_summary.json"))):
         d = json.load(open(f))
         stamp, disc = d["session"]["stamp"], int(d["session"]["discard_warmup"])
         probe_f = glob.glob(os.path.join(RES, "idle_probe_%s" % stamp, "*", "summary.json"))
@@ -38,8 +53,9 @@ def legs(prefix, calib):
         probe_w = p["e_rapl_j"] / p["wall_s"]
         for plat, v in d["platforms"].items():
             cal_w, spread = calib_state(calib, plat)
-            runs = [json.load(open(r)) for r in
-                    sorted(glob.glob(os.path.join(REPO, v["outdir"], "run_*", "summary.json")))][disc:]
+            runs = usable(os.path.join(REPO, v["outdir"]), disc)
+            if not runs:
+                continue
             e_cal = statistics.median(r["e_rapl_j"] - cal_w * r["wall_s"] for r in runs)
             e_prb = statistics.median(r["e_rapl_j"] - probe_w * r["wall_s"] for r in runs)
             ok = statistics.median(r["successes"] for r in runs)
@@ -57,15 +73,16 @@ def legs(prefix, calib):
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--prefix", default="final_")
+    ap.add_argument("--legs", default="tier1*", help="stamp pattern after the prefix")
     ap.add_argument("--calib", default="lock_final_calib")
     ap.add_argument("--json", help="also write the rows here")
     a = ap.parse_args()
-    rows = list(legs(a.prefix, a.calib))
-    print("%-20s %-9s %6s %6s %6s %5s %4s %5s | %8s %8s %8s %8s %6s" % (
+    rows = list(legs(a.prefix, a.calib, a.legs))
+    print("%-30s %-9s %6s %6s %6s %5s %4s %5s | %8s %8s %8s %8s %6s" % (
         "stamp", "platform", "probe", "calib", "diff", "sprd", "flag", "hostc",
         "Edyn_prb", "Edyn_cal", "mJ/i_prb", "mJ/i_cal", "over%"))
     for r in rows:
-        print("%-20s %-9s %6.2f %6.2f %+6.2f %5.2f %4s %5.2f | %8.1f %8.1f %8.2f %8.2f %6.1f" % (
+        print("%-30s %-9s %6.2f %6.2f %+6.2f %5.2f %4s %5.2f | %8.1f %8.1f %8.2f %8.2f %6.1f" % (
             r["stamp"], r["platform"], r["probe_w"], r["calib_w"], r["diff_w"], r["calib_spread_w"],
             "FLAG" if r["flagged"] else "ok", r["probe_host_cores"], r["e_dyn_j_probe"],
             r["e_dyn_j_calib"], r["mj_per_inv_probe"], r["mj_per_inv_calib"], r["calib_overstates_pct"]))
