@@ -2008,3 +2008,58 @@ A side observation from the tables, not pre-registered: OW throughput is pinned 
 c = 1, 4, 8 while p50 latency rises 8.8 → 33.9 → 68.3 ms. The light platforms scale 5.5–6.1× from
 c=1 to c=8. OW is serialising requests at about 9 ms each. This is why OW's energy per invocation stays flat
 (113 / 107 / 108 mJ) while the others fall 2.3–2.4×. It needs explaining in §26 step 3.
+
+### 27.12 Control-plane anatomy (§26 step 3) — where cp CPU goes
+`tools/cp_anatomy.py` (offline). Output is in `saqef-paper/results/final_session/cp_anatomy.json` and the
+figure is `figures/final/F4_cp_anatomy_c1`. Medians over usable runs, ms of CPU per invocation. For
+every leg the components sum to the recorded cp CPU within 1 %, so the attribution closes.
+
+**Light platforms: one component carries the cost (inter-container).**
+
+| c=1 | component | ms/inv | rest of cp |
+|---|---|---|---|
+| OpenFaaS | gateway | 0.28 (95 %) | provider, nats, queue-worker, prometheus ≤ 0.01 each |
+| Fn | fnserver | 0.52 (100 %) | — |
+| Knative | activator 0.34 + kourier gateway 0.33 | 0.67 (96 %) | autoscaler, controllers, webhook ≈ 0.01 each |
+
+OpenFaaS's rise 0.29 → 0.40 from c=1 to c=8 (§27.9) is all gateway (0.28 → 0.40). The provider, the
+autoscaler and the controllers are near zero under steady load: on a warm platform, cp cost is
+request-path proxying, not orchestration.
+
+**Knative classification sensitivity.** `queue-proxy` is counted as function by the V5 convention
+(co-located request-path proxies → function; see V5 §5.6). It costs 0.73–0.84 ms/inv, more than the
+whole cp. Moving it to cp would double Knative's share: 9.98 / 9.53 / 9.25 / 10.40 % →
+20.4 / 20.5 / 20.5 / 22.5 % (c = 1/2/4/8). The ordering P3 still holds (OpenFaaS < Fn < Knative ≪ OW).
+OpenFaaS's of-watchdog runs inside the function container, so it cannot be separated the same way.
+
+**OpenWhisk: process spawning, not orchestration logic (intra-process).** JVM threads plus reaped
+children account for 91.7–92.9 % of the `openwhisk` container's CPU. The remaining ~1.5 ms/inv is
+other processes in the container and the 5 s sampling grain.
+
+- Under the **pre-registered map (§25.5)** the breakdown is **incomplete**: "other" is 27.1–27.9 %,
+  above the 20 % limit. The map was written for HotSpot thread names (`C1/C2 CompilerThread`,
+  `GC Thread`, `akka`/`dispatcher`). This JVM is OpenJ9 (`JIT Compilation`, `GC Worker`,
+  `Concurrent Mark`), and the actor-system threads are truncated to 15 chars as `standalone-acto`,
+  so "akka" never appears. As pre-registered, this is reported, not re-mapped.
+- One component needs no thread-name mapping, because it is the pre-registered `<children>` row:
+  **reaped child processes = 12.2 / 11.9 / 11.9 ms/inv = 72 % of JVM CPU** at ow1/ow4/ow8. These are
+  the processes the invoker forks (§25.5 calls this row "docker CLI spawned by the invoker"). That
+  alone is 17–42× the entire cp cost of each light platform.
+- **Post hoc, labelled as such:** with an OpenJ9 name map ("other" = 0 %), the actor system
+  (controller + invoker logic, HTTP) is 3.8–4.0 ms/inv (23 %), and JIT, GC, telemetry and pools
+  together are ~0.7 ms (4 %).
+
+So OW's 26–64× cp premium (§27.9) is mostly **per-activation process spawning** (≈ 12 ms CPU per
+invocation in child processes). Even OW's actor-system logic alone (≈ 4 ms) is 6–14× a light
+platform's whole cp. The CPU the docker CLI triggers inside dockerd is not in cp at all. It lands in
+untracked host CPU, so this is a lower bound on OW's real cost.
+
+**Open, not resolved from data on disk.**
+(a) Which docker commands run per activation. The children row has no argv. A one-leg strace/execsnoop
+during W1 would settle it.
+(b) The throughput cap (§27.11). Only 2 `guest_hello` action containers exist at c = 1, 4 and 8, and
+throughput is pinned at ~110 rps ≈ 9 ms per request serialised. Candidates: the standalone invoker's
+concurrency/container limits, or serialised docker CLI calls. Cap and spawn cost may share one cause.
+Both are W4-adjacent (container lifecycle) and are noted for that pre-registration.
+
+§27.10 status: step 3 done. Next is W1 (`go.sh --workload io`, pre-registered first).
