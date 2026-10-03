@@ -2670,3 +2670,19 @@ count rising before any pre-registration uses it.
 **Do not repeat:** reading the gate's old `ps` list as current load; reading a smoke test as a
 throughput result; comparing OW throughput/latency with the light platforms without saying
 "2 action containers vs 16 replicas".
+
+### 29.3 Decision for W2 onward: OpenWhisk runs with the driver log store (2026-10-04, before any W2 data)
+
+The user's decision: W2 (§30) measures OpenWhisk **with the log-driver store only**
+(`SAQEF_OW_LOGSTORE=driver`), not both stores. Reason: §29.1 showed the standalone's per-activation
+`docker logs` adds ~18 ms/inv of cp and caps throughput near 100 rps, so it would contaminate a
+memory-bound comparison. A cli arm would double the OW legs without a new question. Consequences
+for the §30 pre-registration:
+- W2's OW leg sets `SAQEF_OW_LOGSTORE=driver` in its go.sh/run_final wiring, and every leg log must
+  show `activation log store = driver`.
+- Label: "OpenWhisk standalone, log-driver log store (no per-activation log collection)"; function
+  logs are not collected (§29 rule 4).
+- W2's OW numbers are not compared with Part A / W1 OW numbers (different log store); the bridge to
+  them is Part D (same handler, both stores, one session).
+- OW's 2-action-container limit (§29.2 D) is unchanged by this decision: W2 states it wherever OW
+  throughput, latency or energy per invocation is compared.
