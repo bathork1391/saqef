@@ -674,6 +674,13 @@ for plat in [p for p in ("openfaas", "fn", "knative", "openwhisk") if short[p] i
     except Exception as e:
         shares = []
         problems.append("no readable runs.json (%s)" % type(e).__name__)
+    # FIXED 2026-10-03 (runbook 27.11): the headline share came from the leg's
+    # summary.json, i.e. the median over ALL runs including the discarded warm-up
+    # (final_ OW: 76.715 cited vs 76.57 over usable runs). Share and CV are now
+    # taken over the usable runs only, the same runs the gates saw.
+    if discard_warmup and shares:
+        shares = shares[discard_warmup:]
+        share = round(statistics.median(shares), 3) if shares else None
     cv = (statistics.pstdev(shares) / statistics.mean(shares) * 100.0) if shares else float("nan")
     sat = s.get("host_saturation_pct")
     qos = s.get("latency_ms") or {}

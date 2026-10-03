@@ -1858,7 +1858,7 @@ psys ok, 1 Hz `energy_trace.csv` in every run, OW JVM thread CSVs written. Drift
 | OpenFaaS | 4.74 | 4.92 | 5.91 | 6.09 |
 | Fn | 8.97 | 8.53 | 8.71 | 8.78 |
 | Knative | 9.95 | 9.52 | 9.26 | 10.38 |
-| OpenWhisk (ow1 / ow4 / ow8) | 76.72 | — | 76.28 | 76.32 |
+| OpenWhisk (ow1 / ow4 / ow8) | 76.57 | — | 76.16 | 76.29 |
 
 As pre-registered, failed predictions are reported, not tuned away.
 
@@ -1867,7 +1867,7 @@ OpenFaaS < {Fn, Knative} < OpenWhisk at every concurrency. Fn < Knative also at 
 (8.97 < 9.95), so the `remeasure_shares_` c=1 flip (12.73 vs 11.12) does not reproduce. Citable.
 
 ### 27.2 P2 — fails; the pre-registered mechanism was wrong
-OW share 76.72 / 76.28 / 76.32 against the predicted 81–84 % band: −4.4 to −7.9 pp. §24.8.2 said a
+OW share 76.57 / 76.16 / 76.29 (§27.11) against the predicted 81–84 % band: −4.4 to −7.8 pp. §24.8.2 said a
 move > 3 pp "would mean the logs were reaching cp CPU". They were not counted in cp CPU. Instead, cp
 CPU per invocation itself fell:
 
@@ -1988,3 +1988,23 @@ The 8× share ratio understates this, because OW's function cost is the same as 
 2. `figures/make_figures.py` REGIMES and paper numbers from `final_` (shares §27, cp ms/inv §27.9,
    energy §27.8 probe basis with the calibration band).
 3. §26 step 3 (control-plane anatomy from the JVM CSVs and traces). Then W1.
+
+Status 2026-10-03: (1) done, `saqef-paper` pushed. (2) done as a separate script,
+`saqef-paper/figures/make_final_figures.py` → `figures/final/` (F1 share vs c, F2 cp ms/inv,
+F3 energy/inv, `final_tables.md`, `final_legs.csv`). `make_figures.py` is left as is so V5 still
+rebuilds. The final draft starts from V5 and is rewritten only once the workload results are in.
+
+### 27.11 OW headline shares included the discarded warm-up (fixed 2026-10-03)
+`run_lock_session.sh` applied `--discard-warmup` to the gates but took the headline
+`cp_dynamic_share_pct` (and `cv_pct`) from the leg's `summary.json`, which is the median over **all**
+runs in `runs.json`. The OW legs keep run_1 in there (87.7–87.9 %). Cited vs usable-run medians:
+ow1 76.715 → **76.57**, ow4 76.28 → **76.16**, ow8 76.315 → **76.29**; CV 5.2–5.5 % → 1.2–1.5 %.
+Light legs ran without a warm-up discard and are unaffected, as are §27.8 energy and §27.9 cp ms/inv
+(both already sliced). P2/P3 conclusions are unchanged (−4.4 to −7.8 pp below the band). The §27 table
+now carries the corrected values. The three OW `lock_summary.json` files are recomputed in
+`saqef-paper` with a note. The gate block now computes share and CV over usable runs only.
+
+A side observation from the tables, not pre-registered: OW throughput is pinned at 107–111 rps for
+c = 1, 4, 8 while p50 latency rises 8.8 → 33.9 → 68.3 ms. The light platforms scale 5.5–6.1× from
+c=1 to c=8. OW is serialising requests at about 9 ms each. This is why OW's energy per invocation stays flat
+(113 / 107 / 108 mJ) while the others fall 2.3–2.4×. It needs explaining in §26 step 3.
