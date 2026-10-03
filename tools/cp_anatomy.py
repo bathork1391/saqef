@@ -12,6 +12,10 @@ an OpenJ9 map, because the JVM turned out to be OpenJ9 and the 25.5 patterns are
 HotSpot names.
 
     python3 tools/cp_anatomy.py [--prefix final_] [--json out.json]
+    python3 tools/cp_anatomy.py --prefix payload_ --legs '*' --jvm-dir payload_session
+
+Runs are the leg's acceptance.json "usable_runs" when it exists (runbook 28.7), else every
+run after the warm-up discard.
 """
 import argparse
 import bisect
@@ -78,7 +82,12 @@ def windows(outdir, disc):
     runs = json.load(open(os.path.join(outdir, "runs.json")))
     dirs = sorted(glob.glob(os.path.join(outdir, "run_*")),
                   key=lambda p: int(p.rsplit("_", 1)[1]))
-    return [(d, r) for d, r in zip(dirs, runs)][disc:]
+    pairs = list(zip(dirs, runs))
+    acc = os.path.join(outdir, "acceptance.json")
+    if os.path.exists(acc):
+        usable = set(json.load(open(acc))["usable_runs"])
+        return [(d, r) for d, r in pairs if os.path.basename(d) in usable]
+    return pairs[disc:]
 
 
 def container_cpu(run_dir, t0, t1):
@@ -137,17 +146,20 @@ def classify(counter, mapping):
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--prefix", default="final_")
+    ap.add_argument("--legs", default="tier1*", help="stamp pattern after the prefix")
+    ap.add_argument("--jvm-dir", default="final_session", help="results/ subdir with jvm_threads_<stamp>.csv")
     ap.add_argument("--json")
     a = ap.parse_args()
     result = []
-    for f in sorted(glob.glob(os.path.join(RES, "lock_session_%stier1*" % a.prefix, "lock_summary.json"))):
+    for f in sorted(glob.glob(os.path.join(RES, "lock_session_%s%s" % (a.prefix, a.legs), "lock_summary.json"))):
         d = json.load(open(f))
         stamp, disc = d["session"]["stamp"], int(d["session"]["discard_warmup"])
         for plat, v in d["platforms"].items():
             outdir = os.path.join(REPO, v["outdir"])
             comp_ms = collections.defaultdict(list)
             jvm_pre, jvm_j9, jvm_tot, cp_rec, ow_cont = [], [], [], [], []
-            jcsv = os.path.join(RES, "final_session", "jvm_threads_%s.csv" % stamp)
+            fn_rec, untracked = [], []
+            jcsv = os.path.join(RES, a.jvm_dir, "jvm_threads_%s.csv" % stamp)
             for run_dir, r in windows(outdir, disc):
                 at = r["attribution"]
                 t0, t1, ok = at["window_start_epoch"], at["window_end_epoch"], r["successes"]
@@ -159,14 +171,25 @@ def main():
                 for comp in {x[2] for x in COMPONENTS if x[0] == plat}:
                     comp_ms[comp].append(per[comp] / ok * 1000)
                 cp_rec.append(r["cpu_sec"]["control_plane"] / ok * 1000)
+                fn_rec.append(r["cpu_sec"]["function"] / ok * 1000)
+                # Host CPU no container accounts for (kernel networking etc., P5 in 28.3).
+                if r.get("host_cpu_sec") is not None:
+                    untracked.append((r["host_cpu_sec"] - r["cpu_sec"]["control_plane"]
+                                      - r["cpu_sec"]["function"]) / ok * 1000)
                 if plat == "openwhisk" and os.path.exists(jcsv):
                     threads = jvm_cpu(jcsv, t0, t1)
                     jvm_pre.append({k: x / ok * 1000 for k, x in classify(threads, PREREG).items()})
                     jvm_j9.append({k: x / ok * 1000 for k, x in classify(threads, OPENJ9).items()})
                     jvm_tot.append(sum(threads.values()) / ok * 1000)
                     ow_cont.append(per["standalone JVM"] / ok * 1000)
+            if not cp_rec:
+                result.append({"stamp": stamp, "platform": plat, "usable_runs": 0})
+                continue
             row = {"stamp": stamp, "platform": plat, "usable_runs": len(cp_rec),
+                   "gates_ok": v.get("gates_ok"),
                    "cp_ms_inv_recorded": round(statistics.median(cp_rec), 3),
+                   "fn_ms_inv": round(statistics.median(fn_rec), 3),
+                   "untracked_host_ms_inv": round(statistics.median(untracked), 3) if untracked else None,
                    "components_ms_inv": {k: round(statistics.median(x), 3)
                                          for k, x in sorted(comp_ms.items(), key=lambda kv: -statistics.median(kv[1]))}}
             if jvm_tot:
@@ -180,8 +203,12 @@ def main():
             result.append(row)
 
     for row in result:
-        print("\n== %s  (%s, %d usable runs)  cp recorded %.3f ms/inv" % (
-            row["stamp"], row["platform"], row["usable_runs"], row["cp_ms_inv_recorded"]))
+        if not row["usable_runs"]:
+            print("\n== %s  (%s, 0 usable runs)" % (row["stamp"], row["platform"]))
+            continue
+        print("\n== %s  (%s, %d usable runs, gates_ok=%s)  cp recorded %.3f  fn %.3f  untracked host %s ms/inv" % (
+            row["stamp"], row["platform"], row["usable_runs"], row["gates_ok"], row["cp_ms_inv_recorded"],
+            row["fn_ms_inv"], row["untracked_host_ms_inv"]))
         for k, x in row["components_ms_inv"].items():
             print("   %-40s %8.3f ms/inv" % (k, x))
         if "jvm_ms_inv_total" in row:
