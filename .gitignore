@@ -16,3 +16,4 @@ figures/
 paper1/
 papers/
 tools/emit_verified_results.py
+.claude/settings.local.json

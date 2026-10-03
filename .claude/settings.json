@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/home/imran/faas-work/SAQEF/saqef/.claude/hooks/run_tests.sh",
+            "timeout": 150,
+            "statusMessage": "Running SAQEF unit tests"
+          }
+        ]
+      }
+    ]
+  }
+}
