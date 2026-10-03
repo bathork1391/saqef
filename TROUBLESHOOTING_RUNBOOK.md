@@ -30,7 +30,7 @@ whenever a new section records a bug, a gotcha or a "do not repeat".
 | OW cannot spawn action containers (docker API 1.38 rejected) | §5 |
 | OW runs truncated by the 60 s duration cap; loadgen falls back to Python | §6, §11 |
 | OW throughput decays run over run; dockerd CPU climbs | §24.8 table (`owhead1`, log cap), §28.9 D |
-| OW "invoker child processes" ≈ 12–13 ms/inv: what are they? | §28.9 D (`docker logs` per activation, standalone only) |
+| OW "invoker child processes" ≈ 12–13 ms/inv: what are they? | §28.9 D (`docker logs` per activation, standalone only; `SAQEF_OW_LOGSTORE=driver` removes it) |
 | OW JVM dies in run 3 at 512 KiB (in-memory activation store) | §28.7 |
 | OW headline share includes the discarded warm-up | §27.11 |
 | k3s stuck "activating" after reboot | §10 |
@@ -2435,6 +2435,16 @@ log file directly and spawns no process. Consequences:
   `-Dwhisk.spi.LogStoreProvider=…DockerToActivationLogStoreProvider` (needs the host's
   `/var/lib/docker/containers` mounted read-only into the container). Predicted: the child row → ~0.
   Not run; not part of W1.
+- **Feasibility smoke test (2026-10-04 00:00, unmeasured, no gates).** `DockerToActivationLogStore`
+  needs a file-access docker client (`DockerClientWithFileAccess`, `/containers/<id>/<id>-json.log`),
+  and the standalone uses its own `StandaloneDockerClient`, so that switch is uncertain and was not
+  tried. `LogDriverLogStoreProvider` (collects nothing per activation; logs stay with docker's log
+  driver, as in production setups that ship logs via a driver) is selected with
+  `SAQEF_OW_LOGSTORE=driver` (`platforms/openwhisk.py`; default `cli` = unchanged). Result: 500/500
+  HTTP 204, **0 `docker logs` launches** (only the one `docker run` + `docker inspect`), and
+  throughput unchanged: 77.5 vs 78.5 rps, mean latency 50 ms in both. So the log store is not what
+  caps OW throughput (§27.12 b stays open); it is a CPU cost, not a latency cost. Trace:
+  `saqef-paper/results/ow_logstore_trace_20261003/driver_smoke/`.
 
 **Finding E: W1 energy (§28.4 rule 5, owed since §28.7) is now in Part C (W1-T7).** Probe basis cited,
 calibration basis beside it; disagree beyond the calibration spread in 26 of 37 legs used. Energy does

@@ -71,6 +71,16 @@ OW_JVM_ARGS = ("-Dwhisk-config.limits.actions.invokes.perMinute=1000000000"
                " -Dwhisk-config.limits.triggers.fires.perMinute=1000000000"
                " -Dwhisk.config.limits-triggers-fires-perMinute=1000000000")
 
+# Activation log collection (runbook 28.9 D). The standalone's default
+# (standalone.conf) is DockerCliLogStoreProvider: one `docker logs` process per
+# activation. SAQEF_OW_LOGSTORE=driver selects LogDriverLogStoreProvider, which
+# collects nothing per activation (logs stay with the docker log driver), as in
+# production setups that ship logs through a log driver. Unset/"cli" = default.
+OW_LOGSTORE_ARG = {
+    "cli": "",
+    "driver": " -Dwhisk.spi.LogStoreProvider="
+              "org.apache.openwhisk.core.containerpool.logging.LogDriverLogStoreProvider",
+}
 
 def _auth_header():
     return "Basic " + base64.b64encode(OW_AUTH.encode()).decode()
@@ -146,9 +156,14 @@ class OpenWhiskAdapter(Adapter):
         subprocess.run(["docker", "rm", "-f", "openwhisk"],
                        capture_output=True, text=True)
         static = self._ensure_static_docker()
+        logstore = os.environ.get("SAQEF_OW_LOGSTORE", "cli")
+        if logstore not in OW_LOGSTORE_ARG:
+            raise RuntimeError("SAQEF_OW_LOGSTORE=%r: expected one of %s"
+                               % (logstore, sorted(OW_LOGSTORE_ARG)))
+        print("openwhisk deploy: activation log store = %s" % logstore)
         r = subprocess.run(["docker", "run", "--rm", "-d", "--name", "openwhisk",
                             "-h", "openwhisk", "-p", "3233:3233", "-p", "3232:3232",
-                            "-e", "JVM_EXTRA_ARGS=" + OW_JVM_ARGS,
+                            "-e", "JVM_EXTRA_ARGS=" + OW_JVM_ARGS + OW_LOGSTORE_ARG[logstore],
                             "-v", "/var/run/docker.sock:/var/run/docker.sock",
                             "-v", "%s:/usr/bin/docker" % static,
                             OW_IMAGE], text=True)
