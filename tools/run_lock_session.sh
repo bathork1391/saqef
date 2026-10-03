@@ -386,6 +386,29 @@ run_leg() {
     esac
     echo ">>> verify"
     $SAQEF verify --platform "$platform"
+    # W2 (runbook §30.6): the DEPLOYED function must serve the arm this leg is for. Both arms
+    # burn 5 ms, so a stale image serving the other arm would leave no trace in the data.
+    # 20 GETs (several replicas), every reply must name SAQEF_EXPECT_KIB; otherwise the leg
+    # fails here, before anything is measured. Unset for every other workload: no-op.
+    if [ -n "${SAQEF_EXPECT_KIB:-}" ]; then
+        python3 - "$REPO" "$platform" "$SAQEF_EXPECT_KIB" <<'PY'
+import re, sys, urllib.request
+repo, plat, want = sys.argv[1:]
+sys.path.insert(0, repo)
+from platforms import get_adapter
+url, got = get_adapter(plat).url, []
+for _ in range(20):
+    try:
+        with urllib.request.urlopen(url, timeout=30) as r:
+            m = re.search(r"""kib["']?\s*[:=]\s*(\d+)""", r.read().decode("utf-8", "replace"))
+            got.append(m.group(1) if m else None)
+    except Exception as e:
+        got.append(repr(e)[:60])
+bad = [g for g in got if g != want]
+print(">>> deployed arm check: want kib=%s, %d/20 replies match%s" % (want, 20 - len(bad), "" if not bad else " -- got %r" % sorted(set(map(str, bad)))))
+sys.exit(1 if bad else 0)
+PY
+    fi
     if [ "$DEPLOY_ONLY" = 1 ]; then
         echo ">>> DEPLOY-ONLY pilot bench: total=$REQUESTS_PER_RUN concurrency=$CONCURRENCY duration=$duration repeat=1"
         $SAQEF run --platform "$platform" --total "$REQUESTS_PER_RUN" --concurrency "$CONCURRENCY" \

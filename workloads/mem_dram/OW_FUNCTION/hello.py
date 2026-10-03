@@ -29,4 +29,6 @@ def _sweep():
 
 def main(args):
     _sweep()
-    return {"ok": True, "kib": SAQEF_MEM_KIB}
+    # A web action's dict result without "body" is served as HTTP 204 with no content, so the
+    # arm must travel in "body" for the probe and the per-leg check to read it (runbook §30.6).
+    return {"body": "ok kib=%d" % SAQEF_MEM_KIB}

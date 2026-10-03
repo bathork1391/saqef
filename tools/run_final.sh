@@ -552,7 +552,7 @@ if [ "$WORKLOAD" = memory ]; then
         fi
         [ "$(bash "$REPO/tools/workload.sh" variant 2>/dev/null)" = "$want" ] \
             || { say "ABORT: handlers are not the mem_${arm} arm before ${PFX}c${c}_${p}_${arm}"; exit 6; }
-        export SAQEF_WORKLOAD_VARIANT="mem_${arm}"
+        export SAQEF_WORKLOAD_VARIANT="mem_${arm}" SAQEF_EXPECT_KIB="$want"
         say "    handler arm for this leg: mem_${arm} (SAQEF_MEM_KIB=$want)"
         if [ "$p" = ow ]; then
             export SAQEF_OW_LOGSTORE=driver
@@ -566,7 +566,7 @@ if [ "$WORKLOAD" = memory ]; then
             run_one "${PFX}c${c}_${p}_${arm}" "$p" "${LONG[$p]}" --concurrency "$c" --repeat "$LIGHT_REPEAT" "${IW[@]}" \
                 || failed=$((failed + 1))
         fi
-        unset SAQEF_WORKLOAD_VARIANT
+        unset SAQEF_WORKLOAD_VARIANT SAQEF_EXPECT_KIB
     done
 elif [ "$WORKLOAD" = payload ]; then
     [ -n "$AMEND" ] || for sz in "${PAYLOAD_SIZES[@]}"; do

@@ -56,6 +56,8 @@ whenever a new section records a bug, a gotcha or a "do not repeat".
 | `git_rev: unknown` / `git_dirty: false` in run JSON | §29.4 item 4 (sudo + dubious ownership; fixed) |
 | verify prints function CPU of seconds per invocation | §29.4 item 5 (no allowlist/window; fixed) |
 | `workload.sh swap` returned 0 although `cp` failed (root-owned handlers) | §30.6 (swap now dies and verifies the copy) |
+| OW web action returns HTTP 204 with an empty body | §30.6 (dict result without `body`; W2 handler returns `body`) |
+| Fn reply is `str(dict)` with single quotes; a `"`-only regex misses it | §30.6 |
 | `FATAL: box not quiet` after settle passed (any platform) | §29.2 A (7–8 % idle floor of the stacks; settle now uses 20 s windows) |
 | Quiet-gate "top CPU processes" blames java/containerd | §29.2 B (old list was lifetime `ps %CPU`; now window `/proc` deltas) |
 | OW (driver store) flat at ~305 rps from c = 4 to c = 8 | §29.2 D (only 2 action containers: user-memory 1024 MB; light platforms run 16) |
@@ -2853,3 +2855,21 @@ handler, other session, not compared): Part A T2 cp 0.29–0.40 (OF), 0.50–0.5
   at c = 8, 5.02 (cache) vs 5.49 (dram), inside M0's ±15 %. Fn starts ~10 hot containers at c = 8;
   those started inside run_1 put their start-up in run_1's fn CPU in both arms, as in every earlier
   Fn leg; the leg median absorbs it (no rule changed). Handlers restored and images rebuilt after.
+- **Developer review (2026-10-04) and two bugs it led to, both before any W2 data.** The review
+  confirmed the arms differ in one constant, the 24-leg order, the OW driver store, and asked that
+  the per-leg guard rails be rechecked: `SAQEF_WORKLOAD_VARIANT` exported per leg, OF/Kn rebuilt on
+  every swap, `variant` checked right before each leg. All three were in place. One gap was not: the
+  check read the handler **files**, not what the deployed function serves, and both arms burn
+  5 ms, so a stale image serving the other arm would leave no trace in the data. Added: after
+  verify, `run_lock_session.sh` sends 20 GETs and every reply must name `SAQEF_EXPECT_KIB`, or the leg
+  fails before measuring (run_final exports it per W2 leg; unset elsewhere, so no other workload
+  changes). Testing that check live found two bugs that would each have **aborted the W2 night at
+  the probe**:
+  1. Fn's fdk returns `str(dict)`, single quotes (`'kib': 65536`); the regex accepted only `"`.
+     Now `kib["']?\s*[:=]\s*(\d+)`, the same in `workload.sh` and `run_lock_session.sh` (test).
+  2. An OpenWhisk web action's dict result without `body` is served as **HTTP 204, empty** (as the
+     CPU handler always was), so OW could not name its arm. The W2 OW handler now returns
+     `{"body": "ok kib=N"}` (HTTP 200), in both arms.
+  Live, attended, unmeasured: `probe-mem` passes for both arms on OF (`Hello kib=…`), Kn (JSON),
+  OW (`ok kib=…`) and for Fn (`{'message': …, 'kib': …}`; cache arm live, dram arm in the smoke
+  test). Handlers restored and images rebuilt afterwards. Tests: `TestW2DeployedArmCheck`.

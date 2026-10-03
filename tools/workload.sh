@@ -134,7 +134,7 @@ except urllib.error.HTTPError as e:
     st, got = e.code, e.read().decode("utf-8", "replace")
 except Exception as e:
     st, got = None, repr(e)
-m = re.search(r'kib"?\s*[:=]\s*(\d+)', got)
+m = re.search(r"""kib["']?\s*[:=]\s*(\d+)""", got)
 ok = st is not None and 200 <= st < 300 and m is not None and m.group(1) == kib
 print("    status %s, reply %r %s" % (st, got[:80], "OK" if ok else "FAIL"))
 sys.exit(0 if ok else 1)

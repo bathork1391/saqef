@@ -3299,7 +3299,7 @@ class TestW2MemoryWorkload(unittest.TestCase):
             t = time.perf_counter()
             r = m.main({})
             self.assertGreaterEqual(time.perf_counter() - t, 0.005)
-            self.assertEqual(r, {"ok": True, "kib": kib})
+            self.assertEqual(r, {"body": "ok kib=%d" % kib})
 
     def _plan(self):
         src = open(os.path.join(REPO, "tools", "run_final.sh")).read()
@@ -3332,3 +3332,71 @@ class TestW2MemoryWorkload(unittest.TestCase):
         self.assertIn("mem_session", go)
         wl = open(os.path.join(REPO, "tools", "workload.sh")).read()
         self.assertIn('|| die "could not copy', wl)
+
+
+class TestW2DeployedArmCheck(unittest.TestCase):
+    """Runbook §30.6: run_lock_session refuses a leg whose deployed function serves the
+    other arm (both arms burn 5 ms, so the data alone could not reveal it)."""
+
+    def _snippet(self):
+        src = open(os.path.join(REPO, "tools", "run_lock_session.sh")).read()
+        i = src.index('if [ -n "${SAQEF_EXPECT_KIB:-}" ]; then')
+        body = src[src.index("<<'PY'\n", i) + len("<<'PY'\n"):src.index("\nPY\n", i)]
+        return body
+
+    def _run(self, served_kib, want):
+        import http.server
+        import tempfile
+        import threading
+
+        class H(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                b = (served_kib if isinstance(served_kib, str)
+                     else json.dumps({"ok": True, "kib": served_kib})).encode()
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(b)))
+                self.end_headers()
+                self.wfile.write(b)
+
+            def log_message(self, *a):
+                pass
+
+        srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), H)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        fake = tempfile.mkdtemp()
+        os.makedirs(os.path.join(fake, "platforms"))
+        open(os.path.join(fake, "platforms", "__init__.py"), "w").write(
+            "class _A:\n    url = 'http://127.0.0.1:%d/'\ndef get_adapter(p):\n    return _A()\n" % srv.server_address[1])
+        try:
+            return subprocess.run([sys.executable, "-c", self._snippet(), fake, "fn", want],
+                                  capture_output=True, text=True, timeout=60)
+        finally:
+            srv.shutdown()
+
+    def test_right_arm_passes(self):
+        r = self._run(65536, "65536")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("20/20 replies match", r.stdout)
+
+    def test_stale_arm_fails_the_leg(self):
+        r = self._run(256, "65536")
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("0/20 replies match", r.stdout)
+
+    def test_fn_reply_format_passes(self):
+        # Fn's fdk returns the dict's str(): single quotes (smoke test, 2026-10-04). An earlier
+        # regex allowed only a double quote and would have aborted the night at the probe.
+        r = self._run("{'message': 'Hello World', 'kib': 65536}", "65536")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        r = self._run("Hello kib=256", "256")  # OpenFaaS text reply
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+    def test_probe_and_leg_check_use_the_same_regex(self):
+        rx = 're.search(r"""kib["\']?\\s*[:=]\\s*(\\d+)"""'
+        self.assertIn(rx, open(os.path.join(REPO, "tools", "workload.sh")).read())
+        self.assertIn(rx, open(os.path.join(REPO, "tools", "run_lock_session.sh")).read())
+
+    def test_wired_per_leg(self):
+        rf = open(os.path.join(REPO, "tools", "run_final.sh")).read()
+        self.assertIn('SAQEF_EXPECT_KIB="$want"', rf)
+        self.assertIn("unset SAQEF_WORKLOAD_VARIANT SAQEF_EXPECT_KIB", rf)
