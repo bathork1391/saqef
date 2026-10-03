@@ -5,7 +5,7 @@
 #   sudo bash tools/go.sh --status   how far it got (run after the desktop comes back)
 #   sudo bash tools/go.sh --stop     stop the session now and bring the desktop back
 #
-# If the desktop does not come back: press Ctrl+Alt+F3, log in, run
+# If the desktop does not come back: press Ctrl+Alt+F3 (Latitude: Ctrl+Alt+Fn+F3), log in, run
 #   sudo bash ~/faas-work/SAQEF/saqef/tools/go.sh --stop
 # (or just reboot: the default boot target is still the desktop).
 #
@@ -122,7 +122,7 @@ echo "  do not press the power button (it kills the session). Press Ctrl+C to st
 echo "  (the session then waits up to 20 min for the desktop to close, then gives up)."
 echo "  When the desktop comes back by itself (~2 h, at most ${MAX_H} h 15 min), run:"
 echo "      sudo bash tools/go.sh --status"
-echo "  Stuck in text mode? Ctrl+Alt+F3, log in, then: sudo bash $REPO/tools/go.sh --stop"
+echo "  Stuck in text mode? Ctrl+Alt+F3 (Latitude: Ctrl+Alt+Fn+F3), log in, then: sudo bash $REPO/tools/go.sh --stop"
 for s in $(seq 60 -10 10); do echo "  ... $s s"; sleep 10; done
 # Status page first, as its own system service: go.sh runs in a desktop terminal
 # that dies with gdm, so anything after "stop display-manager" never runs (2 Oct:
