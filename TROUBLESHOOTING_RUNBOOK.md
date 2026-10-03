@@ -52,6 +52,9 @@ whenever a new section records a bug, a gotcha or a "do not repeat".
 | `_r2` retry fails the quiet gate right after a Knative teardown | §28.7 bug 3, §28.9 A |
 | OW throughput capped ~100–110 rps at every c: why? | §29.1 Q4 (the per-activation `docker logs` collector; driver store reaches ~305 rps) |
 | OW first usable run's cp 10–24 % above the rest | §29.1 post hoc 2 (median absorbs it; no action) |
+| Untracked host ms/inv differs between legs with the same config | §29.4 item 1 (idle floor × wall; use `tools/untracked_dyn.py`) |
+| `git_rev: unknown` / `git_dirty: false` in run JSON | §29.4 item 4 (sudo + dubious ownership; fixed) |
+| verify prints function CPU of seconds per invocation | §29.4 item 5 (no allowlist/window; fixed) |
 | `FATAL: box not quiet` after settle passed (any platform) | §29.2 A (7–8 % idle floor of the stacks; settle now uses 20 s windows) |
 | Quiet-gate "top CPU processes" blames java/containerd | §29.2 B (old list was lifetime `ps %CPU`; now window `/proc` deltas) |
 | OW (driver store) flat at ~305 rps from c = 4 to c = 8 | §29.2 D (only 2 action containers: user-memory 1024 MB; light platforms run 16) |
@@ -2569,15 +2572,18 @@ evaluable** for Q1–Q5. `tier1ow8_driver` is reported without a pair.
   measured ≈ 3.
 - Q3a (driver share in [40, 60] %): **fails**, below the band (35.6, 34.2 %), because cp fell
   more than predicted.
-- Q3b (driver cp > 5 × largest light cp): **fails**: 3.11 vs 3.48, 2.94 vs 3.28 (4.5 × Knative).
-  OpenWhisk is still the most expensive platform per invocation, by 4.5× rather than > 5×.
+- Q3b (driver cp > 5 × largest light cp): **fails** as pre-registered: 3.11 vs 3.48, 2.94 vs 3.28.
+  This is a cross-session ratio, so no precise multiple is cited (corrected §29.4): OpenWhisk stays
+  the most expensive platform per invocation, a few times the light platforms.
 - Q4 (rps within ±15 %): **fails**, strongly: +39 % at c = 1, +209 % at c = 4. The ~100–110 rps
   cap seen in every OW leg since §27 (§27.12 b) **is the per-activation log collector**: the
   arms differ only in the log store, in one session, alternating order. The smoke test's
   "throughput unchanged" (77.5 vs 78.5 rps) did not carry over to the bench protocol; why is
   not known (smoke test was not on the bench protocol).
-- Q5 (untracked host lower with driver): **holds** (12.63 → 8.16, 12.63 → 3.59), consistent
-  with dockerd no longer serving one `docker logs` per activation.
+- Q5 (untracked host lower with driver): **holds** on the idle-subtracted metric (5.37 → 2.90,
+  4.53 → 1.44 ms/inv, §29.4). The raw figures first quoted here (12.63 → 8.16, 12.63 → 3.59) carry
+  the idle floor × wall time and must not be cited. Consistent with dockerd no longer serving one
+  `docker logs` per activation.
 - Function CPU is unchanged (≤ 1 % apart), so the handler's work is the same in both arms.
 - Energy (rule 6, no prediction): whole-package mJ/inv roughly halves at c = 1 and falls ~2.7× at
   c = 4. The c = 4 driver probe is flagged (6.45 W vs calib 6.93 ± 0.44); calibration basis
@@ -2601,7 +2607,7 @@ Not pooled, not called a day shift.
 **Paper wording.** Part A stays the headline for "OpenWhisk standalone, default config". This
 arm says ~85 % of that cp (18 of 21 ms/inv) is the standalone's per-activation log collection,
 which also caps its throughput near 100 rps. With collection off (and so no function logs),
-OW standalone costs ~3 ms/inv of cp, still ~4.5× the light platforms.
+OW standalone costs ~3 ms/inv of cp, still a few times the light platforms (cross-session, §29.4).
 
 **Do not repeat:** re-running `owlog29_tier1ow8_cli` to rescue c = 8 (rule 1/2; c = 1 and c = 4
 already answer every question); calling the cli-vs-Part-A gap a day shift; quoting the smoke
@@ -2686,3 +2692,61 @@ for the §30 pre-registration:
   them is Part D (same handler, both stores, one session).
 - OW's 2-action-container limit (§29.2 D) is unchanged by this decision: W2 states it wherever OW
   throughput, latency or energy per invocation is compared.
+
+### 29.4 External review of owlog29 (2026-10-04): what holds, what was corrected
+
+A reviewer read the owlog29 raw runs, the analysis JSON, `cp_anatomy.py` and the harness. Each point
+was checked against the files before acting. **No experiment is re-run.** Every correction is an
+analysis of data already on disk (per-run `host_cpu_sec`, `host_window_s`, the per-leg idle probes).
+
+1. **Untracked host CPU is confounded with wall time. Accepted; the metric is fixed.**
+   `cp_anatomy.py` computes (host − cp − fn) / successes, and host CPU includes the stacks' idle
+   floor (0.5–1.0 core, §29.2 A) × wall. The two driver legs read 8.16 vs 3.59 ms/inv in the ratio
+   of their walls (22.1 vs 9.8 s). New `tools/untracked_dyn.py` subtracts each leg's own idle-probe
+   rate × window per usable run and reports the sensitivity per 0.1 core of probe error. owlog29:
+   cli 5.37 / 4.53 → driver 2.90 / 1.44 ms/inv, so **Q5 still holds** on the corrected metric and
+   the raw magnitudes are withdrawn. The reviewer's alternative "rate in cores" (1.23 → 1.10) is not
+   used: it still contains the floor, and a faster leg does more work per second.
+   **It also reaches W1** (W1-T4, P5, W1-T9 whole-host). New W1-T11: P5 still rises strictly with
+   size in **10 of 11 cells** (Knative c = 1 does not: 0.07 / 0.89 / 0.41), and the whole-host
+   per-MiB figures fall 8–33 % (e.g. OpenWhisk c = 1 104 → 75 ms/MiB, Knative c = 1 9.5 → 6.4). The raw recompute reproduces
+   W1-T9 exactly, so the correction is the floor alone. W1-T11 supersedes W1-T4 and W1-T9's
+   whole-host columns for magnitudes; the original rows stay as emitted.
+   **cp and function CPU are not affected:** idle cp is ≤ 0.01 core on the light platforms and
+   ≈ 0.04–0.05 core for the OW JVM, ≤ 2 % of any cp ms/inv. owlog29 idle-subtracted cp
+   20.70 → 2.77 (c = 1) and 20.45 → 2.79 (c = 4). Part A, W1 and Part D cp claims stand.
+   Energy was already idle-subtracted (RAPL minus probe W × wall).
+2. **Q3b is a cross-session ratio. Accepted for wording; the verdict stands as pre-registered.**
+   The comparison was written into §29 before data, so it is adjudicated as written (fails, by
+   ~10 %). But it divides an owlog29 number by a Part A number, and the cli legs sit +15 % / +18 %
+   above Part A, so the margin is inside the cross-session uncertainty. "4.5 ×" is withdrawn
+   everywhere; the wording is "a few times the light platforms".
+3. **"The actor system also halves is partly the wall artifact." Not accepted; checked.** The whole
+   OW JVM container idles at 0.04–0.05 core in the idle probes, so the wall-time difference between
+   cli and driver legs can account for at most 0.28 ms/inv (c = 4) of the ≈ 2.1 ms/inv actor drop.
+   The driver legs agree: c = 1 and c = 4 differ 2.2× in wall but only 2.37 vs 2.18 in actor ms/inv.
+   Q2 also holds on the child row alone (≥ 13.9 > 9). The decomposition stays.
+4. **git_rev "unknown" in every run. Accepted; fixed.** Under sudo, git refused the user-owned repo
+   ("dubious ownership") and the harness wrote "unknown"; `git_dirty` then read empty output as
+   **clean** (`false`), which was worse. Both calls now pass `-c safe.directory=<repo>`, and a git
+   failure records `null`, never `false`. Checked as root: rev `897831b`, dirty `true` (correct).
+   Session-level provenance was never lost: `owlog29_box_state/box_state_pre.txt` records
+   `915cec2…` and go.sh's pre-flight refuses a dirty measurement path.
+5. **`--verify` reports ~9.8 s/inv. Accepted; fixed.** `verify()` called `sample_totals` with no
+   allowlist and no window, so every non-cp container on the box (all of k3s/Knative) counted as
+   function from its cgroup's birth. It now uses `run_once`'s classification (image/label members
+   from inventories before and after) and the load window. verify gates nothing (it prints only),
+   so no leg was affected; its "OVER budget" line just alarmed every pre-flight.
+6. **cli vs Part A differ ~15 % (cp 21.1 vs 18.4, child row 14.1 vs 12.2). Accepted as a stated
+   residual.** It is not the idle floor (cp idle is < 2 %). It sits mostly in the per-activation
+   `docker logs` row. It is reported (D-T2) and not explained. Part A's absolute OW cp should be
+   quoted as session-specific, ±15 % across sessions.
+
+Tests: `tests/test_review_29_4.py` (git provenance as root path, verify members + window,
+idle-floor subtraction on a synthetic leg). VERIFIED_RESULTS: Part D rows/notes revised; Part C
+gains W1-T11 (additions only).
+
+**Do not repeat:** quoting raw untracked host ms/inv across legs of different wall time; quoting
+cross-session multiples as precise numbers; trusting `git_rev`/`git_dirty` in run JSON before this
+fix (use the session's `box_state_pre.txt`).
+

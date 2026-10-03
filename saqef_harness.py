@@ -80,10 +80,13 @@ def harness_git_rev():
     be recovered from runbook history. Returns "unknown" rather than raising:
     a run must not fail because git is absent."""
     try:
-        out = subprocess.run(["git", "rev-parse", "--short", "HEAD"],
-                             cwd=os.path.dirname(os.path.abspath(__file__)),
-                             capture_output=True, text=True, timeout=10)
-        return out.stdout.strip() or "unknown"
+        # safe.directory: the harness runs as root under sudo on a user-owned repo,
+        # and git then refuses ("dubious ownership") with empty stdout, so every
+        # owlog29 run recorded "unknown" (runbook 29.4).
+        repo = os.path.dirname(os.path.abspath(__file__))
+        out = subprocess.run(["git", "-c", "safe.directory=" + repo, "rev-parse", "--short", "HEAD"],
+                             cwd=repo, capture_output=True, text=True, timeout=10)
+        return (out.stdout.strip() if out.returncode == 0 else "") or "unknown"
     except (OSError, subprocess.SubprocessError):
         return "unknown"
 
@@ -95,9 +98,11 @@ def harness_git_dirty():
     the committed revision misrepresents the code that ran. Recorded so a
     suspicious result can be traced to a working state, not blamed on a hash."""
     try:
-        out = subprocess.run(["git", "status", "--porcelain"],
-                             cwd=os.path.dirname(os.path.abspath(__file__)),
-                             capture_output=True, text=True, timeout=15)
+        repo = os.path.dirname(os.path.abspath(__file__))
+        out = subprocess.run(["git", "-c", "safe.directory=" + repo, "status", "--porcelain"],
+                             cwd=repo, capture_output=True, text=True, timeout=15)
+        if out.returncode != 0:
+            return None  # git refused or failed: unknown, never a false "clean"
         return bool(out.stdout.strip())
     except (OSError, subprocess.SubprocessError):
         return None
@@ -2128,13 +2133,16 @@ def verify(args, cp_sub):
         headers = {"Authorization": "Basic " + base64.b64encode(
             ("%s:%s" % (user, pw)).encode()).decode()}
     os.makedirs(args.outdir, exist_ok=True)
+    inv_before = docker_inventory()
     samples, stop, first_sample, th = start_sampler(args.sampler, args.rescan_s, args.sample_s)
     if th is None:
         print("WARNING: %s sampler unavailable -> docker" % args.sampler)
         args.sampler = "docker"
         samples, stop, first_sample, th = start_sampler("docker")
+    t0_epoch = time.time()
     reqs = run_load(args.url, args.verify_n, min(args.concurrency, args.verify_n),
                     headers=headers, interarrival_ms=args.interarrival_ms)
+    t1_epoch = time.time()
     stop.set()
     th.join(timeout=10)
 
@@ -2144,7 +2152,18 @@ def verify(args, cp_sub):
     def pct(p):
         return lats[min(len(lats) - 1, int(len(lats) * p))] if lats else float("nan")
 
-    cp_cpu_s, fn_cpu_s = sample_totals(samples, cp_sub, args.fn_containers)[:2]
+    # Same classification and load window as run_once (runbook 29.4). Without them,
+    # every non-cp container on the box counted as function from its cgroup's birth,
+    # and verify reported ~9.8 s/inv for a ~6 ms handler (owlog29 leg logs).
+    inv = {**inv_before, **docker_inventory()}
+    cp_members = {n for n, (img, lbls) in inv.items()
+                  if _class_matches(n, img, lbls, (), args.cp_images, args.cp_labels)}
+    fn_members = {n for n, (img, lbls) in inv.items()
+                  if _class_matches(n, img, lbls, (), args.fn_images, args.fn_labels)}
+    cp_cpu_s, fn_cpu_s = sample_totals(
+        samples, cp_sub, args.fn_containers, cp_members, fn_members,
+        fn_allow_configured=bool(args.fn_containers or args.fn_images or args.fn_labels),
+        window=(t0_epoch, t1_epoch))[:2]
 
     ms_per_inv = (fn_cpu_s / ok * 1000.0) if ok else None
     result = {
