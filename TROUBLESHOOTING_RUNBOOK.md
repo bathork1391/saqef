@@ -50,6 +50,10 @@ whenever a new section records a bug, a gotcha or a "do not repeat".
 | `execsnoop-bpfcc` fails on kernel 7.0 | §28.7 bug 5 (bpftrace; argv via `join`, §28.9) |
 | Gate step crashes on `median(None)` (0-success run) | §28.7 bug 4 |
 | `_r2` retry fails the quiet gate right after a Knative teardown | §28.7 bug 3, §28.9 A |
+| OW throughput capped ~100–110 rps at every c: why? | §29.1 Q4 (the per-activation `docker logs` collector; driver store reaches ~305 rps) |
+| OW (driver store) flat at ~305 rps from c = 4 to c = 8 | §29.1 post hoc 1 (open item) |
+| OW first usable run's cp 10–24 % above the rest | §29.1 post hoc 2 (median absorbs it; no action) |
+| `FATAL: box not quiet` on OW cli c=8 after settle passed | §29.1 (missing leg, rule 2; not re-run) |
 
 ## 1. Noisy-neighbor contamination from background processes (incl. this agent)
 
@@ -2532,3 +2536,71 @@ row 12.16 / 11.86 / 11.94; actor system 3.99 / 3.78 / 3.78; fn 5.64 / 5.54 / 5.5
 6. Energy: RAPL, probe basis, as §27.5/§27.8; reported, no prediction.
 
 W2 (memory-bound) moves to §30.
+
+### 29.1 Session 2026-10-03 (`owlog29_`): outcome
+
+Session `owlog29_`, headless, 2026-10-03 19:20–20:10 UTC, commit `915cec2` (pre-registration
+`d5d6ea7` committed 19:12 UTC, before any arm data). Idle-w calibration in session
+(ow = 6.932 W). Every leg log confirms the intended store (`openwhisk deploy: activation log
+store = cli|driver`). Tables: `VERIFIED_RESULTS.md` Part D (D-T1…D-T3, verdicts computed at emit
+time by `../saqef-paper/figures/make_owlog_tables.py`); analysis JSON in
+`../saqef-paper/results/owlog29_analysis/`.
+
+**Legs.** 5 of 6 gate-passing, each n = 5 usable runs, 3000/3000 successes per run.
+`owlog29_tier1ow8_cli` failed twice on the quiet gate (ambient 16.9 %, then 16.6 % > 15 %; both
+after settle-after-verify had passed at 4.4 % / 6.7 %). Rule 2: missing, so **c = 8 is not
+evaluable** for Q1–Q5. `tier1ow8_driver` is reported without a pair.
+
+**Data (medians over usable runs, cli → driver).**
+
+| c | cp ms/inv | child row | actor system | fn | share % | rps | p50 / p99 ms | untracked host | mJ/inv (probe) |
+|---|---|---|---|---|---|---|---|---|---|
+| 1 | 21.11 → 3.11 | 14.09 → 0.04 | 4.49 → 2.37 | 5.69 → 5.62 | 78.8 → 35.6 | 97 → 135 | 9.7/19.3 → 7.0/10.6 | 12.63 → 8.16 | 85.6 → 41.7 |
+| 4 | 20.87 → 2.94 | 13.91 → 0.02 | 4.21 → 2.18 | 5.60 → 5.65 | 78.9 → 34.2 | 99 → 305 | 38.1/61.7 → 12.7/18.1 | 12.63 → 3.59 | 77.9 → 29.3 (probe flagged) |
+| 8 | — → 3.03 | — → 0.02 | — → 2.10 | — → 5.65 | — → 34.9 | — → 306 | — → 25.4/32.7 | — → 2.56 | — → 26.4 |
+
+**Verdicts (c = 1 and 4).**
+- Q1 (driver child row ≤ 1.0): **holds** (0.035, 0.017).
+- Q2 (cp drop ≥ 9.0): **holds**, and by twice the margin: 18.00 and 17.94 ms/inv. The drop is
+  larger than the child row (14.1) because the actor system also halves (4.49 / 4.21 → 2.37 / 2.18) and the
+  "not in JVM sample" remainder falls (1.59 / 1.73 → 0.25 / 0.37). Central expectation was driver cp ≈ 6;
+  measured ≈ 3.
+- Q3a (driver share in [40, 60] %): **fails**, below the band (35.6, 34.2 %), because cp fell
+  more than predicted.
+- Q3b (driver cp > 5 × largest light cp): **fails**: 3.11 vs 3.48, 2.94 vs 3.28 (4.5 × Knative).
+  OpenWhisk is still the most expensive platform per invocation, by 4.5× rather than > 5×.
+- Q4 (rps within ±15 %): **fails**, strongly: +39 % at c = 1, +209 % at c = 4. The ~100–110 rps
+  cap seen in every OW leg since §27 (§27.12 b) **is the per-activation log collector**: the
+  arms differ only in the log store, in one session, alternating order. The smoke test's
+  "throughput unchanged" (77.5 vs 78.5 rps) did not carry over to the bench protocol; why is
+  not known (smoke test was not on the bench protocol).
+- Q5 (untracked host lower with driver): **holds** (12.63 → 8.16, 12.63 → 3.59), consistent
+  with dockerd no longer serving one `docker logs` per activation.
+- Function CPU is unchanged (≤ 1 % apart), so the handler's work is the same in both arms.
+- Energy (rule 6, no prediction): whole-package mJ/inv roughly halves at c = 1 and falls ~2.7× at
+  c = 4. The c = 4 driver probe is flagged (6.45 W vs calib 6.93 ± 0.44); calibration basis
+  gives 27.7, same conclusion.
+
+**cli legs vs Part A (rule 3, descriptive).** cp 21.11 / 20.87 vs 18.43 / 17.70; child row
+14.09 / 13.91 vs 12.16 / 11.86; share 78.8 / 78.9 vs 76.6 / 76.2; rps 97 / 99 vs 107 / 111.
+Not pooled, not called a day shift.
+
+**Post hoc observations (not pre-registered).**
+1. With the driver store, throughput is flat from c = 4 to c = 8 (305, 306 rps) while latency
+   doubles: a second, higher OW cap at ~305 rps. Its cause is not measured. Open item
+   (replaces §27.12 b).
+2. In every OW leg of this session (both arms), and in the `payload_1kow*` legs, the first
+   usable run's cp is 10–24 % above the rest (e.g. 24.69 then ~21.1). The median absorbs it;
+   the one-run warm-up discard is not quite enough for the JVM. No action; noted so it is not
+   rediscovered.
+3. Quiet-gate ambient readings were higher on cli legs (13.9, 8.6, 16.9, 16.6 %) than on driver
+   legs (8.1, 12.3, 7.2 %). Not diagnosed; n is too small to call it an arm effect.
+
+**Paper wording.** Part A stays the headline for "OpenWhisk standalone, default config". This
+arm says ~85 % of that cp (18 of 21 ms/inv) is the standalone's per-activation log collection,
+which also caps its throughput near 100 rps. With collection off (and so no function logs),
+OW standalone costs ~3 ms/inv of cp, still ~4.5× the light platforms.
+
+**Do not repeat:** re-running `owlog29_tier1ow8_cli` to rescue c = 8 (rule 1/2; c = 1 and c = 4
+already answer every question); calling the cli-vs-Part-A gap a day shift; quoting the smoke
+test's throughput as the arm's result.
