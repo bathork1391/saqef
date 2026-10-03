@@ -28,14 +28,15 @@ export KUBECONFIG="${KUBECONFIG:-/etc/rancher/k3s/k3s.yaml}"
 UNIT=saqef-final
 WANT='{ "log-driver": "json-file", "log-opts": { "max-size": "64k", "max-file": "1" } }'
 
-WORKLOAD=cpu ACTION=run
+WORKLOAD=cpu ACTION=run AMEND=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --stop) ACTION=stop ;;
         --status) ACTION=status ;;
         --workload) WORKLOAD="${2:-}"; shift ;;
         --workload=*) WORKLOAD="${1#*=}" ;;
-        *) echo "unknown option: $1 (use --workload cpu|payload, --status, --stop)" >&2; exit 2 ;;
+        --amend) AMEND="${2:-}"; shift ;;
+        *) echo "unknown option: $1 (use --workload cpu|payload, --amend ID, --status, --stop)" >&2; exit 2 ;;
     esac
     shift
 done
@@ -44,6 +45,11 @@ case "$WORKLOAD" in
     payload) MAX_H=6 ;;    # 36 legs instead of 15; expected ~3.5-4 h
     *) echo "unknown --workload '$WORKLOAD' (cpu|payload)" >&2; exit 2 ;;
 esac
+# Amendment (runbook §28.8 style): a few named legs under their own prefix.
+AMEND_ARGS=() SESS_NAME="$([ "$WORKLOAD" = payload ] && echo payload || echo final)"
+if [ -n "$AMEND" ]; then
+    AMEND_ARGS=(--amend "$AMEND"); MAX_H=2; SESS_NAME="payload_amend${AMEND/./_}"
+fi
 if [ "$ACTION" = stop ]; then
     systemctl stop "$UNIT" 2>/dev/null || true
     systemctl stop saqef-guard.timer 2>/dev/null || true
@@ -53,7 +59,7 @@ if [ "$ACTION" = stop ]; then
     exit 0
 fi
 if [ "$ACTION" = status ]; then
-    S=$(ls -td "$REPO"/results/final_session "$REPO"/results/payload_session 2>/dev/null | head -1)
+    S=$(ls -td "$REPO"/results/final_session "$REPO"/results/payload_session "$REPO"/results/payload_amend*_session 2>/dev/null | head -1)
     echo "== service"; systemctl status "$UNIT" --no-pager 2>/dev/null | sed -n 1,5p || echo "  not running"
     [ -n "$S" ] || { echo "  no session yet"; exit 0; }
     echo "== session: $(basename "$S")"
@@ -117,7 +123,7 @@ for i in $(seq 1 90); do
 done
 
 # 3. pre-flight: everything except desktop/agents must already be fine
-out=$(bash "$REPO/tools/run_final.sh" --check --workload "$WORKLOAD" 2>&1)
+out=$(bash "$REPO/tools/run_final.sh" --check --workload "$WORKLOAD" "${AMEND_ARGS[@]}" 2>&1)
 real=$(echo "$out" | grep "PROBLEM:" | grep -v -e "graphical session" -e "agent process")
 if [ -n "$real" ]; then
     echo "$out"
@@ -139,7 +145,7 @@ systemd-run --unit saqef-guard --on-active="$((MAX_H * 60 + 15))min" \
     systemctl start display-manager >/dev/null
 systemd-run --unit "$UNIT" -p RuntimeMaxSec="${MAX_H}h" \
     systemd-inhibit --what=sleep:idle:handle-lid-switch --why="SAQEF $WORKLOAD session" \
-    bash "$REPO/tools/run_final.sh" --workload "$WORKLOAD" >/dev/null
+    bash "$REPO/tools/run_final.sh" --workload "$WORKLOAD" "${AMEND_ARGS[@]}" >/dev/null
 say "session ($WORKLOAD) launched as service '$UNIT'"
 
 # 5. leave the desktop
@@ -158,7 +164,7 @@ for s in $(seq 60 -10 10); do echo "  ... $s s"; sleep 10; done
 # waits for gdm to go, then switches to tty8 itself.
 systemctl stop saqef-screen 2>/dev/null || true
 systemctl reset-failed saqef-screen 2>/dev/null || true
-systemd-run --unit saqef-screen bash "$REPO/tools/screen_status.sh" "$([ "$WORKLOAD" = payload ] && echo payload || echo final)" >/dev/null
+systemd-run --unit saqef-screen bash "$REPO/tools/screen_status.sh" "$SESS_NAME" >/dev/null
 # Only stop the display manager. NOT "systemctl isolate multi-user.target": isolate
 # also stops every unit that target does not pull in -- including the transient
 # saqef-final service just launched (that killed the 2 Oct session after 60 s).

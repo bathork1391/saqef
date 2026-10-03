@@ -2286,3 +2286,43 @@ therefore not the main 512 KiB mechanism. Most of the +25…+38 ms/inv is the `s
 
 Note for reviewers: `governor: powersave` next to EPP `performance` is cosmetic. intel_pstate is active,
 and EPP sets the frequency policy.
+
+**Developer review of 28.7 (2026-10-03), checked against the data.** Agreed and adopted: (i) P3's Knative
+failure depends on the accounting convention. queue-proxy (function) and kourier (cp) are both per-request
+HTTP proxies, and each takes about a third of the byte cost (c=1 Δ: queue-proxy +0.91, activator +0.76,
+kourier +0.80 ms/inv). With kourier counted as function, fn Δ > cp Δ (c=1 +2.08 vs +0.78; c=4 +1.86 vs
++0.71). This is reported as a **sensitivity**, not a rescue: the pre-registered verdict stays "fails".
+(ii) W1 energy (RAPL probe basis, §28.4 rule 5) is still owed for Part C. (iii) `acceptance.json` now
+records `drift_pct` for every leg, so passing margins are visible. Not adopted: (iv) "the ~21 % Knative
+c=8 decay is the autoscaler". Replicas are pinned (minScale = maxScale = 16), so the autoscaler does not
+scale. The failing legs were non-monotone noise on 1–3 s runs (64k c=8: 1703, 1205, 1832, 1232, 1337 rps),
+except 1k c=8, a steady decline (2671 → 2111). (v) "pin OpenFaaS's fn Δ to of-watchdog". of-watchdog
+and the handler share one container (`fwatchdog` is its command), so cgroup data cannot split them.
+
+### 28.8 Amendment: Knative c = 8 at 1 KiB and 64 KiB (pre-registered 2026-10-03, before any amendment data)
+Amendment 28.8: pre-registered
+
+**Why.** Part C has no citable Knative c=8 cell at 1k or 64k (28.7). The user decided to measure them
+instead of leaving the row incomplete. No verdict depends on them: P2 Knative is already 2/2, and P3
+Knative already fails at c=1 and c=4. This amendment is not a rescue. The original attempts
+(`payload_1kc8_kn`, `_r2`, `payload_64kc8_kn`, `_r2`) stay on record as they are.
+
+**Legs (fixed in `run_final.sh`, `--amend 28.8`).** Knative 1k c=8 and 64k c=8, plus **Knative 512k c=8
+as a bridge**. It is citable in the main session (cp 2.22, fn 2.63 ms/inv) and measures how far a
+different day moves the same cell.
+
+**Protocol: identical to §28.2.** Same handler, bodies, TOTAL = 3000, REPEAT 5, `--cpu-probe 60`, same
+gates. That includes the 20 % first-vs-last drift gate, which is **not** changed after seeing W1 data
+(a better drift rule is a W2 matter). In-session payload probe and idle-w calibration. One in-session
+retry per leg, with the 28.7 quiet-wait. Afterwards the unmeasured OW exec trace (§27.12 a). Prefix
+`payload_amend28_8_`. Command: `sudo bash tools/go.sh --workload payload --amend 28.8`
+(≈ 1 h: probe 8 min, calibration 24 min, legs ~25 min, trace 2 min; watchdog 2 h).
+
+**Decision rules.**
+1. **Pooling.** The two amendment cells enter Part C's grid only if the bridge's cp ms/inv **and** fn
+   ms/inv are both within **±10 %** of the main session's (2.22 / 2.63). Otherwise they are reported in
+   their own column, the session-to-session shift is reported as a finding, and nothing is pooled.
+   Either way they carry an "amendment session" mark.
+2. A leg that fails twice is recorded as missing. These cells get no further amendment.
+3. Once pooled, P1–P5 for Knative c=8 are judged exactly as §28.3 states them. A failure is a finding.
+4. No other cell, platform or size is measured under this amendment.

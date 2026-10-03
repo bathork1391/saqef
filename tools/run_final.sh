@@ -44,7 +44,7 @@ WAIT_HEADLESS_S=1200     # how long to wait for the desktop/agents to go away
 WAIT_KNATIVE_S=900       # how long to wait for knative-serving to be Ready after a docker restart
 RESTORE_GUI=1
 
-CHECK_ONLY=0 DRY_RUN=0 WORKLOAD=cpu
+CHECK_ONLY=0 DRY_RUN=0 WORKLOAD=cpu AMEND=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --check) CHECK_ONLY=1 ;;
@@ -52,6 +52,7 @@ while [ $# -gt 0 ]; do
         --no-restore-gui) RESTORE_GUI=0 ;;
         --workload) WORKLOAD="${2:-}"; shift ;;
         --workload=*) WORKLOAD="${1#*=}" ;;
+        --amend) AMEND="${2:-}"; shift ;;
         *) echo "unknown option: $1" >&2; exit 2 ;;
     esac
     shift
@@ -62,6 +63,19 @@ case "$WORKLOAD" in
     *) echo "unknown --workload '$WORKLOAD' (cpu|payload)" >&2; exit 2 ;;
 esac
 PAYLOAD_SIZES=(1k 64k 512k)
+# Amendments: a fixed, named set of legs, run under their own prefix so they can never be
+# mistaken for the main session. Each must be pre-registered in the COMMITTED runbook
+# (pre-flight check 7). Not a generic leg picker: §28.4 rule 2 forbids ad hoc re-runs.
+AMEND_LEGS=()
+if [ -n "$AMEND" ]; then
+    [ "$WORKLOAD" = payload ] || { echo "--amend needs --workload payload" >&2; exit 2; }
+    case "$AMEND" in
+        # Kn c=8 at 1k/64k (no citable leg on 2026-10-03) + Kn 512k c=8 as the bridge cell
+        28.8) AMEND_LEGS=("1k 8 kn" "64k 8 kn" "512k 8 kn") ;;
+        *) echo "unknown amendment '$AMEND' (known: 28.8)" >&2; exit 2 ;;
+    esac
+    PFX="payload_amend${AMEND/./_}_"
+fi
 
 SESS="$REPO/results/${PFX}session"
 BOX="$REPO/results/${PFX}box_state"
@@ -162,6 +176,12 @@ PY
     # working tree, so they must start clean (go.sh restores a leftover swap itself).
     dirty=$(git -c safe.directory="$REPO" -C "$REPO" status --porcelain -- saqef saqef_harness.py platforms tools/run_lock_session.sh tools/run_final.sh tools/jvm_thread_sampler.py tools/workload.sh workloads hello OF_FUNCTION KNATIVE_FUNCTION OW_FUNCTION 2>&1) || bad "git status failed: $dirty"
     [ -z "$dirty" ] || bad "uncommitted measurement-path changes: $(echo "$dirty" | tr '\n' ';')"
+
+    # 7. an amendment runs only if its pre-registration is committed
+    if [ -n "$AMEND" ] && ! git -c safe.directory="$REPO" -C "$REPO" show HEAD:TROUBLESHOOTING_RUNBOOK.md 2>/dev/null \
+            | grep -qF "Amendment $AMEND: pre-registered"; then
+        bad "amendment $AMEND is not pre-registered in the committed runbook (need the line 'Amendment $AMEND: pre-registered')"
+    fi
 
     # 6. headless + no agents
     local g ag
@@ -321,7 +341,14 @@ if [ "$CHECK_ONLY" = 1 ] || [ "$DRY_RUN" = 1 ]; then
             echo "  rebuild OF/Kn images from the working-tree handlers"
         fi
         echo "  ${PFX}calib: idle_w for bare, of, fn, kn, ow (3 x 60 s each), no leg"
-        if [ "$WORKLOAD" = payload ]; then
+        if [ -n "$AMEND" ]; then
+            for leg in "${AMEND_LEGS[@]}"; do
+                read -r sz c p <<< "$leg"
+                echo "  ${PFX}${sz}c${c}_${p}: POST body_${sz} --concurrency $c --repeat $LIGHT_REPEAT (amendment $AMEND)"
+            done
+            echo "  unmeasured: OW execsnoop trace, 64k c=4 (runbook §27.12 a)"
+            echo "  restore handlers + rebuild OF/Kn images"
+        elif [ "$WORKLOAD" = payload ]; then
             for sz in "${PAYLOAD_SIZES[@]}"; do
                 for c in 1 4 8; do for p in of fn kn; do
                     echo "  ${PFX}${sz}c${c}_${p}: POST body_${sz} --concurrency $c --repeat $LIGHT_REPEAT"; done; done
@@ -411,8 +438,17 @@ say "idle_w (this session): of=$W_OF fn=$W_FN kn=$W_KN ow=$W_OW bare=$(read_cali
 IW=(--skip-idle-calib --idle-w-source "$CAL" --idle-w-of "$W_OF" --idle-w-fn "$W_FN" --idle-w-kn "$W_KN" --idle-w-ow "$W_OW")
 
 failed=0
+if [ -n "$AMEND" ]; then
+    say "=== amendment $AMEND: ${#AMEND_LEGS[@]} leg(s), same protocol as the main session"
+    for leg in "${AMEND_LEGS[@]}"; do
+        read -r sz c p <<< "$leg"
+        export SAQEF_BODY_FILE="$BODIES/body_${sz}.txt"
+        run_one "${PFX}${sz}c${c}_${p}" "$p" "${LONG[$p]}" --concurrency "$c" --repeat "$LIGHT_REPEAT" "${IW[@]}" \
+            || failed=$((failed + 1))
+    done
+fi
 if [ "$WORKLOAD" = payload ]; then
-    for sz in "${PAYLOAD_SIZES[@]}"; do
+    [ -n "$AMEND" ] || for sz in "${PAYLOAD_SIZES[@]}"; do
         export SAQEF_BODY_FILE="$BODIES/body_${sz}.txt"
         say "=== payload $sz ($SAQEF_BODY_FILE)"
         for c in 1 4 8; do

@@ -654,11 +654,13 @@ for plat in [p for p in ("openfaas", "fn", "knative", "openwhisk") if short[p] i
     # sequence is not a central estimate of anything, and the whole 5-run
     # median is what lands in the paper. Compare first vs last repeat and
     # fail if the box lost more than --max-drift-pct of throughput.
+    drift_pct = None   # recorded for every leg, so passing margins are visible too
     try:
         rp = [json.load(open(os.path.join(p, "summary.json"))).get("throughput_rps")
               for p in runs]
         if len(rp) >= 3 and all(v for v in rp):
             drop = (rp[0] - rp[-1]) / rp[0] * 100.0
+            drift_pct = round(drop, 2)
             if drop > max_drift:
                 # Name the actual run dirs: with --discard-warmup the surviving
                 # run_N no longer starts at 1, so a hardcoded "run_1..run_N"
@@ -714,6 +716,7 @@ for plat in [p for p in ("openfaas", "fn", "knative", "openwhisk") if short[p] i
         print("%-10s   WARN %s (--rapl-fit-warn: recorded, not gating)" % ("", wmsg))
     acc = {"stamp": stamp, "platform": plat, "leg_gates_ok": (ok == "OK"),
            "leg_problems": problems, "warnings": warnings,
+           "drift_pct": drift_pct, "max_drift_pct": max_drift,
            "usable_runs": [v["name"] for v in run_verdicts if v["usable"]],
            "runs": run_verdicts}
     json.dump(acc, open(os.path.join(out, "acceptance.json"), "w"), indent=2)
