@@ -10,6 +10,10 @@
 #   bash tools/workload.sh probe DIR [P]   deploy each platform (or the quoted list P), POST
 #                                          every body, require a 2xx whose reply equals the
 #                                          body, tear down
+#   bash tools/workload.sh probe-mem KIB [P]  W2 (runbook §30): deploy each platform, GET, require
+#                                          a 2xx whose reply names "kib" KIB (the arm that is
+#                                          swapped in), tear down
+#   bash tools/workload.sh variant         print the swapped-in W2 arm's SAQEF_MEM_KIB, or "cpu"
 #
 # run_final.sh calls `build` at the start of EVERY session, so the OF/Kn images always
 # match the working-tree handlers -- a session killed before it could restore cannot
@@ -28,7 +32,8 @@ swap() {
     [ -d "$REPO/workloads/$w" ] || die "no workloads/$w"
     for f in "${HANDLERS[@]}"; do
         [ -f "$REPO/workloads/$w/$f" ] || continue
-        cp "$REPO/workloads/$w/$f" "$REPO/$f"
+        cp "$REPO/workloads/$w/$f" "$REPO/$f" || die "could not copy workloads/$w/$f over $f"
+        cmp -s "$REPO/workloads/$w/$f" "$REPO/$f" || die "$f does not match workloads/$w/$f after the copy"
         echo "  $f <- workloads/$w/$f"
     done
 }
@@ -112,11 +117,59 @@ PY
     return $fail
 }
 
+probe_mem() {
+    local kib="$1" p fail=0
+    for p in ${2:-openfaas fn knative openwhisk}; do
+        echo "  probe-mem $p (want kib=$kib)"
+        python3 "$REPO/saqef" deploy --platform "$p" >/dev/null 2>&1 || { echo "    deploy FAILED"; fail=1; continue; }
+        python3 - "$REPO" "$p" "$kib" <<'PY' || fail=1
+import re, sys, urllib.error, urllib.request
+repo, plat, kib = sys.argv[1:]
+sys.path.insert(0, repo)
+from platforms import get_adapter
+try:
+    with urllib.request.urlopen(get_adapter(plat).url, timeout=60) as r:
+        st, got = r.status, r.read().decode("utf-8", "replace")
+except urllib.error.HTTPError as e:
+    st, got = e.code, e.read().decode("utf-8", "replace")
+except Exception as e:
+    st, got = None, repr(e)
+m = re.search(r'kib"?\s*[:=]\s*(\d+)', got)
+ok = st is not None and 200 <= st < 300 and m is not None and m.group(1) == kib
+print("    status %s, reply %r %s" % (st, got[:80], "OK" if ok else "FAIL"))
+sys.exit(0 if ok else 1)
+PY
+        python3 "$REPO/saqef" teardown --platform "$p" >/dev/null 2>&1 || true
+        if [ "$p" = knative ]; then
+            local w=0
+            while [ $w -lt 360 ] && docker ps --format '{{.Names}}' | grep -qE 'user-container|queue-proxy|hello-0000'; do
+                sleep 5; w=$((w + 5))
+            done
+        fi
+        sleep 5
+    done
+    [ "$fail" = 0 ] && echo "  PROBE OK: every platform serves the kib=$kib arm" || echo "  PROBE FAILED"
+    return $fail
+}
+
+variant() {
+    local k
+    k=$(grep -hoE '^SAQEF_MEM_KIB = [0-9]+' "$REPO/hello/func.py" "$REPO/OF_FUNCTION/handler.py" \
+        "$REPO/KNATIVE_FUNCTION/app.py" "$REPO/OW_FUNCTION/hello.py" 2>/dev/null | sort -u)
+    case "$(echo "$k" | grep -c .)" in
+        0) echo cpu ;;
+        1) echo "${k##* }" ;;
+        *) die "handlers disagree on SAQEF_MEM_KIB: $(echo $k)" ;;
+    esac
+}
+
 case "${1:-}" in
     swap) swap "${2:?workload name}" ;;
     restore) restore ;;
     build) build ;;
     bodies) bodies "${2:?dir}" ;;
     probe) probe "${2:?dir}" "${3:-}" ;;
-    *) echo "usage: $0 swap WORKLOAD | restore | build | bodies DIR | probe DIR" >&2; exit 2 ;;
+    probe-mem) probe_mem "${2:?kib}" "${3:-}" ;;
+    variant) variant ;;
+    *) echo "usage: $0 swap WORKLOAD | restore | build | bodies DIR | probe DIR | probe-mem KIB | variant" >&2; exit 2 ;;
 esac

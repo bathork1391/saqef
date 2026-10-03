@@ -4,6 +4,7 @@
 #   sudo bash tools/go.sh                     CPU-bound corpus (runbook 24.8)
 #   sudo bash tools/go.sh --workload payload  W1 payload I/O night (runbook §28)
 #   sudo bash tools/go.sh --arm owlog29       OpenWhisk log-collector A/B (runbook §29)
+#   sudo bash tools/go.sh --workload memory   W2 memory-bound night (runbook §30)
 #   sudo bash tools/go.sh --status            how far the latest session got
 #   sudo bash tools/go.sh --stop              stop the session now and bring the desktop back
 #
@@ -38,17 +39,18 @@ while [ $# -gt 0 ]; do
         --workload=*) WORKLOAD="${1#*=}" ;;
         --amend) AMEND="${2:-}"; shift ;;
         --arm) ARM="${2:-}"; shift ;;
-        *) echo "unknown option: $1 (use --workload cpu|payload, --amend ID, --arm ID, --status, --stop)" >&2; exit 2 ;;
+        *) echo "unknown option: $1 (use --workload cpu|payload|memory, --amend ID, --arm ID, --status, --stop)" >&2; exit 2 ;;
     esac
     shift
 done
 case "$WORKLOAD" in
     cpu) MAX_H=4 ;;        # hard ceiling; a CPU session takes ~2 h
     payload) MAX_H=6 ;;    # 36 legs instead of 15; expected ~3.5-4 h
-    *) echo "unknown --workload '$WORKLOAD' (cpu|payload)" >&2; exit 2 ;;
+    memory) MAX_H=6 ;;     # 24 legs + 8 probe deploys + per-leg swaps; expected ~3.5 h (runbook §30.2)
+    *) echo "unknown --workload '$WORKLOAD' (cpu|payload|memory)" >&2; exit 2 ;;
 esac
 # Amendment (runbook §28.8 style): a few named legs under their own prefix.
-AMEND_ARGS=() SESS_NAME="$([ "$WORKLOAD" = payload ] && echo payload || echo final)"
+AMEND_ARGS=() SESS_NAME="$(case "$WORKLOAD" in payload) echo payload ;; memory) echo mem ;; *) echo final ;; esac)"
 if [ -n "$AMEND" ]; then
     AMEND_ARGS=(--amend "$AMEND"); MAX_H=2; SESS_NAME="payload_amend${AMEND/./_}"
 fi
@@ -65,7 +67,7 @@ if [ "$ACTION" = stop ]; then
     exit 0
 fi
 if [ "$ACTION" = status ]; then
-    S=$(ls -td "$REPO"/results/final_session "$REPO"/results/payload_session "$REPO"/results/payload_amend*_session "$REPO"/results/owlog*_session 2>/dev/null | head -1)
+    S=$(ls -td "$REPO"/results/final_session "$REPO"/results/payload_session "$REPO"/results/payload_amend*_session "$REPO"/results/owlog*_session "$REPO"/results/mem_session 2>/dev/null | head -1)
     echo "== service"; systemctl status "$UNIT" --no-pager 2>/dev/null | sed -n 1,5p || echo "  not running"
     [ -n "$S" ] || { echo "  no session yet"; exit 0; }
     echo "== session: $(basename "$S")"
@@ -85,9 +87,14 @@ if systemctl is-active --quiet "$UNIT"; then
 fi
 systemctl reset-failed "$UNIT" 2>/dev/null || true
 
-# 0. a session that died hard can leave the payload handlers swapped in; put them back
+# 0. a session that died hard can leave a workload's handlers (payload, mem_*) swapped in;
+#    put them back. Any handler that matches a file under workloads/ counts.
 for f in hello/func.py OF_FUNCTION/handler.py OF_FUNCTION/index.py KNATIVE_FUNCTION/app.py OW_FUNCTION/hello.py; do
-    if [ -f "$REPO/workloads/payload/$f" ] && cmp -s "$REPO/$f" "$REPO/workloads/payload/$f"; then
+    hit=""
+    for w in "$REPO"/workloads/*/; do
+        [ -f "$w$f" ] && cmp -s "$REPO/$f" "$w$f" && hit=1
+    done
+    if [ -n "$hit" ]; then
         say "restoring handlers left swapped by an earlier session"
         bash "$REPO/tools/workload.sh" restore
         break

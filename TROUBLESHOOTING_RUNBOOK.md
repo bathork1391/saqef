@@ -55,6 +55,7 @@ whenever a new section records a bug, a gotcha or a "do not repeat".
 | Untracked host ms/inv differs between legs with the same config | §29.4 item 1 (idle floor × wall; use `tools/untracked_dyn.py`) |
 | `git_rev: unknown` / `git_dirty: false` in run JSON | §29.4 item 4 (sudo + dubious ownership; fixed) |
 | verify prints function CPU of seconds per invocation | §29.4 item 5 (no allowlist/window; fixed) |
+| `workload.sh swap` returned 0 although `cp` failed (root-owned handlers) | §30.6 (swap now dies and verifies the copy) |
 | `FATAL: box not quiet` after settle passed (any platform) | §29.2 A (7–8 % idle floor of the stacks; settle now uses 20 s windows) |
 | Quiet-gate "top CPU processes" blames java/containerd | §29.2 B (old list was lifetime `ps %CPU`; now window `/proc` deltas) |
 | OW (driver store) flat at ~305 rps from c = 4 to c = 8 | §29.2 D (only 2 action containers: user-memory 1024 MB; light platforms run 16) |
@@ -2750,3 +2751,105 @@ gains W1-T11 (additions only).
 cross-session multiples as precise numbers; trusting `git_rev`/`git_dirty` in run JSON before this
 fix (use the session's `box_state_pre.txt`).
 
+
+## 30. W2 memory-bound workload — pre-registration (written 2026-10-04, before any W2 data)
+Workload memory: pre-registered
+
+### 30.1 Question
+Roadmap §26 step 5: **does memory pressure in the function inflate the control plane's CPU cost?**
+The function and the control plane share one 8 MiB L3 and one memory bus. A function that streams
+through DRAM evicts the control plane's working set and queues its cache misses behind its own, so
+each request may cost the control plane more CPU time. That cost is billed to nobody. No data on
+disk answers this: every corpus so far used a cache-resident handler (spin, echo).
+
+### 30.2 Design (fixed)
+- **Handler, two arms, one variable.** Each call copies 256 KiB chunks from one resident buffer to
+  another for **5 ms of wall time**, the same budget as Part A's spin, so the function's CPU per
+  call is matched by design; only the memory traffic differs.
+  - `mem_cache`: SAQEF_MEM_KIB = 256 (src + dst = 512 KiB, fits one core's 1.25 MiB L2).
+  - `mem_dram`: SAQEF_MEM_KIB = 65536 (128 MiB resident, 16 × the 8 MiB L3; every pass goes to DRAM).
+  Files: `workloads/mem_cache/`, `workloads/mem_dram/`; the arms differ in that one line only
+  (unit test). memoryview slicing, so there is no allocation per chunk (musl would mmap/munmap 256 KiB).
+  Reply names the arm (`kib`). Requests are bare GETs, as in the CPU workload.
+- **Offline check (host python, 2026-10-04, not a measurement):** both arms 5.01 / 5.02 ms CPU per
+  call, 0 ms system time; `perf stat` LLC load misses over 3 s: 71 k (cache) vs 165 M of 178 M loads
+  (dram, 93 %); RSS 10 vs 138 MB, inside Fn's and OW's 256 MB function limits. Eight DRAM-arm copies
+  in parallel saturate the bus (~1.4 GB/s each vs 8 GB/s alone); eight cache-arm copies do not.
+- **Legs:** all four platforms × c = 1, 4, 8 × two arms = **24 legs**, prefix `mem_`, stamps
+  `mem_c<c>_<of|fn|kn|ow>_<cache|dram>`. Order: for each c, platforms of, fn, kn, ow; a platform's two
+  arms run **back to back**, and which arm goes first alternates with platform and c (c = 1: of
+  cache→dram, fn dram→cache, kn cache→dram, ow dram→cache; c = 4 the reverse; c = 8 as c = 1).
+- **Protocol: as Part A.** TOTAL = 3000; light `--repeat 5`; OW `--repeat 6 --discard-warmup 1`,
+  `--ow-duration` 420/300 s, JVM thread sampler; `--cpu-probe 60`; idle-w calibration in session;
+  one `_r2` retry; settle after verify (20 s windows, §29.2); same gates; two-sided drift off
+  (§28.9 C), per-leg stability recorded. OF and Kn at 16 replicas as always.
+- **OpenWhisk: driver log store** (`SAQEF_OW_LOGSTORE=driver`, §29.3) on every OW leg and in the
+  probe; label "OpenWhisk standalone, log-driver log store". It serves with **2 action containers**
+  (§29.2 D), so at c = 4/8 only two OW functions stream memory at once, against up to 8 on the
+  light platforms. Stated wherever OW is compared.
+- **Guard rails.** Before any leg, each arm is swapped in, OF/Kn images rebuilt, and every platform
+  deployed and probed: a 2xx whose reply names that arm's kib, or the session aborts (exit 7).
+  Before each leg the handlers are swapped (and OF/Kn rebuilt) if the arm differs, then
+  `workload.sh variant` must equal the leg's arm or the session aborts. Every run records
+  `env.workload_variant`; `box_state` records handler sha256s; handlers restored on exit.
+- **Run:** `sudo bash tools/go.sh --workload memory`. Expected ≈ 3–3.5 h (calibration 24 min, probe
+  8 deploys ~20 min, 24 legs × ~5.5 min, swaps ~6 min); watchdog 6 h.
+
+### 30.3 Anchors
+The comparison is **within this session, dram vs cache, same platform and c**. Noise: run-to-run
+cp CV over usable runs in W1 and owlog29 is median 2.4 % (Fn), 3.0 % (OF), 4.3 % (OW cli), 6.7 %
+(Kn), 7.1 % (OW driver); max 10.5 %. A leg median over 5 runs is therefore good to ~2–4 %, and the
+difference of two adjacent legs to ~3–5 %; hence 10 % as the effect threshold. Context only (other
+handler, other session, not compared): Part A T2 cp 0.29–0.40 (OF), 0.50–0.52 (Fn), 0.66–0.72
+(Kn) ms/inv; owlog29 driver cp 2.94–3.11 ms/inv; function CPU 5.3–6.5 ms/inv (T3).
+
+### 30.4 Predictions (per platform; ratio = dram / cache at the same c)
+- **M0 — the arms do the same function work (design check).** fn ms/inv ratio within **±15 %** at
+  every evaluable platform/c, and throughput ratio within **±15 %**.
+- **M1 — memory pressure inflates control-plane CPU under load.** At c = 8, cp ms/inv ratio
+  **≥ 1.10** on **≥ 3 of 4** platforms.
+- **M2 — the inflation grows with concurrency.** cp ratio at c = 8 **>** cp ratio at c = 1 on
+  **≥ 3 of 4** platforms (more streaming functions, more contention).
+- **M3 — the kernel side moves the same way.** Idle-subtracted untracked host CPU (§29.4,
+  `tools/untracked_dyn.py`) per invocation is higher with dram at c = 8 on ≥ 3 of 4 platforms.
+  Direction only.
+- No prediction for c = 1 magnitude, for the cp share (it follows cp, since fn is matched), or for
+  energy (DRAM traffic raises uncore power, stalls lower core power; the sign is not known).
+
+### 30.5 Decision rules
+1. Each prediction is judged per platform/c from this session's own legs. A failed prediction is a
+   **finding**, reported as such. No leg is re-run to rescue one.
+2. A leg that fails twice is missing; a platform/c with either arm missing is not evaluable, and
+   M1/M2 are then judged over the evaluable platforms only (the "≥ 3 of 4" becomes "all but one").
+3. Where M0 fails for a platform/c, its M1/M2/M3 values are reported but flagged "function work not
+   matched"; they do not count toward the "≥ 3 of 4".
+4. Nothing is pooled with Part A, W1 or owlog29. OW (driver) is never compared with Part A/W1 OW
+   (cli store). The cache arm is shown beside Part A T2 descriptively only.
+5. Untracked host CPU: idle-subtracted only (§29.4). Raw untracked is not cited.
+6. Energy: RAPL, probe basis (§27.8), reported per arm, no prediction.
+7. `host_saturated` legs: QoS not cited; CPU and energy cited if the other gates pass.
+8. A probe failure aborts the night before measuring; the buffer sizes are not changed silently.
+9. Results go to VERIFIED_RESULTS.md **Part E** (generator `figures/make_mem_tables.py`, verdicts
+   computed at emit time), analysis JSON under `results/mem_analysis/`.
+
+### 30.6 Tooling for W2 (no measured number changed)
+- `tools/workload.sh`: `probe-mem KIB [P]` (deploy, GET, reply must name the arm's kib) and
+  `variant` (prints the swapped-in SAQEF_MEM_KIB, or `cpu`). **Bug fixed:** `swap` ignored a
+  failed `cp` and returned 0. Found 2026-10-04 when an unprivileged swap hit the root-owned
+  handlers; a session as root would not have hit it, but a silent wrong handler is the worst failure
+  this study can have. `swap` now dies on a failed copy and `cmp`s every file after copying.
+- `tools/run_final.sh --workload memory`: the 24 legs of §30.2, the two-arm probe, per-leg
+  swap + `variant` check, `SAQEF_WORKLOAD_VARIANT` and `SAQEF_OW_LOGSTORE=driver` per leg, and
+  pre-flight check 7 for the line `Workload memory: pre-registered`.
+- `tools/go.sh --workload memory` (watchdog 6 h, session `mem_session`, `--status` glob); the
+  leftover-handler restore now recognises any `workloads/*` handler, not only payload.
+- `saqef_harness.py`: `env.workload_variant` in every run (None unless set).
+- **Smoke test (2026-10-04, unmeasured, desktop up, not citable).** `mem_dram` swapped in, OF/Kn
+  rebuilt, each platform deployed (OW with the driver store): every reply named `kib 65536`;
+  500 GETs at c = 8 all 2xx on Fn/Kn/OW (OF at 1 replica lost 4 to timeouts; at its protocol's 16
+  replicas 3000/3000 OK). The fixed `--verify` (§29.4 item 5) now reads OF 6.85, Kn 6.76, OW 10.07,
+  Fn 21.55 ms/inv. **Fn's (and OW's) first verify includes container start-up, in both arms:**
+  Fn verify ×3 read 21.27 → 5.95 → 4.84 (cache) and 21.78 → 12.69 → 5.18 (dram); after 3000 GETs
+  at c = 8, 5.02 (cache) vs 5.49 (dram), inside M0's ±15 %. Fn starts ~10 hot containers at c = 8;
+  those started inside run_1 put their start-up in run_1's fn CPU in both arms, as in every earlier
+  Fn leg; the leg median absorbs it (no rule changed). Handlers restored and images rebuilt after.

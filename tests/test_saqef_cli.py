@@ -3273,3 +3273,62 @@ class TestSummaryRecordsAttributionInputs(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class TestW2MemoryWorkload(unittest.TestCase):
+    """Runbook §30: the two W2 arms differ in one constant; the plan lists exactly 24 legs."""
+
+    FILES = ("hello/func.py", "OF_FUNCTION/handler.py", "KNATIVE_FUNCTION/app.py", "OW_FUNCTION/hello.py")
+
+    def test_arms_differ_only_in_buffer_size(self):
+        for f in self.FILES:
+            a = open(os.path.join(REPO, "workloads", "mem_cache", f)).read().splitlines()
+            b = open(os.path.join(REPO, "workloads", "mem_dram", f)).read().splitlines()
+            self.assertEqual(len(a), len(b), f)
+            diff = [(x, y) for x, y in zip(a, b) if x != y]
+            self.assertEqual(diff, [("SAQEF_MEM_KIB = 256", "SAQEF_MEM_KIB = 65536")], f)
+
+    def test_handler_spends_5ms_and_names_its_arm(self):
+        import importlib.util
+        import time
+        for arm, kib in (("mem_cache", 256), ("mem_dram", 65536)):
+            p = os.path.join(REPO, "workloads", arm, "OW_FUNCTION", "hello.py")
+            spec = importlib.util.spec_from_file_location("ow_" + arm, p)
+            m = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(m)
+            t = time.perf_counter()
+            r = m.main({})
+            self.assertGreaterEqual(time.perf_counter() - t, 0.005)
+            self.assertEqual(r, {"ok": True, "kib": kib})
+
+    def _plan(self):
+        src = open(os.path.join(REPO, "tools", "run_final.sh")).read()
+        block = src[src.index("MEM_LEGS=()"):src.index("mem_kib()")]
+        out = subprocess.run(["bash", "-c", 'WORKLOAD=memory\n' + block + '\nprintf "%s\\n" "${MEM_LEGS[@]}"'],
+                             capture_output=True, text=True, check=True).stdout.split("\n")
+        return [l.split() for l in out if l]
+
+    def test_plan_is_24_legs_pairs_adjacent_and_alternating(self):
+        legs = self._plan()
+        self.assertEqual(len(legs), 24)
+        self.assertEqual(len({tuple(l) for l in legs}), 24)
+        firsts = []
+        for i in range(0, 24, 2):
+            a, b = legs[i], legs[i + 1]
+            self.assertEqual(a[:2], b[:2])                     # same c and platform, back to back
+            self.assertEqual({a[2], b[2]}, {"cache", "dram"})
+            firsts.append(a[2])
+        self.assertEqual(firsts.count("cache"), 6)             # neither arm is always first
+        self.assertEqual(legs[0], ["1", "of", "cache"])
+        self.assertEqual(legs[8], ["4", "of", "dram"])
+
+    def test_wiring(self):
+        rf = open(os.path.join(REPO, "tools", "run_final.sh")).read()
+        self.assertIn("Workload memory: pre-registered", rf)
+        self.assertIn('export SAQEF_OW_LOGSTORE=driver', rf[rf.index('if [ "$WORKLOAD" = memory ]; then\n    say "=== W2'):])
+        self.assertIn('elif [ "$WORKLOAD" = payload ]; then\n    [ -n "$AMEND" ]', rf)  # memory never falls into the CPU corpus
+        go = open(os.path.join(REPO, "tools", "go.sh")).read()
+        self.assertIn("memory) MAX_H=6", go)
+        self.assertIn("mem_session", go)
+        wl = open(os.path.join(REPO, "tools", "workload.sh")).read()
+        self.assertIn('|| die "could not copy', wl)

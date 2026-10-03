@@ -26,6 +26,12 @@
 # 1 KiB / 64 KiB / 512 KiB, concurrency is 1, 4, 8 on all platforms, and results go under
 # the payload_ prefix. The handlers are restored when the session exits, however it exits.
 #
+# --workload memory (runbook §30, W2): every platform at c = 1/4/8 with two handler arms in the
+# same session, mem_cache (256 KiB buffers, cache-resident) and mem_dram (64 MiB buffers, DRAM-
+# bound), each a 5 ms copy loop. Both arms of a platform/c run back to back, order alternating.
+# The handlers are swapped (and OF/Kn images rebuilt) before each leg whose arm differs from
+# the last; OW runs with SAQEF_OW_LOGSTORE=driver (§29.3). Prefix mem_. Handlers restored on exit.
+#
 # --arm owlog29 (runbook §29): OpenWhisk only, CPU-bound handler, c = 1/4/8, each c measured
 # twice in the same session: the standalone's default log collector (one `docker logs` per
 # activation) and SAQEF_OW_LOGSTORE=driver (none). Order alternates per c. Prefix owlog29_.
@@ -65,8 +71,26 @@ done
 case "$WORKLOAD" in
     cpu) ;;
     payload) PFX="payload_" ;;
-    *) echo "unknown --workload '$WORKLOAD' (cpu|payload)" >&2; exit 2 ;;
+    memory) PFX="mem_" ;;
+    *) echo "unknown --workload '$WORKLOAD' (cpu|payload|memory)" >&2; exit 2 ;;
 esac
+# W2 legs (runbook §30.2), in run order: "c platform arm". For each c, each platform's two arms
+# run back to back; which arm goes first alternates with the platform and with c, so neither
+# arm is always first (a slow drift cannot line up with one arm).
+MEM_LEGS=()
+if [ "$WORKLOAD" = memory ]; then
+    ci=0
+    for c in 1 4 8; do
+        pi=0
+        for p in of fn kn ow; do
+            if [ $(( (ci + pi) % 2 )) = 0 ]; then MEM_LEGS+=("$c $p cache" "$c $p dram")
+            else MEM_LEGS+=("$c $p dram" "$c $p cache"); fi
+            pi=$((pi + 1))
+        done
+        ci=$((ci + 1))
+    done
+fi
+mem_kib() { case "$1" in cache) echo 256 ;; dram) echo 65536 ;; esac; }
 PAYLOAD_SIZES=(1k 64k 512k)
 # Amendments: a fixed, named set of legs, run under their own prefix so they can never be
 # mistaken for the main session. Each must be pre-registered in the COMMITTED runbook
@@ -198,6 +222,10 @@ PY
     if [ -n "$AMEND" ] && ! git -c safe.directory="$REPO" -C "$REPO" show HEAD:TROUBLESHOOTING_RUNBOOK.md 2>/dev/null \
             | grep -qF "Amendment $AMEND: pre-registered"; then
         bad "amendment $AMEND is not pre-registered in the committed runbook (need the line 'Amendment $AMEND: pre-registered')"
+    fi
+    if [ "$WORKLOAD" = memory ] && ! git -c safe.directory="$REPO" -C "$REPO" show HEAD:TROUBLESHOOTING_RUNBOOK.md 2>/dev/null \
+            | grep -qF "Workload memory: pre-registered"; then
+        bad "W2 is not pre-registered in the committed runbook (need the line 'Workload memory: pre-registered')"
     fi
     if [ -n "$ARM" ] && ! git -c safe.directory="$REPO" -C "$REPO" show HEAD:TROUBLESHOOTING_RUNBOOK.md 2>/dev/null \
             | grep -qF "Arm $ARM: pre-registered"; then
@@ -358,6 +386,8 @@ if [ "$CHECK_ONLY" = 1 ] || [ "$DRY_RUN" = 1 ]; then
         echo; echo "== plan (workload: $WORKLOAD)"
         if [ "$WORKLOAD" = payload ]; then
             echo "  swap handlers -> workloads/payload, rebuild OF/Kn images, write bodies, probe all 4 platforms"
+        elif [ "$WORKLOAD" = memory ]; then
+            echo "  probe both arms on all 4 platforms (swap, rebuild OF/Kn, deploy, GET, reply names the arm's kib)"
         else
             echo "  rebuild OF/Kn images from the working-tree handlers"
         fi
@@ -367,6 +397,16 @@ if [ "$CHECK_ONLY" = 1 ] || [ "$DRY_RUN" = 1 ]; then
                 read -r c ls <<< "$leg"
                 echo "  ${PFX}tier1ow${c}_${ls}: SAQEF_OW_LOGSTORE=$ls --concurrency $c --repeat $OW_REPEAT --discard-warmup $OW_DISCARD + JVM thread sampler (arm $ARM)"
             done
+        elif [ "$WORKLOAD" = memory ]; then
+            for leg in "${MEM_LEGS[@]}"; do
+                read -r c p arm <<< "$leg"
+                if [ "$p" = ow ]; then
+                    echo "  ${PFX}c${c}_${p}_${arm}: mem_${arm} (kib=$(mem_kib "$arm")) SAQEF_OW_LOGSTORE=driver --concurrency $c --repeat $OW_REPEAT --discard-warmup $OW_DISCARD + JVM thread sampler"
+                else
+                    echo "  ${PFX}c${c}_${p}_${arm}: mem_${arm} (kib=$(mem_kib "$arm")) --concurrency $c --repeat $LIGHT_REPEAT"
+                fi
+            done
+            echo "  restore handlers + rebuild OF/Kn images"
         elif [ -n "$AMEND" ]; then
             for leg in "${AMEND_LEGS[@]}"; do
                 read -r sz c p <<< "$leg"
@@ -435,6 +475,20 @@ if [ "$WORKLOAD" = payload ]; then
 fi
 say ">>> rebuild OF/Kn images from the working-tree handlers"
 bash "$REPO/tools/workload.sh" build || { say "ABORT: image build failed"; exit 6; }
+if [ "$WORKLOAD" = memory ]; then
+    # Both arms end to end on every platform before anything is measured: catches a handler
+    # that does not deploy, an OOM at 128 MiB resident, or a stale image serving the other arm.
+    for arm in cache dram; do
+        say ">>> W2 probe: arm mem_${arm} (kib=$(mem_kib "$arm")) on all 4 platforms"
+        bash "$REPO/tools/workload.sh" swap "mem_${arm}" >> "$SESS/probe.log" 2>&1 \
+            && bash "$REPO/tools/workload.sh" build >> "$SESS/probe.log" 2>&1 \
+            || { say "ABORT: swap/build for mem_${arm} failed -- see $SESS/probe.log"; exit 6; }
+        if ! SAQEF_OW_LOGSTORE=driver bash "$REPO/tools/workload.sh" probe-mem "$(mem_kib "$arm")" >> "$SESS/probe.log" 2>&1; then
+            say "ABORT: W2 probe failed for mem_${arm} -- see $SESS/probe.log; nothing measured"
+            exit 7
+        fi
+    done
+fi
 if [ "$WORKLOAD" = payload ]; then
     BODIES="$SESS/bodies"
     bash "$REPO/tools/workload.sh" bodies "$BODIES"
@@ -485,7 +539,36 @@ elif [ -n "$AMEND" ]; then
             || failed=$((failed + 1))
     done
 fi
-if [ "$WORKLOAD" = payload ]; then
+if [ "$WORKLOAD" = memory ]; then
+    say "=== W2 memory: ${#MEM_LEGS[@]} legs, two arms per platform/c, OW with the driver log store"
+    for leg in "${MEM_LEGS[@]}"; do
+        read -r c p arm <<< "$leg"
+        want=$(mem_kib "$arm")
+        if [ "$(bash "$REPO/tools/workload.sh" variant 2>/dev/null)" != "$want" ]; then
+            if ! { bash "$REPO/tools/workload.sh" swap "mem_${arm}" && bash "$REPO/tools/workload.sh" build; } >> "$SESS/swap.log" 2>&1; then
+                say "ABORT: swap/build to mem_${arm} failed before ${PFX}c${c}_${p}_${arm} -- see $SESS/swap.log"
+                exit 6
+            fi
+        fi
+        [ "$(bash "$REPO/tools/workload.sh" variant 2>/dev/null)" = "$want" ] \
+            || { say "ABORT: handlers are not the mem_${arm} arm before ${PFX}c${c}_${p}_${arm}"; exit 6; }
+        export SAQEF_WORKLOAD_VARIANT="mem_${arm}"
+        say "    handler arm for this leg: mem_${arm} (SAQEF_MEM_KIB=$want)"
+        if [ "$p" = ow ]; then
+            export SAQEF_OW_LOGSTORE=driver
+            say "    OW activation log store for this leg: driver (§29.3)"
+            dur=300; [ "$c" = 1 ] && dur=420
+            run_one "${PFX}c${c}_${p}_${arm}" ow openwhisk --concurrency "$c" --repeat "$OW_REPEAT" \
+                --discard-warmup "$OW_DISCARD" --ow-duration "$dur" "${IW[@]}" \
+                || failed=$((failed + 1))
+            unset SAQEF_OW_LOGSTORE
+        else
+            run_one "${PFX}c${c}_${p}_${arm}" "$p" "${LONG[$p]}" --concurrency "$c" --repeat "$LIGHT_REPEAT" "${IW[@]}" \
+                || failed=$((failed + 1))
+        fi
+        unset SAQEF_WORKLOAD_VARIANT
+    done
+elif [ "$WORKLOAD" = payload ]; then
     [ -n "$AMEND" ] || for sz in "${PAYLOAD_SIZES[@]}"; do
         export SAQEF_BODY_FILE="$BODIES/body_${sz}.txt"
         say "=== payload $sz ($SAQEF_BODY_FILE)"

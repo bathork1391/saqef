@@ -1860,7 +1860,10 @@ def run_once(args, cp_sub):
                 "interarrival_ms": args.interarrival_ms,
                 # W1 payload provenance (runbook §28): 0 / None = bare GET.
                 "payload_bytes": body_identity()[0],
-                "payload_sha256": body_identity()[1]},
+                "payload_sha256": body_identity()[1],
+                # W2 provenance (runbook §30): the swapped-in arm, e.g. "mem_dram";
+                # None for every workload that does not set it.
+                "workload_variant": os.environ.get("SAQEF_WORKLOAD_VARIANT") or None},
         # One name for this value, not two. 90d153f added rapl_fit_err_pct as an
         # alias of rapl_validation_err_pct; the committed corpus already uses the
         # latter, so the alias bought nothing and invited the two to drift.
