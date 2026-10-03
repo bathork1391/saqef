@@ -558,17 +558,25 @@ for plat in [p for p in ("openfaas", "fn", "knative", "openwhisk") if short[p] i
     if int(repeat) >= 5 and len(runs) != 5:
         problems.append("runs=%d (want 5)" % len(runs))
     run_details = []
+    # Per-run usable verdict, computed once here. runs.json stays the harness's raw
+    # output; anything that aggregates runs reads acceptance.json instead (runbook 23).
+    run_verdicts = [{"name": os.path.basename(p), "usable": False,
+                     "problems": ["warm-up discarded"]}
+                    for p in all_runs[:discard_warmup]] if discard_warmup else []
     for p in runs:
         try:
             r = json.load(open(os.path.join(p, "summary.json")))
         except Exception:
-            problems.append("%s unreadable" % os.path.basename(p)); continue
+            problems.append("%s unreadable" % os.path.basename(p))
+            run_verdicts.append({"name": os.path.basename(p), "usable": False,
+                                 "problems": ["unreadable"]})
+            continue
         nm = os.path.basename(p)
+        n_before = len(problems)
         # Raw energies, so the RAPL FIT verdict can be re-derived (and its sign
         # seen) offline. Pre-2026-10-02 runs carry only the error %, so the two
-        # joule fields read null there. No per-run gates_ok: run summaries have
-        # no such key -- the per-run verdicts are the "<run_N> ..." entries in
-        # the leg's "problems" list.
+        # joule fields read null there. Per-run verdicts: run_verdicts below,
+        # written to the leg's acceptance.json.
         # One output name, "rapl_validation_err_pct" (what the corpus uses).
         # rapl_fit_err_pct is accepted on READ only: 90d153f wrote it for the
         # 2026-10-02 legs, and those summaries are the only ones that have it.
@@ -633,6 +641,12 @@ for plat in [p for p in ("openfaas", "fn", "knative", "openwhisk") if short[p] i
         env = r.get("env") or {}
         if env.get("loadgen_fallback"):
             problems.append("%s LOADGEN FALLBACK (%s!=%s)" % (nm, env.get("loadgen"), env.get("loadgen_requested")))
+        # A run whose successes fall short is not usable either (2026-10-03 OW 512k:
+        # the JVM died mid-run 3, and runs 4-6 recorded 3000 requests, 0 successes).
+        if r.get("successes") is not None and want and r.get("successes") < 0.99 * want:
+            problems.append("%s SUCCESSES %s/%s" % (nm, r.get("successes"), want))
+        run_verdicts.append({"name": nm, "usable": len(problems) == n_before,
+                             "problems": problems[n_before:]})
     # MONOTONE DRIFT gate (added 2026-10-01). Every tier1ow* leg degraded
     # monotonically run-over-run (c=8: 57.0 -> 29.1 rps, host_cpu 307 -> 446
     # CPU-s) while the per-run gates all passed, because each repeat is an
@@ -669,7 +683,7 @@ for plat in [p for p in ("openfaas", "fn", "knative", "openwhisk") if short[p] i
     # session ~2h in with "OW c=1 pilot failed". A missing/short runs.json is a
     # GATE PROBLEM to report, never a traceback.
     try:
-        shares = [r["cp_dynamic_share_pct"]
+        shares = [r.get("cp_dynamic_share_pct")
                   for r in json.load(open(os.path.join(out, "runs.json")))]
     except Exception as e:
         shares = []
@@ -678,9 +692,12 @@ for plat in [p for p in ("openfaas", "fn", "knative", "openwhisk") if short[p] i
     # summary.json, i.e. the median over ALL runs including the discarded warm-up
     # (final_ OW: 76.715 cited vs 76.57 over usable runs). Share and CV are now
     # taken over the usable runs only, the same runs the gates saw.
+    # A run with no successes has a null share; median() over a None used to crash
+    # the whole gate step (2026-10-03, every OW 512k leg).
     if discard_warmup and shares:
-        shares = shares[discard_warmup:]
+        shares = [x for x in shares[discard_warmup:] if x is not None]
         share = round(statistics.median(shares), 3) if shares else None
+    shares = [x for x in shares if x is not None]
     cv = (statistics.pstdev(shares) / statistics.mean(shares) * 100.0) if shares else float("nan")
     sat = s.get("host_saturation_pct")
     qos = s.get("latency_ms") or {}
@@ -695,6 +712,11 @@ for plat in [p for p in ("openfaas", "fn", "knative", "openwhisk") if short[p] i
         ok, "; ".join(problems)))
     for wmsg in warnings:
         print("%-10s   WARN %s (--rapl-fit-warn: recorded, not gating)" % ("", wmsg))
+    acc = {"stamp": stamp, "platform": plat, "leg_gates_ok": (ok == "OK"),
+           "leg_problems": problems, "warnings": warnings,
+           "usable_runs": [v["name"] for v in run_verdicts if v["usable"]],
+           "runs": run_verdicts}
+    json.dump(acc, open(os.path.join(out, "acceptance.json"), "w"), indent=2)
     summary[plat] = {"label": order[plat], "cp_dynamic_share_pct": share,
                      "outdir": os.path.relpath(out, repo), "idle_w_used": w.get(plat),
                      "cv_pct": round(cv, 2), "host_saturation_pct": sat,

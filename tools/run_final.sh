@@ -160,7 +160,7 @@ PY
     local dirty
     # The handlers are part of the measured path too: a payload session swaps them in the
     # working tree, so they must start clean (go.sh restores a leftover swap itself).
-    dirty=$(git -C "$REPO" status --porcelain -- saqef saqef_harness.py platforms tools/run_lock_session.sh tools/run_final.sh tools/jvm_thread_sampler.py tools/workload.sh workloads hello OF_FUNCTION KNATIVE_FUNCTION OW_FUNCTION 2>/dev/null)
+    dirty=$(git -c safe.directory="$REPO" -C "$REPO" status --porcelain -- saqef saqef_harness.py platforms tools/run_lock_session.sh tools/run_final.sh tools/jvm_thread_sampler.py tools/workload.sh workloads hello OF_FUNCTION KNATIVE_FUNCTION OW_FUNCTION 2>&1) || bad "git status failed: $dirty"
     [ -z "$dirty" ] || bad "uncommitted measurement-path changes: $(echo "$dirty" | tr '\n' ';')"
 
     # 6. headless + no agents
@@ -185,11 +185,11 @@ wait_for_box() {
     return 1
 }
 
-snapshot_box() {
+snapshot_box() {   # pre|post -- two files, so the post snapshot cannot overwrite the pre one
     mkdir -p "$BOX"
     {
         echo "ts_utc: $(ts)"
-        echo "git: $(git -C "$REPO" describe --always --dirty --tags 2>/dev/null) $(git -C "$REPO" rev-parse HEAD)"
+        echo "git: $(git -c safe.directory="$REPO" -C "$REPO" describe --always --dirty --tags 2>/dev/null) $(git -c safe.directory="$REPO" -C "$REPO" rev-parse HEAD)"
         echo "workload: $WORKLOAD"
         echo "handlers: $(cd "$REPO" && sha256sum hello/func.py OF_FUNCTION/handler.py OF_FUNCTION/index.py KNATIVE_FUNCTION/app.py OW_FUNCTION/hello.py | awk '{printf "%s=%s ", $2, substr($1,1,12)}')"
         echo "uname: $(uname -a)"
@@ -204,7 +204,7 @@ snapshot_box() {
         echo "k3s_exec: $(systemctl show k3s -p ExecStart --value | tr -s ' ' | head -c 300)"
         echo "sessions:"; loginctl list-sessions --no-legend
         echo "temps:"; for z in /sys/class/thermal/thermal_zone*; do echo "  $(cat $z/type) $(cat $z/temp)"; done
-    } > "$BOX/box_state.txt" 2>&1
+    } > "$BOX/box_state_$1.txt" 2>&1
     cp /etc/docker/daemon.json "$BOX/daemon.json" 2>/dev/null || true
 }
 
@@ -243,6 +243,36 @@ except Exception as e:
 PY
 }
 
+# Poll /proc/stat every 5 s until the box is <= 10 % busy (margin under the harness's
+# 15 % quiet gate), at most 180 s. On timeout carry on: the quiet gate still decides.
+wait_quiet() {
+    local w=0 b
+    while [ $w -lt 180 ]; do
+        b=$(python3 - <<'PY'
+import time
+def busy():
+    v = list(map(int, open("/proc/stat").readline().split()[1:]))
+    return sum(v) - v[3] - v[4], sum(v)
+b0, t0 = busy(); time.sleep(5); b1, t1 = busy()
+print(round(100.0 * (b1 - b0) / max(1, t1 - t0), 1))
+PY
+)
+        w=$((w + 5))
+        if python3 -c "import sys; sys.exit(0 if float(sys.argv[1]) <= 10.0 else 1)" "$b"; then
+            say "    box quiet before retry: ${b}% busy after ${w}s"; return 0
+        fi
+    done
+    say "    box still ${b}% busy after 180s; retrying anyway (the quiet gate decides)"
+}
+
+# Expected OW activation-store growth: ~2 bytes retained per payload byte (JVM UTF-16
+# strings), measured 2026-10-03; at 512 KiB the ~8.5 GB heap runs out near 8,000 activations.
+ow_heap_note() {   # body_file repeat total
+    local b
+    b=$(stat -c %s "$1" 2>/dev/null) || return 0
+    say "    OW expected retained: $(( 2 * b * $2 * $3 / 1024 / 1024 )) MB over $2 x $3 activations (heap dies near 8500 MB)"
+}
+
 # run_one STAMP PLATFORM(short) PLATFORM(long) ARGS...
 run_one() {
     local stamp="$1" short="$2" long="$3"; shift 3
@@ -268,6 +298,9 @@ run_one() {
         say "    rc=$rc verdict(gates_ok share rps)=$v pkg_temp ${t0}->${t1}C"
         if [ "$rc" = 0 ] && [ "${v%% *}" = True ]; then return 0; fi
         cleanup_platform "$long"
+        # Settle before the retry: right after a 16-pod Knative teardown containerd is still
+        # busy and the _r2 leg fails the quiet gate (2026-10-03: 1kc8_kn_r2, 64kc8_kn_r2).
+        [ "$attempt" = 1 ] && wait_quiet
     done
     say "    leg $stamp FAILED twice -- recorded, not retried again (24.8.3 stop rule)"
     return 1
@@ -318,8 +351,12 @@ say "final session start (workload $WORKLOAD), repo $REPO"
 # killed by the RuntimeMaxSec watchdog go.sh sets -- the desktop comes back.
 restore_handlers() {
     [ "$WORKLOAD" = cpu ] && return 0
-    bash "$REPO/tools/workload.sh" restore || true
-    bash "$REPO/tools/workload.sh" build || true
+    # Never rebuild after a failed restore: that bakes the swapped handlers into the images.
+    if bash "$REPO/tools/workload.sh" restore; then
+        bash "$REPO/tools/workload.sh" build || true
+    else
+        say "ERROR: handler restore failed -- images NOT rebuilt; next pre-flight will refuse to start"
+    fi
 }
 restore_gui() {
     [ "$RESTORE_GUI" = 1 ] || return 0
@@ -354,7 +391,7 @@ if [ "$WORKLOAD" = payload ]; then
         exit 7
     fi
 fi
-snapshot_box
+snapshot_box pre
 printf 'ts_utc\tstamp\tplatform\tattempt\trc\tgates_ok\tshare_pct\trps\tpkg_temp_start_C\tpkg_temp_end_C\n' > "$CKPT"
 
 declare -A LONG=([of]=openfaas [fn]=fn [kn]=knative [ow]=openwhisk)
@@ -386,6 +423,7 @@ if [ "$WORKLOAD" = payload ]; then
         done
         for c in 1 4 8; do
             dur=300; [ "$c" = 1 ] && dur=420
+            ow_heap_note "$SAQEF_BODY_FILE" "$OW_REPEAT" "$TOTAL"
             run_one "${PFX}${sz}ow${c}" ow openwhisk --concurrency "$c" --repeat "$OW_REPEAT" \
                 --discard-warmup "$OW_DISCARD" --ow-duration "$dur" "${IW[@]}" \
                 || failed=$((failed + 1))
@@ -396,7 +434,9 @@ if [ "$WORKLOAD" = payload ]; then
     # Its own deploy, after every leg, so the tracer cannot touch a measured window.
     say ">>> OW execsnoop trace (unmeasured, 64k c=4)"
     if python3 "$REPO/saqef" deploy --platform openwhisk >> "$SESS/ow_execsnoop.log" 2>&1; then
-        timeout 90 execsnoop-bpfcc -T -x > "$SESS/ow_execsnoop.txt" 2>> "$SESS/ow_execsnoop.log" &
+        # bpftrace, not execsnoop-bpfcc: BCC cannot compile against kernel 7.0 headers.
+        timeout 90 bpftrace -e 'tracepoint:syscalls:sys_enter_execve { time("%H:%M:%S "); printf("%d %d %s %s\n", pid, curtask->real_parent->tgid, comm, str(args->filename)); }' \
+            > "$SESS/ow_execsnoop.txt" 2>> "$SESS/ow_execsnoop.log" &
         tr_pid=$!
         sleep 10
         hey -n 2000 -c 4 -m POST -T text/plain -D "$BODIES/body_64k.txt" \
@@ -425,5 +465,5 @@ fi
 
 say "final session done: $failed leg(s) failed twice. Checkpoint: $CKPT"
 echo "failed_legs=$failed" > "$SESS/DONE"
-snapshot_box
+snapshot_box post
 exit 0   # the EXIT trap restores the desktop

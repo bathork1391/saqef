@@ -34,7 +34,14 @@ swap() {
 }
 
 restore() {
-    git -C "$REPO" checkout -- "${HANDLERS[@]}" && echo "  handlers restored (CPU-bound spin)"
+    # safe.directory: go.sh runs as root on a user-owned repo; without it git refuses and the
+    # echo handlers survived the 2026-10-03 payload session.
+    git -c safe.directory="$REPO" -C "$REPO" checkout -- "${HANDLERS[@]}" \
+        || die "handler restore failed -- working tree still has the swapped handlers"
+    # Check the content too, not just git's exit code.
+    git -c safe.directory="$REPO" -C "$REPO" diff --quiet HEAD -- "${HANDLERS[@]}" \
+        || die "handlers still differ from HEAD after restore"
+    echo "  handlers restored (CPU-bound spin)"
 }
 
 build() {

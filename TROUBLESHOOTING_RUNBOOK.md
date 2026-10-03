@@ -2224,3 +2224,55 @@ expected ~3.5–4 h (the developer estimated 2.5–3.5 h; the 6 h margin costs n
   the cost of being deployed with zero traffic.
 - **H2 break-even:** with cp ms/inv constant, share = cp/(cp + fn). Give the function duration at
   which the platform tax falls below 10 % and 1 %, per platform, in CPU and energy terms.
+
+### 28.7 Session 2026-10-03 (`payload_`): outcome, corrections, harness fixes
+Ran on `8031146`, 07:24–11:40 Z. `box_state.txt` has an empty `git:` line (see bugs below); the commit is
+fixed by timing (committed 07:16 Z, nothing later) and by the handler sha256s the snapshot did record.
+**31/36 cells citable. Nothing is re-run (§28.4 rules 1–2).** The two missing cells are a coverage limit,
+not a reason for an amendment, because every prediction can still be judged without them.
+
+**Cells not citable.**
+- Kn 1k c=8, Kn 64k c=8: attempt 1 failed DRIFT by a hair (21.0 %, 21.5 % > 20 %); every run was
+  individually clean. Attempt 2 never measured: it started 5 s after a 16-pod teardown and failed the
+  quiet gate (15.4 %, 17.6 %; containerd ≈ 38 %).
+- OW 512k c=1/4/8, both attempts: the `openwhisk` container died in run 3 (cp_peak_mem 8.25–8.32 GB).
+  Standalone OW keeps every activation in its in-memory store. It retains ≈ 2 B per payload byte (JVM
+  UTF-16): 125–130 KB/activation at 64 KiB, ≈ 1 MB at 512 KiB, so death comes after 7.1–7.5 k
+  activations. 64k survived (18 k activations, 2.65 GB). **Usable: run_2 of each attempt only, n = 2 per
+  cell.** cp ms/inv a1/r2: c=1 45.2/44.6, c=4 54.3/57.0, c=8 54.3/54.0. One post-warm-up run per attempt
+  (run_1 = 70–92 ms/inv), so steady state is not demonstrated. Label: "standalone OW, in-memory store".
+
+**Verdicts, re-derived from `summary.json` medians (harness), T2 unrounded.**
+- P1 light, 1k cp vs T2: OF −12.5 / +12.8 / **+36.7** %; Fn **−30.6** / −7.1 / −5.8 %; Kn **−34.0** /
+  −15.2 % / n/a. **Fails in 3 of 8 cells → rule 3: no absolute cp ms/inv comparison across workloads;**
+  W1 slopes stand. OW: +9.5 / +10.0 / +11.2 % ✓. OW child-process row 14.0 / 12.1 / 12.4 ms/inv (ad hoc
+  run-window sum from the JVM sampler; c=1 sits at the +15 % edge, confirm with `cp_anatomy.py`).
+- P2 (total cp, components pending `cp_anatomy.py`): strictly 1k < 64k < 512k in every citable cell ✓.
+- P3: OF ✓ (fn Δ 4.3 / 5.2 / 6.5 vs cp Δ 1.5 / 1.6 / 1.9 ms/inv). **Kn ✗** (fn Δ 1.28 / 1.04 vs cp Δ
+  1.57 / 1.53): a finding, not a defect.
+- P4 ✓: OW cp Δ 1k→512k (run_2) +24…+25 / +35…+38 / +34 ms/inv vs +0.9…+1.9 for the light three.
+  Child-process row 12.4–15.1 ms/inv at 512k: roughly flat, at or just beyond ±15 % at c=4/8.
+- P5: developer reports a rise on all four (not re-derived here).
+
+**Correction to the developer's review.** "GC Worker 0.43 → 19.2 ms/inv (45×)" is a whole-leg figure and
+is dominated by run 3's death spiral. Inside the run_2 windows GC is **1.0–1.6 ms/inv** (64k: 0.4). GC is
+therefore not the main 512 KiB mechanism. Most of the +25…+38 ms/inv is the `standalone-acto` threads
+(serialisation). The developer's Kn P1 values (−30.5 / −21.7) do not reproduce from the harness medians.
+
+**Harness bugs found and fixed (no measurement changed):**
+1. git as root on a user-owned repo refused every call ("dubious ownership"). The handler restore
+   failed, `restore_handlers` rebuilt the images anyway (`|| true`), and the box was left with
+   payload-echo OF/Kn images and handlers. The pre-flight dirty check was also silently passing.
+   Fix: `git -c safe.directory=…` on every call (no global config change). Restore is checked by
+   `git diff --quiet HEAD` and aborts loudly, and a failed restore no longer rebuilds images.
+2. `snapshot_box` ran twice and overwrote `box_state.txt` → `box_state_pre.txt` / `box_state_post.txt`.
+3. Retry settle: `_r2` now waits until `/proc/stat` shows ≤ 10 % busy (5 s samples, 180 s cap) before
+   redeploying. Post-deploy ambient across this session ranged 3.3–12.9 %.
+4. Gate step crashed with `median(None)` when a run had 0 successes. Fixed, and each leg now writes
+   `acceptance.json` (per-run `usable` + reasons; warm-up, INCOMPLETE, SUCCESSES < 99 %, etc.). `runs.json`
+   stays raw. Anything that aggregates runs must read `acceptance.json` (the §23 bug class).
+5. execsnoop-bpfcc cannot compile on kernel 7.0 → bpftrace `sys_enter_execve`. §27.12 (a) is still open.
+6. OW legs log the expected activation-store growth before they start.
+
+Note for reviewers: `governor: powersave` next to EPP `performance` is cosmetic. intel_pstate is active,
+and EPP sets the frequency policy.
