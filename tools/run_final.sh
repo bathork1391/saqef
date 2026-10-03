@@ -20,6 +20,11 @@
 #   sudo bash tools/run_final.sh --check      # pre-flight only, prints every problem
 #   sudo bash tools/run_final.sh --dry-run    # pre-flight + the plan
 #   see runbook 24.8.4 for the systemd-run launch command.
+#
+# --workload payload (runbook §28, W1): same session machinery, but the four handlers are
+# swapped for the payload echo (workloads/payload/), every request is a text/plain POST of
+# 1 KiB / 64 KiB / 512 KiB, concurrency is 1, 4, 8 on all platforms, and results go under
+# the payload_ prefix. The handlers are restored when the session exits, however it exits.
 set -uo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -39,18 +44,27 @@ WAIT_HEADLESS_S=1200     # how long to wait for the desktop/agents to go away
 WAIT_KNATIVE_S=900       # how long to wait for knative-serving to be Ready after a docker restart
 RESTORE_GUI=1
 
-CHECK_ONLY=0 DRY_RUN=0
-for a in "$@"; do
-    case "$a" in
+CHECK_ONLY=0 DRY_RUN=0 WORKLOAD=cpu
+while [ $# -gt 0 ]; do
+    case "$1" in
         --check) CHECK_ONLY=1 ;;
         --dry-run) DRY_RUN=1 ;;
         --no-restore-gui) RESTORE_GUI=0 ;;
-        *) echo "unknown option: $a" >&2; exit 2 ;;
+        --workload) WORKLOAD="${2:-}"; shift ;;
+        --workload=*) WORKLOAD="${1#*=}" ;;
+        *) echo "unknown option: $1" >&2; exit 2 ;;
     esac
+    shift
 done
+case "$WORKLOAD" in
+    cpu) ;;
+    payload) PFX="payload_" ;;
+    *) echo "unknown --workload '$WORKLOAD' (cpu|payload)" >&2; exit 2 ;;
+esac
+PAYLOAD_SIZES=(1k 64k 512k)
 
-SESS="$REPO/results/final_session"
-BOX="$REPO/results/final_box_state"
+SESS="$REPO/results/${PFX}session"
+BOX="$REPO/results/${PFX}box_state"
 CKPT="$SESS/checkpoint.tsv"
 ts() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 say() { echo "[$(ts)] $*"; }
@@ -144,7 +158,9 @@ PY
 
     # 5. measurement-path code committed (the run must correspond to a commit)
     local dirty
-    dirty=$(git -C "$REPO" status --porcelain -- saqef saqef_harness.py platforms tools/run_lock_session.sh tools/run_final.sh tools/jvm_thread_sampler.py 2>/dev/null)
+    # The handlers are part of the measured path too: a payload session swaps them in the
+    # working tree, so they must start clean (go.sh restores a leftover swap itself).
+    dirty=$(git -C "$REPO" status --porcelain -- saqef saqef_harness.py platforms tools/run_lock_session.sh tools/run_final.sh tools/jvm_thread_sampler.py tools/workload.sh workloads hello OF_FUNCTION KNATIVE_FUNCTION OW_FUNCTION 2>/dev/null)
     [ -z "$dirty" ] || bad "uncommitted measurement-path changes: $(echo "$dirty" | tr '\n' ';')"
 
     # 6. headless + no agents
@@ -174,6 +190,8 @@ snapshot_box() {
     {
         echo "ts_utc: $(ts)"
         echo "git: $(git -C "$REPO" describe --always --dirty --tags 2>/dev/null) $(git -C "$REPO" rev-parse HEAD)"
+        echo "workload: $WORKLOAD"
+        echo "handlers: $(cd "$REPO" && sha256sum hello/func.py OF_FUNCTION/handler.py OF_FUNCTION/index.py KNATIVE_FUNCTION/app.py OW_FUNCTION/hello.py | awk '{printf "%s=%s ", $2, substr($1,1,12)}')"
         echo "uname: $(uname -a)"
         echo "hey: $(readlink -f "$(command -v hey)") $(sha256sum "$(readlink -f "$(command -v hey)")" | cut -d' ' -f1)"
         echo "power_profile: $(powerprofilesctl get 2>/dev/null)"
@@ -263,12 +281,28 @@ read_calib() {   # calib_dir state -> median
 if [ "$CHECK_ONLY" = 1 ] || [ "$DRY_RUN" = 1 ]; then
     preflight
     if [ "$DRY_RUN" = 1 ]; then
-        echo; echo "== plan"
+        echo; echo "== plan (workload: $WORKLOAD)"
+        if [ "$WORKLOAD" = payload ]; then
+            echo "  swap handlers -> workloads/payload, rebuild OF/Kn images, write bodies, probe all 4 platforms"
+        else
+            echo "  rebuild OF/Kn images from the working-tree handlers"
+        fi
         echo "  ${PFX}calib: idle_w for bare, of, fn, kn, ow (3 x 60 s each), no leg"
-        for c in 1 2 4 8; do for p in of fn kn; do
-            echo "  ${PFX}tier1c${c}_${p}: --concurrency $c --repeat $LIGHT_REPEAT"; done; done
-        for c in 1 4 8; do
-            echo "  ${PFX}tier1ow${c}: --concurrency $c --repeat $OW_REPEAT --discard-warmup $OW_DISCARD + JVM thread sampler"; done
+        if [ "$WORKLOAD" = payload ]; then
+            for sz in "${PAYLOAD_SIZES[@]}"; do
+                for c in 1 4 8; do for p in of fn kn; do
+                    echo "  ${PFX}${sz}c${c}_${p}: POST body_${sz} --concurrency $c --repeat $LIGHT_REPEAT"; done; done
+                for c in 1 4 8; do
+                    echo "  ${PFX}${sz}ow${c}: POST body_${sz} --concurrency $c --repeat $OW_REPEAT --discard-warmup $OW_DISCARD + JVM thread sampler"; done
+            done
+            echo "  unmeasured: OW execsnoop trace, 64k c=4, 60 s (runbook §27.12 a)"
+            echo "  restore handlers + rebuild OF/Kn images"
+        else
+            for c in 1 2 4 8; do for p in of fn kn; do
+                echo "  ${PFX}tier1c${c}_${p}: --concurrency $c --repeat $LIGHT_REPEAT"; done; done
+            for c in 1 4 8; do
+                echo "  ${PFX}tier1ow${c}: --concurrency $c --repeat $OW_REPEAT --discard-warmup $OW_DISCARD + JVM thread sampler"; done
+        fi
     fi
     echo
     if [ "${#problems[@]}" -eq 0 ]; then echo "PRE-FLIGHT OK"; exit 0; fi
@@ -279,16 +313,21 @@ fi
 
 mkdir -p "$SESS"
 exec >> "$SESS/session.log" 2>&1
-say "final session start, repo $REPO"
+say "final session start (workload $WORKLOAD), repo $REPO"
 # Safety net 1: whatever happens from here -- normal end, abort, crash, or being
 # killed by the RuntimeMaxSec watchdog go.sh sets -- the desktop comes back.
+restore_handlers() {
+    [ "$WORKLOAD" = cpu ] && return 0
+    bash "$REPO/tools/workload.sh" restore || true
+    bash "$REPO/tools/workload.sh" build || true
+}
 restore_gui() {
     [ "$RESTORE_GUI" = 1 ] || return 0
     systemctl stop saqef-guard.timer 2>/dev/null || true
     systemctl stop --no-block saqef-screen 2>/dev/null || true
     systemctl start --no-block display-manager || true
 }
-trap 'rc=$?; say "session exiting (rc=$rc); restoring desktop"; restore_gui' EXIT
+trap 'rc=$?; say "session exiting (rc=$rc); restoring handlers and desktop"; restore_handlers; restore_gui' EXIT
 trap 'say "session terminated by signal"; exit 143' TERM INT HUP
 if ! wait_for_box; then
     preflight
@@ -299,6 +338,21 @@ preflight
 if [ "${#problems[@]}" -ne 0 ]; then
     say "ABORT: pre-flight failed (${#problems[@]} problem(s)); nothing measured"
     exit 4
+fi
+if [ "$WORKLOAD" = payload ]; then
+    say ">>> swap handlers to the payload echo"
+    bash "$REPO/tools/workload.sh" swap payload || { say "ABORT: handler swap failed"; exit 6; }
+fi
+say ">>> rebuild OF/Kn images from the working-tree handlers"
+bash "$REPO/tools/workload.sh" build || { say "ABORT: image build failed"; exit 6; }
+if [ "$WORKLOAD" = payload ]; then
+    BODIES="$SESS/bodies"
+    bash "$REPO/tools/workload.sh" bodies "$BODIES"
+    say ">>> payload probe: every platform must echo every body (catches size limits before any leg)"
+    if ! bash "$REPO/tools/workload.sh" probe "$BODIES" >> "$SESS/probe.log" 2>&1; then
+        say "ABORT: payload probe failed -- see $SESS/probe.log; nothing measured"
+        exit 7
+    fi
 fi
 snapshot_box
 printf 'ts_utc\tstamp\tplatform\tattempt\trc\tgates_ok\tshare_pct\trps\tpkg_temp_start_C\tpkg_temp_end_C\n' > "$CKPT"
@@ -320,6 +374,41 @@ say "idle_w (this session): of=$W_OF fn=$W_FN kn=$W_KN ow=$W_OW bare=$(read_cali
 IW=(--skip-idle-calib --idle-w-source "$CAL" --idle-w-of "$W_OF" --idle-w-fn "$W_FN" --idle-w-kn "$W_KN" --idle-w-ow "$W_OW")
 
 failed=0
+if [ "$WORKLOAD" = payload ]; then
+    for sz in "${PAYLOAD_SIZES[@]}"; do
+        export SAQEF_BODY_FILE="$BODIES/body_${sz}.txt"
+        say "=== payload $sz ($SAQEF_BODY_FILE)"
+        for c in 1 4 8; do
+            for p in of fn kn; do
+                run_one "${PFX}${sz}c${c}_${p}" "$p" "${LONG[$p]}" --concurrency "$c" --repeat "$LIGHT_REPEAT" "${IW[@]}" \
+                    || failed=$((failed + 1))
+            done
+        done
+        for c in 1 4 8; do
+            dur=300; [ "$c" = 1 ] && dur=420
+            run_one "${PFX}${sz}ow${c}" ow openwhisk --concurrency "$c" --repeat "$OW_REPEAT" \
+                --discard-warmup "$OW_DISCARD" --ow-duration "$dur" "${IW[@]}" \
+                || failed=$((failed + 1))
+        done
+    done
+    unset SAQEF_BODY_FILE
+    # Unmeasured: which processes OpenWhisk spawns per activation (runbook §27.12 a).
+    # Its own deploy, after every leg, so the tracer cannot touch a measured window.
+    say ">>> OW execsnoop trace (unmeasured, 64k c=4)"
+    if python3 "$REPO/saqef" deploy --platform openwhisk >> "$SESS/ow_execsnoop.log" 2>&1; then
+        timeout 90 execsnoop-bpfcc -T -x > "$SESS/ow_execsnoop.txt" 2>> "$SESS/ow_execsnoop.log" &
+        tr_pid=$!
+        sleep 10
+        hey -n 2000 -c 4 -m POST -T text/plain -D "$BODIES/body_64k.txt" \
+            "$(python3 -c "import sys; sys.path.insert(0, '$REPO'); from platforms import get_adapter; print(get_adapter('openwhisk').url)")" \
+            >> "$SESS/ow_execsnoop.log" 2>&1
+        kill -INT "$tr_pid" 2>/dev/null; wait "$tr_pid" 2>/dev/null
+        say "    execsnoop: $(grep -c . "$SESS/ow_execsnoop.txt" 2>/dev/null) lines for 2000 activations"
+    else
+        say "    OW deploy for the trace failed; skipped"
+    fi
+    cleanup_platform openwhisk
+else
 for c in 1 2 4 8; do
     for p in of fn kn; do
         run_one "${PFX}tier1c${c}_${p}" "$p" "${LONG[$p]}" --concurrency "$c" --repeat "$LIGHT_REPEAT" "${IW[@]}" \
@@ -332,6 +421,7 @@ for c in 1 4 8; do
         --discard-warmup "$OW_DISCARD" --ow-duration "$dur" "${IW[@]}" \
         || failed=$((failed + 1))
 done
+fi
 
 say "final session done: $failed leg(s) failed twice. Checkpoint: $CKPT"
 echo "failed_legs=$failed" > "$SESS/DONE"

@@ -6,7 +6,7 @@
 # desktop), so the switch to tty8 happens here once gdm is gone.
 # Redraws once a minute, so its own CPU cost is negligible next to the legs.
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SESS="$REPO/results/final_session"
+SESS="$REPO/results/${1:-final}_session"   # go.sh passes "payload" for a W1 night
 TTY=/dev/tty8
 START=$(date '+%H:%M')
 while systemctl is-active --quiet display-manager; do sleep 1; done   # never steal the screen from a live desktop
@@ -21,7 +21,7 @@ draw() {
     echo "  SAQEF measurement session RUNNING   (started $START, now $(date '+%H:%M'))"
     echo
     echo "  The black screen / text mode is intentional. Do NOT press the power button."
-    echo "  The desktop comes back by itself when the session ends (~2 h, at most 4 h 15 min)."
+    echo "  The desktop comes back by itself when the session ends (CPU ~2 h, payload ~4 h; watchdog 4 h / 6 h + 15 min)."
     echo "  To abort: Ctrl+Alt+F3 (Latitude: Ctrl+Alt+Fn+F3), log in, then  sudo bash $REPO/tools/go.sh --stop"
     echo
     echo "  == legs done"

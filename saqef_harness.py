@@ -30,6 +30,7 @@ import base64
 import collections
 import csv
 import datetime
+import hashlib
 import io
 import json
 import math
@@ -603,6 +604,21 @@ def cv_pct(values):
 
 
 # ---------------------------------------------------------------------------
+# W1 payload workload (runbook §28): when SAQEF_BODY_FILE names a file, every
+# request (warm-up, verify, measured window, either load generator) is a
+# text/plain POST of that file's bytes instead of a bare GET. Unset = GET, so
+# the CPU-bound corpus path is unchanged.
+_BODY_PATH = os.environ.get("SAQEF_BODY_FILE") or None
+_BODY = open(_BODY_PATH, "rb").read() if _BODY_PATH else None
+
+
+def body_identity():
+    """(bytes, sha256) of the request body, or (0, None) for GET."""
+    if _BODY is None:
+        return 0, None
+    return len(_BODY), hashlib.sha256(_BODY).hexdigest()
+
+
 def run_load(url, total, concurrency, timeout_s=10, deadline_s=None, headers=None, interarrival_ms=0.0):
     """Fire `total` requests with `concurrency` threads, hard-stopped at deadline_s.
     Optionally sleeps `interarrival_ms` between requests (cold-start experiments).
@@ -621,7 +637,11 @@ def run_load(url, total, concurrency, timeout_s=10, deadline_s=None, headers=Non
             t0 = time.perf_counter()
             ok = True
             try:
-                req = urllib.request.Request(url, headers=headers) if headers else url
+                if _BODY is not None:
+                    h = dict(headers or {}, **{"Content-Type": "text/plain"})
+                    req = urllib.request.Request(url, data=_BODY, headers=h, method="POST")
+                else:
+                    req = urllib.request.Request(url, headers=headers) if headers else url
                 with urllib.request.urlopen(req, timeout=timeout_s) as r:
                     r.read()
             except Exception:
@@ -685,6 +705,8 @@ def run_hey(url, total, concurrency, deadline_s=None, headers=None, timeout_ms=3
     if headers:
         for k, v in headers.items():
             cmd += ["-H", "%s: %s" % (k, v)]
+    if _BODY_PATH:
+        cmd += ["-m", "POST", "-T", "text/plain", "-D", _BODY_PATH]
     cmd.append(url)
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True,
@@ -1760,7 +1782,10 @@ def run_once(args, cp_sub):
                 # for every unthrottled citable run, so pre-existing runs keep
                 # reading as unthrottled.
                 "target_qps": round(qps, 4),
-                "interarrival_ms": args.interarrival_ms},
+                "interarrival_ms": args.interarrival_ms,
+                # W1 payload provenance (runbook §28): 0 / None = bare GET.
+                "payload_bytes": body_identity()[0],
+                "payload_sha256": body_identity()[1]},
         # One name for this value, not two. 90d153f added rapl_fit_err_pct as an
         # alias of rapl_validation_err_pct; the committed corpus already uses the
         # latter, so the alias bought nothing and invited the two to drift.

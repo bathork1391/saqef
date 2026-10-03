@@ -2127,3 +2127,100 @@ network stack, data copies or disk. **Decision (user, 2026-10-03): W1 = object-s
 
 Next: pre-register W1 as §28 (design, object size, predictions, decision rule, the OW execsnoop leg for
 §27.12 a), then build `go.sh --workload io` with the MinIO handler, dry-run, one night.
+
+**Superseded the same day by §28:** W1 is payload I/O through the platform, not MinIO.
+
+## 28. W1 payload I/O — pre-registration (written 2026-10-03, before any W1 data)
+
+### 28.1 Decision: payload echo, not object storage
+The user re-opened §27.14 on 2026-10-03, and the developer's review agreed. W1 is **option D: a
+payload-size sweep through each platform's own request path**. Why not MinIO or Redis:
+- External-storage I/O bypasses the control plane. The function waits on an outside service and
+  cp ms/inv barely moves. Part B §10 (the sleep variant) already showed that.
+- It adds a second daemon whose CPU must be put in its own cgroup and subtracted from
+  `host_overhead_cpu_sec`/`orchestration_cpu_sec` (`saqef_harness.py` derives both as host − fn).
+- Payload bytes **must** pass through gateway, proxy, sidecar and invoker. So "does cp cost grow with
+  data, and where?" is a new question about the platforms themselves, and needs no new service.
+
+Not chosen and not to be re-opened this round: MinIO, Redis, local-disk I/O, pub/sub. W2 stays
+**memory-bound** (§26); it is not replaced by an external-backend I/O variant.
+
+**Framing (user, 2026-10-03):** the platforms are free to licence, so the paper speaks of
+*resource overhead* (CPU-seconds, energy, CO₂), not dollar cost. One motivating sentence: commercial
+billing charges function time only, so control-plane energy is real but unpriced and unreported.
+
+### 28.2 Design (fixed)
+- **Handler:** read the whole request body and return it unchanged. No other work, no disk, no external
+  call. Files: `workloads/payload/` (Fn `func.py`, OF `handler.py` + `index.py`, Kn `app.py`, OW
+  `hello.py`). OW is the same web action, POSTed as `text/plain`, so it arrives as `__ow_body`.
+- **Bodies:** deterministic printable ASCII, exactly **1 KiB, 64 KiB, 512 KiB**
+  (`tools/workload.sh bodies`). 512 KiB, not 1 MiB: OW's activation payload limit is ~1 MB including
+  JSON wrapping. Request and reply are both N bytes.
+- **Load:** hey `-m POST -T text/plain -D body_<size>.txt`, closed loop, c = **1, 4, 8** on all four
+  platforms (c = 2 dropped: it added nothing in the CPU corpus). TOTAL = 3000. Light platforms
+  REPEAT 5. OW REPEAT 6, discard warm-up 1, `--ow-duration` 420/300 s. Same gates, `--cpu-probe 60`,
+  idle-w calibration in-session and JVM thread sampler on OW legs, exactly as the `final_` corpus (§24.8).
+- **Order:** for each size (1k → 64k → 512k): light legs c = 1, 4, 8 × of, fn, kn, then OW c = 1, 4, 8.
+  A session cut short therefore still has complete size blocks.
+- **Provenance:** every `summary.json` records `env.payload_bytes` and `env.payload_sha256`.
+  `box_state.txt` records the workload and the handler sha256s.
+- **Unmeasured, after all legs:** an execsnoop trace (`execsnoop-bpfcc -T -x`) of OW serving 2000
+  64 KiB activations at c = 4, on its own deploy, so no measured window is traced. → `ow_execsnoop.txt`.
+  It settles §27.12 (a): which processes are spawned per activation.
+- **Guard rails:** before any leg, `tools/workload.sh probe` deploys each platform and requires a 2xx
+  whose reply byte-equals the body, for all three sizes, or the session aborts (exit 7). Handlers are
+  restored and the OF/Kn images rebuilt on exit. Every session (CPU too) rebuilds the OF/Kn images from
+  the working tree at start, so an echo image can never survive into a CPU run.
+
+**Probe, attended, 2026-10-03 (not a measurement).** OW, Fn and OF echo 1k/64k/512k byte-exact.
+The OW limit does not bite at 512 KiB. OF first replied **0 bytes**: of-watchdog forwards POST bodies
+*chunked*, and the CPU-bound `index.py` only read `Content-Length`. Hence the payload `index.py`,
+which reads both forms; the Kn app reads both too. Knative was not probed attended (root kubeconfig).
+The in-session probe covers it.
+
+### 28.3 Predictions
+Anchors are `final_` T2/T8/T9 at matched c. "Component" means the per-container cgroup rows of T8
+(`tools/cp_anatomy.py --prefix payload_<size>`), plus the OW JVM rows of T9.
+
+- **P1 — the 1 KiB control reproduces the CPU corpus's cp.** At 1 KiB, cp ms/inv is within **±30 %**
+  of T2 for OF/Fn/Kn (Part B §10 saw −17…−26 % with a no-CPU handler), and within **±15 %** for OW.
+  OW's "invoker child processes" row stays within ±15 % of T9 (≈ 12 ms).
+- **P2 — cp work grows with bytes on every platform.** The request-path cp component's ms/inv rises
+  strictly 1k < 64k < 512k, at ≥ 2 of the 3 concurrencies: OF gateway, Fn fnserver, Kn activator +
+  kourier, OW standalone total.
+- **P3 — on OF and Kn much of the byte cost lands in the function bucket.** of-watchdog and queue-proxy
+  are counted as function (T1 note). For OF and Kn, the 1k → 512k increase in fn ms/inv is **≥** the
+  increase in cp ms/inv. Consequently **no direction is predicted for OF/Kn cp share**: a flat or falling
+  share there is the expected outcome, not a contradiction. Fn (fdk in the function container, fnserver
+  in cp) is reported descriptively.
+- **P4 — OW pays the most per byte, but not in spawning.** OW's cp increase 1k → 512k, in absolute
+  ms/inv, is the largest of the four. It serialises the body as JSON from controller to invoker to
+  action proxy. Its child-process row stays within ±15 % across sizes: spawning does not depend on payload.
+- **P5 — kernel networking grows.** Untracked host CPU per invocation
+  (`(host_cpu_sec − cp − fn) / requests`) rises with size on every platform: loopback, veth and bridge
+  copies are kernel time, outside every cgroup. Direction only.
+
+### 28.4 Decision rules
+1. Each prediction is judged per platform, from the session's own data. A failed prediction is a
+   **finding** and is reported as such. No leg is re-run to rescue a prediction.
+2. Failed legs are retried once in-session (`_r2`) and then recorded (§24.8.3). Nothing else is re-run.
+3. P1 fails → absolute cp ms/inv is not compared across workloads. The within-W1 slopes (P2–P5)
+   still stand, because they only compare W1 legs with each other.
+4. `host_saturated` legs (most likely 512 KiB, c = 8): QoS is not cited. CPU and energy are cited if
+   the other gates pass (same rule as the CPU corpus).
+5. Energy: RAPL, probe basis, as §27.5/§27.8. The 3.5 W/core model is retired (§25.1), so FIT warns
+   are expected and are not a gate.
+6. Probe fails at 512 KiB on any platform → the session aborts before measuring. The top size is then
+   decided by the user. It is not changed silently.
+
+### 28.5 Run
+One command, one night: `sudo bash tools/go.sh --workload payload`. The watchdog is **6 h**: 36 legs,
+expected ~3.5–4 h (the developer estimated 2.5–3.5 h; the 6 h margin costs nothing). Progress:
+`sudo bash tools/go.sh --status` (it shows whichever session is newer). Results: `results/payload_session/`,
+`results/*_cpubound_lock_payload_*`.
+
+### 28.6 Desk work queued (no machine time)
+- **H1 standing cost:** per-platform idle CPU and power from the `final_calib` stack states, i.e.
+  the cost of being deployed with zero traffic.
+- **H2 break-even:** with cp ms/inv constant, share = cp/(cp + fn). Give the function duration at
+  which the platform tax falls below 10 % and 1 %, per platform, in CPU and energy terms.

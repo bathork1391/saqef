@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # One command for an unattended measurement night (runbook 24.8.5 / 26).
 #
-#   sudo bash tools/go.sh            set up, check, launch, then drop the desktop
-#   sudo bash tools/go.sh --status   how far it got (run after the desktop comes back)
-#   sudo bash tools/go.sh --stop     stop the session now and bring the desktop back
+#   sudo bash tools/go.sh                     CPU-bound corpus (runbook 24.8)
+#   sudo bash tools/go.sh --workload payload  W1 payload I/O night (runbook §28)
+#   sudo bash tools/go.sh --status            how far the latest session got
+#   sudo bash tools/go.sh --stop              stop the session now and bring the desktop back
 #
 # If the desktop does not come back: press Ctrl+Alt+F3 (Latitude: Ctrl+Alt+Fn+F3), log in, run
 #   sudo bash ~/faas-work/SAQEF/saqef/tools/go.sh --stop
@@ -27,8 +28,23 @@ export KUBECONFIG="${KUBECONFIG:-/etc/rancher/k3s/k3s.yaml}"
 UNIT=saqef-final
 WANT='{ "log-driver": "json-file", "log-opts": { "max-size": "64k", "max-file": "1" } }'
 
-MAX_H=4   # hard ceiling for the session; a normal one takes ~2 h
-if [ "${1:-}" = "--stop" ]; then
+WORKLOAD=cpu ACTION=run
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --stop) ACTION=stop ;;
+        --status) ACTION=status ;;
+        --workload) WORKLOAD="${2:-}"; shift ;;
+        --workload=*) WORKLOAD="${1#*=}" ;;
+        *) echo "unknown option: $1 (use --workload cpu|payload, --status, --stop)" >&2; exit 2 ;;
+    esac
+    shift
+done
+case "$WORKLOAD" in
+    cpu) MAX_H=4 ;;        # hard ceiling; a CPU session takes ~2 h
+    payload) MAX_H=6 ;;    # 36 legs instead of 15; expected ~3.5-4 h
+    *) echo "unknown --workload '$WORKLOAD' (cpu|payload)" >&2; exit 2 ;;
+esac
+if [ "$ACTION" = stop ]; then
     systemctl stop "$UNIT" 2>/dev/null || true
     systemctl stop saqef-guard.timer 2>/dev/null || true
     systemctl stop saqef-screen 2>/dev/null || true
@@ -36,14 +52,17 @@ if [ "${1:-}" = "--stop" ]; then
     echo "stopped; desktop restored. Partial results: sudo bash tools/go.sh --status"
     exit 0
 fi
-if [ "${1:-}" = "--status" ]; then
+if [ "$ACTION" = status ]; then
+    S=$(ls -td "$REPO"/results/final_session "$REPO"/results/payload_session 2>/dev/null | head -1)
     echo "== service"; systemctl status "$UNIT" --no-pager 2>/dev/null | sed -n 1,5p || echo "  not running"
-    if [ -f "$REPO/results/final_session/DONE" ]; then echo "== FINISHED: $(cat "$REPO/results/final_session/DONE")"; fi
+    [ -n "$S" ] || { echo "  no session yet"; exit 0; }
+    echo "== session: $(basename "$S")"
+    if [ -f "$S/DONE" ]; then echo "== FINISHED: $(cat "$S/DONE")"; fi
     echo "== legs so far"
-    if [ -f "$REPO/results/final_session/checkpoint.tsv" ]; then
-        column -t -s $'\t' "$REPO/results/final_session/checkpoint.tsv"
+    if [ -f "$S/checkpoint.tsv" ]; then
+        column -t -s $'\t' "$S/checkpoint.tsv"
     else echo "  none yet"; fi
-    echo "== last log lines"; tail -n 8 "$REPO/results/final_session/session.log" 2>/dev/null || echo "  no log yet"
+    echo "== last log lines"; tail -n 8 "$S/session.log" 2>/dev/null || echo "  no log yet"
     exit 0
 fi
 
@@ -53,6 +72,15 @@ if systemctl is-active --quiet "$UNIT"; then
     echo "A session is already running. Check it with: sudo bash tools/go.sh --status"; exit 1
 fi
 systemctl reset-failed "$UNIT" 2>/dev/null || true
+
+# 0. a session that died hard can leave the payload handlers swapped in; put them back
+for f in hello/func.py OF_FUNCTION/handler.py OF_FUNCTION/index.py KNATIVE_FUNCTION/app.py OW_FUNCTION/hello.py; do
+    if [ -f "$REPO/workloads/payload/$f" ] && cmp -s "$REPO/$f" "$REPO/workloads/payload/$f"; then
+        say "restoring handlers left swapped by an earlier session"
+        bash "$REPO/tools/workload.sh" restore
+        break
+    fi
+done
 
 # 1. docker log cap (idempotent)
 if python3 - <<'PY'
@@ -89,7 +117,7 @@ for i in $(seq 1 90); do
 done
 
 # 3. pre-flight: everything except desktop/agents must already be fine
-out=$(bash "$REPO/tools/run_final.sh" --check 2>&1)
+out=$(bash "$REPO/tools/run_final.sh" --check --workload "$WORKLOAD" 2>&1)
 real=$(echo "$out" | grep "PROBLEM:" | grep -v -e "graphical session" -e "agent process")
 if [ -n "$real" ]; then
     echo "$out"
@@ -110,9 +138,9 @@ systemctl reset-failed saqef-guard.service 2>/dev/null || true
 systemd-run --unit saqef-guard --on-active="$((MAX_H * 60 + 15))min" \
     systemctl start display-manager >/dev/null
 systemd-run --unit "$UNIT" -p RuntimeMaxSec="${MAX_H}h" \
-    systemd-inhibit --what=sleep:idle:handle-lid-switch --why="SAQEF final corpus" \
-    bash "$REPO/tools/run_final.sh" >/dev/null
-say "session launched as service '$UNIT'"
+    systemd-inhibit --what=sleep:idle:handle-lid-switch --why="SAQEF $WORKLOAD session" \
+    bash "$REPO/tools/run_final.sh" --workload "$WORKLOAD" >/dev/null
+say "session ($WORKLOAD) launched as service '$UNIT'"
 
 # 5. leave the desktop
 echo
@@ -120,7 +148,7 @@ echo "  Close Claude Code / opencode / browser now. Keep the laptop on AC, lid o
 echo "  The screen switches to a text status page (tty8) in 60 s -- that is NOT a hang;"
 echo "  do not press the power button (it kills the session). Press Ctrl+C to stay on the desktop"
 echo "  (the session then waits up to 20 min for the desktop to close, then gives up)."
-echo "  When the desktop comes back by itself (~2 h, at most ${MAX_H} h 15 min), run:"
+echo "  When the desktop comes back by itself (at most ${MAX_H} h 15 min), run:"
 echo "      sudo bash tools/go.sh --status"
 echo "  Stuck in text mode? Ctrl+Alt+F3 (Latitude: Ctrl+Alt+Fn+F3), log in, then: sudo bash $REPO/tools/go.sh --stop"
 for s in $(seq 60 -10 10); do echo "  ... $s s"; sleep 10; done
@@ -130,7 +158,7 @@ for s in $(seq 60 -10 10); do echo "  ... $s s"; sleep 10; done
 # waits for gdm to go, then switches to tty8 itself.
 systemctl stop saqef-screen 2>/dev/null || true
 systemctl reset-failed saqef-screen 2>/dev/null || true
-systemd-run --unit saqef-screen bash "$REPO/tools/screen_status.sh" >/dev/null
+systemd-run --unit saqef-screen bash "$REPO/tools/screen_status.sh" "$([ "$WORKLOAD" = payload ] && echo payload || echo final)" >/dev/null
 # Only stop the display manager. NOT "systemctl isolate multi-user.target": isolate
 # also stops every unit that target does not pull in -- including the transient
 # saqef-final service just launched (that killed the 2 Oct session after 60 s).
