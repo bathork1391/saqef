@@ -78,10 +78,17 @@ DRIFT_TWO_SIDED=0        # 1 (--drift-two-sided): the drift gate also fails a th
                          # W1 and earlier sessions re-gate identically; W2 onward turns it
                          # on (runbook 28.9: the 28.8 bridge rose 42.7 % and passed).
 SETTLE_AFTER_VERIFY=1    # 0 (--no-settle): skip the post-verify settle. Default on: wait
-                         # until /proc/stat shows <= 10 % busy (5 s windows, 180 s cap)
+                         # until /proc/stat shows a quiet window (SETTLE_* below)
                          # after deploy+scale+verify, right before the quiet-gated run.
                          # Runbook 28.9: 5 of 10 Knative c=8 legs failed the 15 % gate
                          # (15.4-18.0 %) on the post-scale burst, against a ~10-12 % floor.
+SETTLE_WINDOW_S=20       # --settle-window S: length of each settle window. 20 = the quiet
+                         # gate's own window (runbook 29.2): a single 5 s lull (the 28.9
+                         # setting, --settle-window 5 --settle-max 10) passed at 4.4 % and the
+                         # gate's 20 s window then read 16.9 % (owlog29 ow8_cli, twice).
+SETTLE_MAX_PCT=12        # --settle-max P: a settle window must read <= P % busy. 12 leaves
+                         # 3 pp under the 15 % gate for window-to-window variation.
+SETTLE_CAP_S=240         # give up after this long; the gate then decides (never fails a leg).
 IDLE_SOURCE=""           # --idle-w-source DIR: the calibration the --idle-w-* values came
                          # from (another stamp's idle_w_calibration dir); recorded in the
                          # lock summary's idle_w_provenance and checked against it.
@@ -140,6 +147,10 @@ while [ "$i" -lt "$#" ]; do
         --rapl-fit-warn) RAPL_FIT_WARN=1 ;;
         --drift-two-sided) DRIFT_TWO_SIDED=1 ;;
         --no-settle) SETTLE_AFTER_VERIFY=0 ;;
+        --settle-window) i=$((i + 1)); [ "$i" -ge "$#" ] && { echo "--settle-window needs a value" >&2; exit 2; }; SETTLE_WINDOW_S="${args[$i]}" ;;
+        --settle-window=*) SETTLE_WINDOW_S="${arg#*=}" ;;
+        --settle-max) i=$((i + 1)); [ "$i" -ge "$#" ] && { echo "--settle-max needs a value" >&2; exit 2; }; SETTLE_MAX_PCT="${args[$i]}" ;;
+        --settle-max=*) SETTLE_MAX_PCT="${arg#*=}" ;;
         --idle-w-source) i=$((i + 1)); [ "$i" -ge "$#" ] && { echo "--idle-w-source needs a value" >&2; exit 2; }; IDLE_SOURCE="${args[$i]}" ;;
         --idle-w-source=*) IDLE_SOURCE="${arg#*=}" ;;
         --*) echo "unknown option: $arg" >&2; exit 2 ;;
@@ -308,25 +319,28 @@ PY
 # run_leg PLATFORM -- deploy (scale/verify) run gates teardown for one platform
 # ---------------------------------------------------------------------------
 # Wait for the post-deploy/scale/verify burst to pass before the harness's 15 % quiet
-# gate samples the box (runbook 28.9). Never fails the leg: on timeout the gate decides.
+# gate samples the box (runbook 28.9). Windows are as long as the gate's own (runbook
+# 29.2), back to back, and every reading is logged. Never fails the leg: on timeout
+# the gate decides.
 settle_after_verify() {
-    local w=0 b
-    while [ $w -lt 180 ]; do
-        b=$(python3 - <<'PY'
-import time
+    local w=0 b seen=""
+    while [ $w -lt "$SETTLE_CAP_S" ]; do
+        b=$(python3 - "$SETTLE_WINDOW_S" <<'PY'
+import sys, time
 def busy():
     v = list(map(int, open("/proc/stat").readline().split()[1:]))
     return sum(v) - v[3] - v[4], sum(v)
-b0, t0 = busy(); time.sleep(5); b1, t1 = busy()
+b0, t0 = busy(); time.sleep(float(sys.argv[1])); b1, t1 = busy()
 print(round(100.0 * (b1 - b0) / max(1, t1 - t0), 1))
 PY
 )
-        w=$((w + 5))
-        if python3 -c "import sys; sys.exit(0 if float(sys.argv[1]) <= 10.0 else 1)" "$b"; then
-            echo ">>> settle after verify: ${b}% busy after ${w}s"; return 0
+        w=$((w + SETTLE_WINDOW_S))
+        seen="$seen ${b}"
+        if python3 -c "import sys; sys.exit(0 if float(sys.argv[1]) <= float(sys.argv[2]) else 1)" "$b" "$SETTLE_MAX_PCT"; then
+            echo ">>> settle after verify: ${b}% busy after ${w}s (${SETTLE_WINDOW_S}s windows, <= ${SETTLE_MAX_PCT}%; readings:${seen})"; return 0
         fi
     done
-    echo ">>> settle after verify: still ${b}% busy after 180s; the quiet gate decides"
+    echo ">>> settle after verify: still ${b}% busy after ${w}s; the quiet gate decides (readings:${seen})"
 }
 
 run_leg() {
@@ -354,7 +368,7 @@ run_leg() {
             openfaas|knative) echo "DRY-RUN: scale --platform $platform --replicas 16" ;;
         esac
         echo "DRY-RUN: verify --platform $platform"
-        [ "$SETTLE_AFTER_VERIFY" = 1 ] && echo "DRY-RUN: settle until <= 10% busy (180 s cap)"
+        [ "$SETTLE_AFTER_VERIFY" = 1 ] && echo "DRY-RUN: settle until a ${SETTLE_WINDOW_S}s window reads <= ${SETTLE_MAX_PCT}% busy (${SETTLE_CAP_S} s cap)"
         echo "DRY-RUN: run --platform $platform --total $TOTAL --concurrency $CONCURRENCY --duration $duration --repeat $REPEAT --idle-w $idle_w --out $out"
         [ "$CPU_PROBE_S" -gt 0 ] && echo "DRY-RUN: run --platform $platform --idle-probe --duration $CPU_PROBE_S --repeat 1 --idle-w $idle_w --out $REPO/results/idle_probe_${STAMP}/$platform"
         echo "DRY-RUN: gates --out $gate_out ; teardown --platform $platform"

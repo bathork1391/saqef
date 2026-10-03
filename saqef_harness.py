@@ -395,7 +395,8 @@ def host_cpu_busy_total():
 
 
 def ps_top_snapshot(n=8):
-    """Top-N CPU processes (ps aux --sort=-%cpu) for quiet-gate provenance.
+    """Top-N CPU processes (ps aux --sort=-%cpu): the quiet gate's fallback when
+    /proc snapshots fail. %CPU here is a lifetime average, not current load.
     Returns a list of header + n rows, or None."""
     try:
         out = subprocess.run(["ps", "aux", "--sort=-%cpu"],
@@ -404,6 +405,68 @@ def ps_top_snapshot(n=8):
         return lines[:1 + n] if lines else None
     except Exception:
         return None
+
+
+def proc_cpu_ticks():
+    """{pid: (starttime, own_ticks, reaped_child_ticks, comm, cmdline)} for every
+    process, from /proc/<pid>/stat: utime + stime, and cutime + cstime (CPU of
+    children it has reaped, e.g. OpenWhisk's `docker logs` per activation).
+    Unreadable or vanished processes are skipped. Returns {} on failure."""
+    out = {}
+    try:
+        pids = [d for d in os.listdir("/proc") if d.isdigit()]
+    except Exception:
+        return out
+    for pid in pids:
+        try:
+            with open("/proc/%s/stat" % pid) as f:
+                raw = f.read()
+            comm = raw[raw.index("(") + 1:raw.rindex(")")]
+            fields = raw[raw.rindex(")") + 2:].split()
+            try:
+                with open("/proc/%s/cmdline" % pid, "rb") as f:
+                    cmd = f.read().replace(b"\0", b" ").decode("utf-8", "replace").strip()
+            except Exception:
+                cmd = ""
+            out[int(pid)] = (int(fields[19]), int(fields[11]) + int(fields[12]),
+                             int(fields[13]) + int(fields[14]), comm, cmd)
+        except Exception:
+            continue
+    return out
+
+
+def window_top_cpu(p0, p1, window_s, n=8):
+    """Top-N processes by CPU used BETWEEN two proc_cpu_ticks() snapshots, in % of
+    one core over the window (runbook 29.2). Replaces the gate's old ps snapshot,
+    whose %CPU is a lifetime average and named the wrong culprits (owlog29: a fresh
+    JVM at '51 %', containerd at '39 %').
+
+    'own' is the process's own CPU in the window; the own column over all processes
+    sums to the host busy figure (less processes that started and exited inside the
+    window). 'reaped' is CPU of children reaped in the window, over their whole
+    lifetime, so it can include time before the window and is shown separately,
+    never added to own. A pid seen in both snapshots with the same start time is the
+    same process (comm is not used: kworkers rename themselves); otherwise it is new
+    and its whole CPU so far counts. Returns header + rows, or None if a snapshot
+    is empty."""
+    if not p0 or not p1 or window_s <= 0:
+        return None
+    hz = float(os.sysconf("SC_CLK_TCK"))
+    rows = []
+    for pid, (start, own, reaped, comm, cmd) in p1.items():
+        prev = p0.get(pid)
+        if prev and prev[0] == start:
+            d_own, d_reaped = own - prev[1], reaped - prev[2]
+        else:
+            d_own, d_reaped = own, reaped
+        if d_own > 0 or d_reaped > 0:
+            rows.append((d_own, d_reaped, pid, comm, cmd))
+    rows.sort(key=lambda r: (r[0] + r[1], r[0]), reverse=True)
+    pct = lambda t: 100.0 * t / hz / window_s
+    out = ["own%1core  reaped%1core      PID  COMMAND"]
+    for d_own, d_reaped, pid, comm, cmd in rows[:n]:
+        out.append("%9.1f  %12.1f  %7d  %s  %s" % (pct(d_own), pct(d_reaped), pid, comm, cmd[:160]))
+    return out
 
 
 def ambient_load_check(window_s, max_pct, quiet_gate=True):
@@ -420,21 +483,28 @@ def ambient_load_check(window_s, max_pct, quiet_gate=True):
     runs and the contamination A/B tool, which needs the dirty leg to run).
 
     Returns (busy_pct, top_ps_snapshot) for provenance."""
+    p0 = proc_cpu_ticks()
     t0 = host_cpu_busy_total()
+    w0 = time.monotonic()
     time.sleep(window_s)
     t1 = host_cpu_busy_total()
+    p1 = proc_cpu_ticks()
+    elapsed = time.monotonic() - w0
     busy_pct = None
     if t0 and t1:
         d_busy = t1[0] - t0[0]
         d_total = t1[1] - t0[1]
         if d_total > 0:
             busy_pct = d_busy / d_total * 100.0
-    top = ps_top_snapshot()
+    top = window_top_cpu(p0, p1, elapsed if elapsed > 0 else window_s)
+    if top is None:
+        top = ps_top_snapshot()
     label = ("%.1f%%" % busy_pct) if busy_pct is not None else "n/a"
     print("[quiet-gate] ambient host busy over %gs window: %s (threshold %.1f%%)"
           % (window_s, label, max_pct))
     if top:
-        print("[quiet-gate] top CPU processes:\n" + "\n".join(top))
+        print("[quiet-gate] top CPU processes over the window (100 = one core):\n"
+              + "\n".join(top))
     if quiet_gate and busy_pct is not None and busy_pct > max_pct:
         print("FATAL: box not quiet (ambient %.1f%% > %.1f%%). Background load "
               "(agents incl. opencode, heavy apps) drifts the headline share "

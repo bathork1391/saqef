@@ -590,6 +590,7 @@ class TestAmbientQuietGate(unittest.TestCase):
         h = self.h
         with mock.patch.object(h, "host_cpu_busy_total",
                                side_effect=[(100, 1000), (110, 1100)]), \
+             mock.patch.object(h, "proc_cpu_ticks", return_value={}), \
              mock.patch.object(h, "ps_top_snapshot", return_value=["hdr"]), \
              mock.patch.object(h.time, "sleep"):
             busy, top = h.ambient_load_check(20.0, 15.0, quiet_gate=True)
@@ -601,6 +602,7 @@ class TestAmbientQuietGate(unittest.TestCase):
         h = self.h
         with mock.patch.object(h, "host_cpu_busy_total",
                                side_effect=[(100, 1000), (130, 1100)]), \
+             mock.patch.object(h, "proc_cpu_ticks", return_value={}), \
              mock.patch.object(h, "ps_top_snapshot", return_value=None), \
              mock.patch.object(h.time, "sleep"):
             with self.assertRaises(SystemExit):
@@ -611,10 +613,69 @@ class TestAmbientQuietGate(unittest.TestCase):
         h = self.h
         with mock.patch.object(h, "host_cpu_busy_total",
                                side_effect=[(100, 1000), (130, 1100)]), \
+             mock.patch.object(h, "proc_cpu_ticks", return_value={}), \
              mock.patch.object(h, "ps_top_snapshot", return_value=None), \
              mock.patch.object(h.time, "sleep"):
             busy, _ = h.ambient_load_check(20.0, 15.0, quiet_gate=False)
         self.assertEqual(busy, 30.0)
+
+
+class TestQuietGateWindowTop(unittest.TestCase):
+    """Runbook 29.2: the gate names the processes busy IN its window, from /proc
+    deltas, not ps's lifetime %CPU."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.h = importlib.machinery.SourceFileLoader(
+            "saqef_harness", os.path.join(REPO, "saqef_harness.py")).load_module()
+
+    def rows(self, p0, p1, window_s=20.0):
+        import unittest.mock as mock
+        with mock.patch.object(self.h.os, "sysconf", return_value=100):
+            return self.h.window_top_cpu(p0, p1, window_s)
+
+    def test_delta_not_lifetime(self):
+        # A JVM with 2000 lifetime ticks that used 100 ticks in a 20 s window at
+        # 100 Hz is 5 % of one core, not its lifetime figure.
+        out = self.rows({7: (50, 2000, 0, "java", "java -jar ow")},
+                        {7: (50, 2100, 0, "java", "java -jar ow")})
+        self.assertEqual(out[1].split()[:3], ["5.0", "0.0", "7"])
+
+    def test_renamed_kworker_is_same_process(self):
+        out = self.rows({9: (10, 500, 0, "kworker/5:2-events", "")},
+                        {9: (10, 520, 0, "kworker/5:2-mm_percpu_wq", "")})
+        self.assertEqual(out[1].split()[0], "1.0")
+
+    def test_reused_pid_counts_from_zero(self):
+        out = self.rows({9: (10, 500, 0, "old", "")}, {9: (99, 40, 0, "new", "")})
+        self.assertEqual(out[1].split()[:3], ["2.0", "0.0", "9"])
+
+    def test_reaped_children_shown_apart_from_own(self):
+        out = self.rows({7: (50, 2000, 300, "java", "")}, {7: (50, 2100, 700, "java", "")})
+        self.assertEqual(out[1].split()[:2], ["5.0", "20.0"])
+
+    def test_idle_process_omitted_and_empty_snapshot_is_none(self):
+        out = self.rows({1: (1, 5, 0, "init", ""), 7: (2, 10, 0, "x", "")},
+                        {1: (1, 5, 0, "init", ""), 7: (2, 30, 0, "x", "")})
+        self.assertEqual(len(out), 2)
+        self.assertIsNone(self.rows({}, {7: (2, 30, 0, "x", "")}))
+
+    def test_live_snapshot_parses(self):
+        p = self.h.proc_cpu_ticks()
+        me = p.get(os.getpid())
+        self.assertIsNotNone(me)
+        self.assertEqual(len(me), 5)
+
+
+class TestSettleMatchesGateWindow(unittest.TestCase):
+    """Runbook 29.2: settle windows default to the gate's 20 s, threshold below 15 %."""
+
+    def test_defaults(self):
+        src = open(os.path.join(REPO, "tools", "run_lock_session.sh")).read()
+        self.assertRegex(src, r"(?m)^SETTLE_WINDOW_S=20\b")
+        self.assertRegex(src, r"(?m)^SETTLE_MAX_PCT=12\b")
+        self.assertIn('time.sleep(float(sys.argv[1]))', src)
+        self.assertIn("--settle-window", src)
 
 
 class TestGatesFlagsIncompleteAndFallback(unittest.TestCase):

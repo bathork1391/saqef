@@ -51,9 +51,11 @@ whenever a new section records a bug, a gotcha or a "do not repeat".
 | Gate step crashes on `median(None)` (0-success run) | §28.7 bug 4 |
 | `_r2` retry fails the quiet gate right after a Knative teardown | §28.7 bug 3, §28.9 A |
 | OW throughput capped ~100–110 rps at every c: why? | §29.1 Q4 (the per-activation `docker logs` collector; driver store reaches ~305 rps) |
-| OW (driver store) flat at ~305 rps from c = 4 to c = 8 | §29.1 post hoc 1 (open item) |
 | OW first usable run's cp 10–24 % above the rest | §29.1 post hoc 2 (median absorbs it; no action) |
-| `FATAL: box not quiet` on OW cli c=8 after settle passed | §29.1 (missing leg, rule 2; not re-run) |
+| `FATAL: box not quiet` after settle passed (any platform) | §29.2 A (7–8 % idle floor of the stacks; settle now uses 20 s windows) |
+| Quiet-gate "top CPU processes" blames java/containerd | §29.2 B (old list was lifetime `ps %CPU`; now window `/proc` deltas) |
+| OW (driver store) flat at ~305 rps from c = 4 to c = 8 | §29.2 D (only 2 action containers: user-memory 1024 MB; light platforms run 16) |
+| "Log store does not cap OW throughput" (smoke test) | §29.2 C (wrong; corrected by §29.1 Q4) |
 
 ## 1. Noisy-neighbor contamination from background processes (incl. this agent)
 
@@ -2604,3 +2606,67 @@ OW standalone costs ~3 ms/inv of cp, still ~4.5× the light platforms.
 **Do not repeat:** re-running `owlog29_tier1ow8_cli` to rescue c = 8 (rule 1/2; c = 1 and c = 4
 already answer every question); calling the cli-vs-Part-A gap a day shift; quoting the smoke
 test's throughput as the arm's result.
+
+### 29.2 Why OW c=8 cli failed the quiet gate; what really caps OW throughput (2026-10-04, post hoc, from data on disk)
+
+**A. The quiet gate measures the whole box, and the box is never idle.** With every stack deployed
+and no load, a 20 s `/proc/stat` + `pidstat` reading (2026-10-04) gave containerd 0.34, dockerd 0.18,
+k3s server 0.10 of a core: **≈ 0.6 core ≈ 7–8 % of the 8 cores is the stacks' own idle floor**
+(k3s `--docker` with Knative's 21 containers; no docker events in the window, so it is polling,
+not activity). The 15 % gate leaves ≈ 7 pp above that floor. Gate readings over ~70 legs on disk
+range 3–18 %; every failure (Knative c = 8 in `payload_` / `payload_amend28_8_`, OW c = 8 cli
+here) is a leg that starts right after a deploy/restart. `owlog29_tier1ow8_cli`: OW JVM restarted
+~40 s before the gate; settle passed one 5 s window (4.4 %, 6.7 %), and the gate's 20 s window then
+read 16.9 %, 16.6 %. Cause: the 5 s settle can pass on a lull inside a bursty post-start period;
+the gate cannot. Not outside load (the box was headless, agents quit).
+
+**B. The gate's "top CPU processes" list was misleading.** It printed `ps %CPU`, a lifetime
+average (java "51 %", containerd "39 %"), so it could not show what was busy in the window.
+
+**Fixes (tooling only; the 15 % gate and every closed session are unchanged).**
+1. `tools/run_lock_session.sh` settle: back-to-back windows as long as the gate's (`SETTLE_WINDOW_S
+   = 20`), pass at ≤ `SETTLE_MAX_PCT = 12` % (3 pp under the gate), cap 240 s, every reading logged.
+   `--settle-window 5 --settle-max 10` reproduces the §28.9 behaviour; `--no-settle` still skips it.
+2. `saqef_harness.py` quiet gate: the process list is measured over the gate's own window from
+   `/proc/<pid>/stat` deltas (`proc_cpu_ticks`, `window_top_cpu`), in % of one core, own CPU
+   and reaped-children CPU in separate columns (reaped children are counted over their whole
+   lifetime, so they never add into own). A process is matched across snapshots by start time,
+   not name (kworkers rename themselves; the first draft that matched by name reported a kworker
+   at 100 % of a core). Own CPU over all processes sums to the host busy figure (checked live:
+   0.95 vs 0.94 cores). `ps` remains only as a fallback.
+   Tests: `TestQuietGateWindowTop`, `TestSettleMatchesGateWindow`.
+
+**C. Correction to §28.9 D smoke test.** "Throughput unchanged (77.5 vs 78.5 rps), so the log store
+is not what caps OW throughput" was wrong. Under the bench protocol (§29.1 Q4) the driver store
+lifts throughput +39 % (c = 1) and +209 % (c = 4). The smoke test did not use the bench protocol,
+so it should never have been read as a throughput result. **§27.12 b is answered:** with the
+standalone's default store the cap is the log collector (the JVM container runs at ~2.1 cores
+at c = 4 cli while each action container idles at ~0.29 core).
+
+**D. The driver-store cap at ~305 rps is OW's container pool: 2 action containers (post hoc).**
+Every run of every Part A (`final_`), W1 1k/64k and `owlog29_` OW leg ends with exactly **2
+`guest_hello` action containers** (+ 2 nodejs prewarm) in `container_inventory` (214 OW runs on
+disk: 186 show 2; V5 `lock2`–`lock4` runs 3–5 show 3; the 0/1 cases are 512 KiB runs after the JVM
+died and `owab2_baseline`). Per-container CPU samples (`run_3/samples.csv`): with the driver store at c = 4
+and c = 8, each action container runs at a median **88 % of one core**, saturated (a Python action
+handles one activation at a time); at c = 1 they run at ~39 %. 2 containers × (1 / ~6.6 ms) ≈ 305
+rps, the measured plateau, and c = 8 latency doubles over c = 4 (queueing). Why 2: the image's
+`container-pool.user-memory = 1024 m`; the two nodejs prewarm stem cells hold 2 × 256 MB and
+the python action's default limit is 256 MB, so 2 python containers fit. **OpenFaaS and Knative
+are scaled to 16 replicas ("GIL parity", run_lock_session.sh); OpenWhisk has always served with
+2.** This does not explain the cp ms/inv gap (the cli JVM is the bottleneck there), but every OW
+throughput, latency and energy-per-invocation comparison so far is OW-with-2-instances vs
+light-platforms-with-16. Candidate settings, unverified on this image: raise
+`whisk.container-pool.user-memory` (16 × 256 MB + 512 MB prewarm ≈ 4.6 GB; box has 30 GB), or
+set the action's memory limit to 128 MB. A smoke test (unmeasured) must show the container
+count rising before any pre-registration uses it.
+
+**E. Other OW standalone properties that are configuration, not OpenWhisk work.**
+- In-memory activation store (`MemoryArtifactStoreProvider`): the 512 KiB JVM death (§28.7). The
+  image's reference config has `store-blocking-result-level` (STORE_ALWAYS / STORE_FAILURES / …);
+  STORE_FAILURES would stop storing successful activations. Config path and effect unverified.
+- First usable run's cp 10–24 % high (§29.1 post hoc 2): JVM warm-up; the median absorbs it.
+
+**Do not repeat:** reading the gate's old `ps` list as current load; reading a smoke test as a
+throughput result; comparing OW throughput/latency with the light platforms without saying
+"2 action containers vs 16 replicas".

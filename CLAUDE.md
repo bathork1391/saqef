@@ -26,7 +26,13 @@ Results are only as good as the discipline below. Every rule here was paid for w
    Prefer within-session A/B designs.
 7. RAPL FIT warnings are expected (retired 3.5 W/core model, §25.1); energy is RAPL, probe basis.
 8. Label OpenWhisk results "OpenWhisk standalone": its ~12 ms/inv child-process cost is the
-   standalone's `docker logs` log collector (§28.9 D).
+   standalone's `docker logs` log collector (§28.9 D). Turning it off (`SAQEF_OW_LOGSTORE=driver`,
+   §29.1) cuts OW cp ~21 → ~3 ms/inv and lifts throughput from ~100 to ~305 rps, where OW's
+   2 action containers saturate (§29.2 D; light platforms run 16 replicas). Say both when
+   comparing OW throughput, latency or energy per invocation.
+9. The quiet gate's floor is the stacks' own idle CPU (~7–8 % of 8 cores, §29.2 A). A gate
+   failure after a deploy is start-up noise, not an outside process; read the gate's window
+   process list (own vs reaped columns), never `ps`.
 
 ## Changing code
 - Measurement-path code must be committed before a night (go.sh pre-flight enforces it).
