@@ -2072,7 +2072,7 @@ run that produced it. Four things were missing. All four are fixed in `saqef-pap
    `figures/final/README.md` (hand-written) now holds a caption for F1–F4, the conventions
    (what counts as cp, dynamic CPU, per invocation), caveats per figure, a table → figure map and an
    input → producing-tool provenance table.
-2. **Table captions and anatomy tables.** `final_tables.md` (generated) now has numbered tables
+2. **Table captions and anatomy tables.** The generated tables are now numbered
    T1–T9, each with a caption, plus a header stating the session, n and why OW has no c = 2.
    T8 (light-platform cp by component at every c) and T9 (OW cp by component, c = 1/4/8) put the
    §27.12 numbers in a table. Before this they were only in the runbook and a JSON file.
@@ -2080,9 +2080,11 @@ run that produced it. Four things were missing. All four are fixed in `saqef-pap
    was never recorded (§27.12 open item a), so the label is now "invoker child processes". The JSON
    key `docker CLI children` stays as is. It is the §25.5 pre-registered row name, and README/T9 say so.
    F2 gained a footer (n, definition, OW c = 2 absent).
-4. **`VERIFIED_RESULTS.md` scope.** The document calls itself the single source of truth, but it covers
-   only the V5 corpus (lock4, conc*). Its emitter now prints a scope note pointing to
-   `figures/final/` for the final_ corpus. Nothing it emits changed otherwise.
+4. **One final results file.** `VERIFIED_RESULTS.md` called itself the single source of truth but
+   covered only the V5 corpus. It now has **Part A**, the final_ corpus with tables T1–T9 and
+   captions, emitted from `make_final_figures.final_corpus_lines()`. **Part B** is the V5 corpus, marked
+   superseded for the final paper and kept because V5 is built from it. `figures/final/final_tables.md`
+   is deleted, so the numbers live in one place. The Part B content is byte-identical to before.
 
 **Aborted attempts on 2026-10-02 (backed up as `results/aborted_20261002T{1829,1837,1857}Z_*`), not
 used anywhere.** None of them got past idle_w calibration, so they contain no leg data. Each session.log
