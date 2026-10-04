@@ -132,9 +132,12 @@ if [ -n "$AMEND" ]; then
         payload:28.8) AMEND_LEGS=("1k 8 kn" "64k 8 kn" "512k 8 kn"); PFX="payload_amend${AMEND/./_}_" ;;
         # §31.13: only Fn's two missing W3 legs (31.10 was withdrawn before data), run_1 (pool
         # growth) discarded, container names resolved off the sampling thread (§31.12)
-        burst:31.13) BURST_LEGS=("fn b500" "fn b100"); BURST_REPEAT=$OW_REPEAT
+        # §31.15: the same two legs and design again, power gate passing (31.13 ran capped,
+        # §31.14 C). 31.13 is closed and refused so its directories cannot be overwritten.
+        burst:31.15) BURST_LEGS=("fn b500" "fn b100"); BURST_REPEAT=$OW_REPEAT
                      BURST_DISCARD=$OW_DISCARD BURST_DEFER=1; PFX="burst_amend${AMEND/./_}_" ;;
-        payload:*|burst:*) echo "unknown amendment '$AMEND' for --workload $WORKLOAD (known: payload 28.8, burst 31.13)" >&2; exit 2 ;;
+        burst:31.13) echo "amendment 31.13 is closed (outcome §31.14); its re-run is --amend 31.15" >&2; exit 2 ;;
+        payload:*|burst:*) echo "unknown amendment '$AMEND' for --workload $WORKLOAD (known: payload 28.8, burst 31.15)" >&2; exit 2 ;;
         *) echo "--amend needs --workload payload or burst" >&2; exit 2 ;;
     esac
 fi
@@ -676,7 +679,7 @@ elif [ -n "$AMEND" ] && [ "$WORKLOAD" = payload ]; then
     done
 fi
 if [ "$WORKLOAD" = burst ]; then
-    [ -n "$AMEND" ] && say "=== amendment $AMEND (runbook §31.13): Fn's missing legs only, --repeat $BURST_REPEAT --discard-warmup $BURST_DISCARD, SAQEF_SAMPLER_DEFER_NAMES=$BURST_DEFER"
+    [ -n "$AMEND" ] && say "=== amendment $AMEND (runbook §31.13, §31.15): Fn's missing legs only, --repeat $BURST_REPEAT --discard-warmup $BURST_DISCARD, SAQEF_SAMPLER_DEFER_NAMES=$BURST_DEFER"
     say "=== W3 burst: ${#BURST_LEGS[@]} legs, steady / b100 / b500 per platform, gap ${BURST_GAP_S}s, OW with the driver log store"
     for leg in "${BURST_LEGS[@]}"; do
         read -r p arm <<< "$leg"

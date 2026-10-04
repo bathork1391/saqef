@@ -81,6 +81,8 @@ whenever a new section records a bug, a gotcha or a "do not repeat".
 | cp ms/inv up 20–35 % with function CPU flat; `freq_mhz_after` stuck at 2400–2600; idle-w ~1.5 W low | §31.14 C (laptop firmware caps the CPU at base clock at low battery / charger not charging; OS shows `performance`; pre-flight check 8 now blocks it) |
 | Pre-flight: `CPU held at N MHz under load` / `not on mains power` / `battery is discharging` | §31.14 F (power gate; use the full-power charger, let the battery charge) |
 | Session stopped with exit 8 `power lost before leg` | §31.14 F (charger unplugged mid-session; legs already done are kept) |
+| `freq_mhz_after` low (400–2600) in an uncapped leg | §31.15 anchors (idle reading after the run; only all runs pinned at 2400–2600 marks a cap) |
+| Re-running a leg whose data was spoiled by a box fault | §31.15 (same design, only the fault removed; P0 citability check; last session for those legs) |
 | `mem_` cp +34–78 % vs `mem2_`: leftovers? | §31.14 D (corrects §30.11 B.1: confounded with a capped clock at 32–35 % battery; not separable) |
 
 ## 1. Noisy-neighbor contamination from background processes (incl. this agent)
@@ -3607,3 +3609,67 @@ Fix the charging first: try the original adapter, set `charge_types` / BIOS char
 
 **Do not repeat:** comparing 31.13's cp, drain, latency or energy with `burst_`; citing §30.11 B.1's
 +34–78 % as a leftovers effect; reading R1 or S1 as B1; running a session without the power gate.
+
+## 31.15 W3 amendment: §31.13's two Fn legs again, power gate passing — pre-registration (written 2026-10-04, before any data)
+Amendment 31.15: pre-registered
+
+**Question.** What are Fn's burst cp, drain, latency and energy in b100 and b500 when the CPU is
+not capped? §31.14 answered B1 but left these without a citable value, because a box fault
+(firmware clock cap, found by an objective check) affected every run. This is not a re-run after a
+failed prediction: the design is §31.13's, and the only change is that pre-flight check 8 must pass.
+No repetition beyond the same two legs; Fn steady is not re-run.
+
+**Design (fixed).** As §31.13, word for word, except the prefix:
+- Legs, in order: `burst_amend31_15_fn_b500`, `burst_amend31_15_fn_b100`. `SAQEF_BURST=500:1` /
+  `100:1`, CPU-bound handler, Fn config and `--verify` unchanged, `--repeat 6 --discard-warmup 1`,
+  `SAQEF_SAMPLER_DEFER_NAMES=1`, `--cpu-probe 60`, in-session idle-w calibration, `--hygiene`, quiet
+  gate 15 %, burst-mode gate (§31.6), one `_r2` retry.
+- Power: pre-flight check 8 (§31.14 F) must pass; per-leg power guard as committed. Start with the
+  battery at ≥ 80 % and charging (advice from §31.14 C, not a gate).
+- §31.13 is retired in `run_final.sh` (`--amend 31.13` is refused) so its directories cannot be
+  overwritten.
+- **Run:** `sudo bash tools/go.sh --workload burst --amend 31.15`. Expected ≈ 40 min; ~55 min with
+  retries. Watchdog 2 h.
+
+**Anchors** (all Fn, idle-subtracted cp, median over usable runs).
+- §31.14 B (capped, 31.13): cp 1.476 / 0.947 ms/inv (b100 / b500), function 4.99 / 4.04 ms/inv,
+  drain 0.216 / 0.522 s, p99 227.4 / 752.2 ms.
+- F-T3 (`burst_`, runs 2–5, post hoc, not citable): cp 1.125 / 0.790 ms/inv, drain 0.170 / 0.468 s,
+  p99 ~179 / 490–552 ms.
+- `freq_mhz_after` (one reading after each run, box mostly idle): in uncapped legs it scatters
+  (e.g. 400–2600 MHz within one leg); in both capped 31.13 legs it is 2400–2600 in **every** run.
+
+**Predictions (Fn).**
+- **P0 (citability, checked first).** For each leg: (a) the session's pre-flight check 8 passed;
+  (b) every attempt's logged power state is AC online and battery `Charging` or `Full` (or
+  `Not charging` at ≥ 80 %, a charge threshold); (c) the pinned signature is absent: **not all six
+  runs** read `freq_mhz_after` in 2350–2700 MHz. A leg that fails P0 keeps its B1 and R1/S1
+  readings, but its cp, drain, latency and energy are not citable. That is recorded and not re-run.
+- **B1 (replication)** availability ≥ 0.999 (median over usable runs; worst run reported) in b100
+  and in b500.
+- **K1 (tests §31.14 C's mechanism; cross-session, n = 5 vs 5, predicted effect 20–35 %).** cp
+  idle-subtracted ≤ 0.90 × §31.14's (b100 ≤ 1.328, b500 ≤ 0.852 ms/inv) **and** function CPU within
+  ±10 % of §31.14's (b100 4.49–5.49, b500 3.64–4.44 ms/inv). Holds for a leg only if both parts hold.
+- **K2 (reproducibility of `burst_`'s uncapped values; cross-session).** cp idle-subtracted within
+  ±15 % of F-T3 (b100 0.956–1.294, b500 0.672–0.909 ms/inv) and drain within ±20 % (b100
+  0.136–0.204, b500 0.374–0.562 s).
+- **B2, B4: not evaluable** (no in-session steady, as §31.13). **B3:** no prediction; cp
+  idle-subtracted and container count reported.
+- **R1, S1 (descriptive, as §31.13).** Run_1 errors: per-burst counts and status codes, no burst
+  boundary (§31.14 A). S1: run_1's max sampling gap.
+
+**Decision rules.** (1) A failed prediction is a finding, nothing re-run. (2) A leg failing twice
+is missing. (3) This is the last session for these two legs, whatever the outcome; W4 comes next.
+(4) Not pooled with `burst_` or 31.13: Part F gets F-T5, "amendment 31.15, uncapped, warm pool,
+run_1 discarded, sampler fix". F-T3 and F-T4 stay as recorded. If P0 holds for a leg, F-T5 gives
+Fn's citable burst cp, drain, latency and energy for it, labelled "own session, no in-session
+steady". (5) If B1 fails here, both sessions are reported side by side and neither overrides the
+other. (6) K1 and K2 are cross-session comparisons with n = 5 (CLAUDE.md rule 6). They are
+pre-registered with wide bands for large effects only, and are not used to size a day shift.
+(7) cp idle-subtracted, energy RAPL probe basis (§25 rules for ‡). (8) A session stopped by the
+power guard before a leg was measured has no data for that leg. The same command may be run again
+and that is not a re-run. (9) Outcome as §31.16, analysis JSON `results/burst_amend31_15_analysis/`.
+
+**Do not repeat:** re-running Fn steady or 31.13; citing a leg's cp/drain/latency/energy when its P0
+fails; reading K1 or K2 as within-session effects; using `freq_mhz_after` thresholds per run (it is
+an idle reading; only the all-runs-pinned pattern means anything).

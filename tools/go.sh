@@ -7,7 +7,7 @@
 #   sudo bash tools/go.sh --workload memory   W2 memory-bound night (runbook §30)
 #   sudo bash tools/go.sh --workload memory --rerun 2   W2 again as mem2_, with docker hygiene (§30.8)
 #   sudo bash tools/go.sh --workload burst    W3 bursty arrivals (runbook §31; docker hygiene always on)
-#   sudo bash tools/go.sh --workload burst --amend 31.13   W3: only Fn's two missing legs (§31.13, ~40 min)
+#   sudo bash tools/go.sh --workload burst --amend 31.15   W3: Fn's two legs again, uncapped (§31.15, ~40 min)
 #   sudo bash tools/go.sh --status            how far the latest session got
 #   sudo bash tools/go.sh --stop              stop the session now and bring the desktop back
 #

@@ -3548,19 +3548,23 @@ class TestW3Amend3113(unittest.TestCase):
                               capture_output=True, text=True)
 
     def test_dry_run_lists_exactly_the_two_missing_legs(self):
-        out = self._dry("--workload", "burst", "--amend", "31.13").stdout
+        # §31.15 runs §31.13's design again with the power gate passing; only the prefix differs
+        out = self._dry("--workload", "burst", "--amend", "31.15").stdout
         legs = [l.split(":")[0].strip() for l in out.splitlines() if l.strip().startswith("burst_")]
-        self.assertEqual(legs, ["burst_amend31_13_calib", "burst_amend31_13_fn_b500",
-                                "burst_amend31_13_fn_b100"])
+        self.assertEqual(legs, ["burst_amend31_15_calib", "burst_amend31_15_fn_b500",
+                                "burst_amend31_15_fn_b100"])
         for l in out.splitlines():
-            if l.strip().startswith("burst_amend31_13_fn_"):
+            if l.strip().startswith("burst_amend31_15_fn_"):
                 self.assertIn("--repeat 6 --discard-warmup 1 SAQEF_SAMPLER_DEFER_NAMES=1", l)
 
-    def test_withdrawn_and_mismatched_amendments_refused(self):
+    def test_withdrawn_closed_and_mismatched_amendments_refused(self):
         self.assertEqual(self._dry("--workload", "burst", "--amend", "31.10").returncode, 2)
+        closed = self._dry("--workload", "burst", "--amend", "31.13")
+        self.assertEqual(closed.returncode, 2)
+        self.assertIn("--amend 31.15", closed.stderr)
         self.assertEqual(self._dry("--workload", "burst", "--amend", "28.8").returncode, 2)
-        self.assertEqual(self._dry("--workload", "payload", "--amend", "31.13").returncode, 2)
-        self.assertEqual(self._dry("--workload", "memory", "--amend", "31.13").returncode, 2)
+        self.assertEqual(self._dry("--workload", "payload", "--amend", "31.15").returncode, 2)
+        self.assertEqual(self._dry("--workload", "memory", "--amend", "31.15").returncode, 2)
 
     def test_plain_burst_unchanged(self):
         out = self._dry("--workload", "burst").stdout
