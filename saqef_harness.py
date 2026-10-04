@@ -694,6 +694,90 @@ def body_identity():
     return len(_BODY), hashlib.sha256(_BODY).hexdigest()
 
 
+# W3 bursty arrivals (runbook §31): SAQEF_BURST="N:GAP_S" makes the measured window
+# ceil(total / N) bursts of N simultaneous requests (one `hey -n m -c m` each), with GAP_S
+# of idle after every burst but the last. Unset = one closed-loop hey call, so every earlier
+# workload's path is unchanged.
+def parse_burst(value):
+    """'N:GAP_S' -> (N, GAP_S); '' or None -> None. Raises ValueError on a malformed value."""
+    if not value:
+        return None
+    n, gap = value.split(":")
+    n, gap = int(n), float(gap)
+    if n < 1 or gap < 0:
+        raise ValueError("SAQEF_BURST needs N >= 1 and GAP_S >= 0, got %r" % value)
+    return n, gap
+
+
+_BURST = parse_burst(os.environ.get("SAQEF_BURST"))
+
+
+def merge_bursts(bursts, attempted_per_burst, wall):
+    """Merge per-burst run_hey results (offsets already shifted to the run start) into one
+    run_hey-shaped dict. hey leaves transport failures (timeouts, refused/reset connections)
+    out of its CSV, so attempted - rows are failed requests: `requests` is the number
+    ATTEMPTED and availability downstream is 2xx / attempted, not 2xx / rows."""
+    rows = [row for b in bursts for row in b]
+    attempted = sum(attempted_per_burst)
+    ok = sum(1 for _, st, _ in rows if st.startswith("2"))
+    lat_ms = sorted(rt * 1000.0 for rt, _, _ in rows)
+    n = len(lat_ms)
+
+    def pct(p):
+        if not n:
+            return None
+        return lat_ms[max(0, min(n - 1, int(round(p / 100.0 * (n - 1)))))]
+
+    drains = []
+    for b, b0 in zip(bursts, [min((off for _, _, off in b), default=None) for b in bursts]):
+        drains.append(round(max(rt + off for rt, _, off in b) - b0, 4) if b else None)
+    pct_map = {50: pct(50), 90: pct(90), 99: pct(99)}
+    csv_lines = ["response-time,status-code,offset,burst"] + [
+        "%.4f,%s,%.4f,%d" % (rt, st, off, i)
+        for i, b in enumerate(bursts) for rt, st, off in b]
+    return {
+        "ok": ok, "requests": attempted, "wall": wall,
+        "p50": pct_map[50], "p90": pct_map[90], "p99": pct_map[99],
+        "max": lat_ms[-1] if n else None, "avg": (sum(lat_ms) / n) if n else None,
+        "rps": (ok / wall) if wall > 0 else 0.0,
+        "errors": attempted - ok,
+        "lat_points": sorted((k, v) for k, v in pct_map.items() if v is not None),
+        "source": "hey",
+        "raw": "\n".join(csv_lines) + "\n",
+        "burst": {
+            "n_bursts": len(bursts),
+            "attempted": attempted,
+            "completed_rows": n,
+            "transport_errors": attempted - n,
+            "http_errors": n - ok,
+            "drain_s": drains,
+            "drain_s_median": statistics.median([d for d in drains if d is not None])
+                              if any(d is not None for d in drains) else None,
+        },
+    }
+
+
+def run_burst(url, total, size, gap_s, deadline_s=None, headers=None):
+    """W3 (runbook §31): ceil(total / size) bursts of `size` simultaneous requests, gap_s idle
+    after each but the last. Returns merge_bursts()'s dict, or None if any hey call fails
+    (run_once then records a loadgen fallback, which the gates refuse)."""
+    t_start = time.perf_counter()
+    bursts, attempted = [], []
+    left = total
+    while left > 0:
+        m = min(size, left)
+        b0 = time.perf_counter() - t_start
+        r = run_hey(url, m, m, deadline_s=deadline_s, headers=headers, allow_empty=True)
+        if r is None:
+            return None
+        bursts.append([(rt, st, (off or 0.0) + b0) for rt, st, off in r["rows"]])
+        attempted.append(m)
+        left -= m
+        if left > 0:
+            time.sleep(gap_s)
+    return merge_bursts(bursts, attempted, time.perf_counter() - t_start)
+
+
 def run_load(url, total, concurrency, timeout_s=10, deadline_s=None, headers=None, interarrival_ms=0.0):
     """Fire `total` requests with `concurrency` threads, hard-stopped at deadline_s.
     Optionally sleeps `interarrival_ms` between requests (cold-start experiments).
@@ -732,7 +816,7 @@ def run_load(url, total, concurrency, timeout_s=10, deadline_s=None, headers=Non
 
 
 def run_hey(url, total, concurrency, deadline_s=None, headers=None, timeout_ms=30000,
-            qps=None):
+            qps=None, allow_empty=False):
     """Run hey (Go load generator) as a subprocess; keeps the harness's own CPU
     out of host accounting. Returns a results dict, or None if hey is missing/fails.
     QoS is computed from hey's per-request CSV rows: rps, latency percentiles,
@@ -809,8 +893,15 @@ def run_hey(url, total, concurrency, deadline_s=None, headers=None, timeout_ms=3
         if rt_key is None or st_key is None:
             raise ValueError("expected columns not found; got %r" % (reader.fieldnames,))
         rows = [r for r in reader if r.get(rt_key) not in (None, "")]
+        if not rows and allow_empty:
+            # W3 burst mode: hey ran (rc 0) but every request failed at the transport
+            # level, which hey leaves out of its CSV. That is a measured outcome there.
+            return {"ok": 0, "requests": 0, "rows": [], "raw": proc.stdout, "source": "hey"}
         if not rows:
             raise ValueError("hey CSV had a header but zero data rows")
+        row_data = [(float(r[rt_key]), str(r.get(st_key, "")),
+                     float(r[off_key]) if off_key and r.get(off_key) not in (None, "") else None)
+                    for r in rows]
         lat_ms = sorted(float(r[rt_key]) * 1000.0 for r in rows)
         status = [str(r.get(st_key, "")) for r in rows]
         offsets = [float(r[off_key]) for r in rows if off_key and r.get(off_key) not in (None, "")]
@@ -837,6 +928,7 @@ def run_hey(url, total, concurrency, deadline_s=None, headers=None, timeout_ms=3
         "lat_points": sorted(pct_map.items()),
         "source": "hey",
         "raw": proc.stdout,
+        "rows": row_data,   # (response-time s, status, offset s) in CSV order; W3 burst merge
     }
 
 
@@ -1556,6 +1648,13 @@ def run_once(args, cp_sub):
               "(hey -q %.4g per worker)" % (qps, args.concurrency, qps / args.concurrency))
     if args.idle_probe:
         time.sleep(args.duration)  # platform up, zero traffic -> static orchestration baseline
+    elif args.loadgen == "hey" and _BURST:
+        ld = run_burst(args.url, args.total, _BURST[0], _BURST[1], deadline_s=args.duration,
+                       headers=headers)
+        if ld is None:
+            print("WARNING: hey failed inside a burst -> python load generator (gates refuse the run)")
+            reqs = run_load(args.url, args.total, args.concurrency, deadline_s=args.duration,
+                            headers=headers)
     elif args.loadgen == "hey":
         ld = run_hey(args.url, args.total, args.concurrency, deadline_s=args.duration,
                      headers=headers, qps=(qps or None))
@@ -1863,7 +1962,10 @@ def run_once(args, cp_sub):
                 "payload_sha256": body_identity()[1],
                 # W2 provenance (runbook §30): the swapped-in arm, e.g. "mem_dram";
                 # None for every workload that does not set it.
-                "workload_variant": os.environ.get("SAQEF_WORKLOAD_VARIANT") or None},
+                "workload_variant": os.environ.get("SAQEF_WORKLOAD_VARIANT") or None,
+                # W3 provenance (runbook §31): None for every closed-loop run.
+                "burst_size": _BURST[0] if _BURST else None,
+                "burst_gap_s": _BURST[1] if _BURST else None},
         # One name for this value, not two. 90d153f added rapl_fit_err_pct as an
         # alias of rapl_validation_err_pct; the committed corpus already uses the
         # latter, so the alias bought nothing and invited the two to drift.
@@ -1922,6 +2024,8 @@ def run_once(args, cp_sub):
                               "avg_ms": round(ld_avg, 2) if ld_avg is not None else None,
                               "errors": ld_errors,
                               "wall_s": round(wall_loadgen, 2) if wall_loadgen else None}
+        if ld.get("burst"):
+            summary["burst"] = ld["burst"]
     return summary, all_snaps, reqs, ld, list(samples)
 
 

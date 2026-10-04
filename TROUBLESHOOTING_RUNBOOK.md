@@ -66,6 +66,7 @@ whenever a new section records a bug, a gotcha or a "do not repeat".
 | Idle probe 0.7–1.5 W above the session calibration on every light-platform leg (‡) | §30.10 E (both arms alike; probe basis is the rule; within-session ratios unaffected) |
 | Did docker leftovers bias earlier sessions? (idle floor per session) | §30.11 B (Part A and W1 no; `mem_` yes, cp +34–78 %; OW cli +15 % residual and §28.8 bridge: candidate cause) |
 | Why does dram inflate cp on Fn and Knative but not OpenFaaS or OpenWhisk? | §30.11 A (post hoc; start-up, CPU saturation and pinning ruled out; cache/bus interference inferred, not measured) |
+| hey drops timed-out / refused requests from its CSV; availability = 2xx / rows overstates success | §31.6 (closed loop: the INCOMPLETE gate already voided such runs, 8 of 680; W3 counts attempted − rows as failures) |
 | "Log store does not cap OW throughput" (smoke test) | §29.2 C (wrong; corrected by §29.1 Q4) |
 | Pre-flight says "not pre-registered" though the line is committed | §30.9 (`git show | grep -q` SIGPIPE race under pipefail; fixed) |
 
@@ -3124,3 +3125,115 @@ session runs with `--hygiene`.
 
 **Do not repeat:** running any session without `--hygiene` (W3 and later default it on in their
 pre-registration); comparing absolute ms/inv across sessions without the idle-floor table above.
+
+
+## 31. W3 bursty arrivals — pre-registration (written 2026-10-04, before any W3 data)
+Workload burst: pre-registered
+
+### 31.1 Question
+Roadmap §26 step 6 and the supervisor's success-rate question (§25.3): **when requests arrive in
+bursts instead of a steady closed loop, do the platforms still answer every request, how long do
+they take to drain a burst, and does the control plane cost more per invocation?** No data on disk
+answers it: all 680 measured runs are closed-loop (at most c in flight), so overload and queueing
+were unreachable by construction (§25.5) and every one reads availability 1.0.
+
+### 31.2 Design (fixed)
+- **Handler:** Part A's CPU-bound handler (5 ms spin, working tree, no swap). Only the arrival
+  pattern changes.
+- **Three arms per platform, same session:**
+  - `steady`: closed loop, `hey -n 3000 -c 8`, exactly Part A's c = 8 protocol (in-session reference).
+  - `b100`: 30 bursts of **100 simultaneous** requests (`hey -n 100 -c 100` each), **1 s idle** after
+    each burst but the last (`SAQEF_BURST=100:1`).
+  - `b500`: 6 bursts of **500 simultaneous** requests, 1 s idle after each (`SAQEF_BURST=500:1`).
+  TOTAL = 3000 per run in every arm. A burst starts when the previous one has fully drained and the
+  gap has passed, so this is on/off load with each burst open (all N fired at once), not a
+  closed loop of 100 or 500.
+- **Why these sizes:** at c = 8 the light platforms retire ~900–1060 rps and OW (driver) ~306 rps
+  (Part A T5; Part D). A 100-burst is ~0.1 s of light-platform work, a 500-burst ~0.5 s, and 1.6 s
+  for OW. Knative's queue capacity is 16 pods × (cc 4 + queue depth 40) = 704 > 500, OW's concurrent
+  limit is set to 1000 (platforms/openwhisk.py), hey's per-request timeout is 30 s.
+- **Gap:** 1 s, shorter than Fn's hot-container idle timeout (30 s) and every other platform's
+  keep-alive, so **this tests queueing under bursts, not cold start** (that is W4). Platform
+  configs are unchanged: OF and Kn 16 static replicas, Fn dynamic hot containers, OW standalone with
+  the **driver log store** (§29.3) and its 2 action containers (§29.2 D).
+- **Legs:** 4 platforms × 3 arms = **12 legs**, prefix `burst_`, stamps `burst_<of|fn|kn|ow>_<arm>`.
+  Order (no arm always first): of steady, b100, b500; fn b500, b100, steady; kn steady, b100, b500;
+  ow b500, b100, steady.
+- **Protocol: as Part A** otherwise: light `--repeat 5`; OW `--repeat 6 --discard-warmup 1`,
+  `--ow-duration 300`, JVM thread sampler; `--cpu-probe 60`; idle-w calibration in session; one `_r2`
+  retry; settle after verify; same quiet gate (15 %). **`--hygiene` always on** (§30.11: leftovers
+  bias cp by up to +78 %).
+- **Run:** `sudo bash tools/go.sh --workload burst`. Expected ≈ 1.5–2 h (calibration 24 min,
+  12 legs × ~5–6 min); watchdog 4 h.
+
+### 31.3 Metrics (fixed before data)
+- **availability** = 2xx / requests **attempted** (§31.6), per run, then median over usable runs;
+  also the worst run. Failures split into HTTP (non-2xx: 429, 502, 503, ...) and transport (timeout,
+  refused, reset). Recorded per run in `summary.json` `burst`.
+- **drain time** of a burst = last completion − first start; per run the median over its bursts,
+  then the median over usable runs.
+- **cp ms/inv, idle-subtracted** (`tools/untracked_dyn.py` `cp_dyn`): burst windows include ~29 s
+  (b100) or ~5 s (b500) of idle gaps, so the idle cp rate × window is subtracted, per run, from the
+  leg's own 60 s idle probe. Primary cp metric for every arm. Raw cp reported beside it. Sensitivity
+  stated per leg (± per 0.01 core of idle-probe error). Per *successful* invocation.
+- latency p50 / p99 over completed requests; throughput = 2xx / window (includes gaps; descriptive
+  only).
+
+### 31.4 Anchors (other sessions; context only, not compared numerically)
+Closed loop, c = 8: Part A T5 rps OF 933, Fn 1062, Kn 905; T6 p99 OF 17.7, Fn 13.2, Kn 15.0 ms.
+OW driver c = 8 (owlog29): 306 rps, p99 32.7 ms, cp 3.03 (idle-subtracted 2.86) ms/inv. Clean-box
+light cp at c = 8 (mem2_ cache arm, idle-subtracted): OF 0.46, Fn 0.60, Kn 0.73 ms/inv. Idle cp rate
+(probe): light 0.002–0.009 core, OW ~0.05 core. Every one of the 680 closed-loop runs: availability
+1.0. Run-to-run cp CV over usable runs: median 2–7 %, max 10.5 % (§30.3).
+
+### 31.5 Predictions (per platform; judged against this session's steady arm)
+- **B0 — regime check.** `steady` availability = 1.0 on every platform (as all 680 closed-loop runs).
+- **B1 — bursts are absorbed.** availability ≥ **0.999** in b100 and in b500 on **all four**
+  platforms (each queues: OF gateway → 16 replicas, Kn queue depth 704 > 500, OW limit 1000,
+  loopback, 30 s timeout). Least certain for Fn, whose hot-container pool must grow inside a burst.
+  A failure here is the answer to the supervisor's question, not a defect.
+- **B2 — bursts drain at steady capacity.** median drain time within **[0.67, 1.5] × N / rps_steady**
+  (same platform, this session) for b500 on all four platforms. (b100 drain is reported, not judged:
+  at ~0.1 s it is dominated by connection set-up.)
+- **B3 — arrival pattern does not change cp cost.** idle-subtracted cp ms/inv in b100 and b500
+  within **±15 %** of steady on **OpenFaaS, Knative and OpenWhisk** (static replicas or a fixed
+  2-container pool: no new per-request work). **Fn: no prediction** (its pool size depends on the
+  burst); its function-container count per run is reported.
+- **B4 — bursts move the tail.** p99 in b500 ≥ **5 ×** steady p99 on all four platforms
+  (a 500-burst queues ≥ 0.5 s of work).
+- No prediction for energy, for throughput (it includes the gaps), or for b100 vs b500 ordering.
+
+### 31.6 Measurement change for W3 (behind the flag; closed-loop runs unchanged)
+- **Found while designing W3 (2026-10-04), tested live:** hey leaves requests that fail at the
+  transport level (timeout, connection refused/reset) **out of its CSV**; only completed responses,
+  2xx or not, appear. The harness computed `availability = 2xx / CSV rows`, so dropped requests could
+  never count as failures. In the closed-loop corpus this never reached a cited number: such a run
+  has rows < 3000, which the INCOMPLETE gate already rejects (8 of 680 runs, all OW, all excluded).
+  Under bursts it would hide exactly the failures W3 measures.
+- `SAQEF_BURST=N:GAP_S` (saqef_harness.py `run_burst`/`merge_bursts`): `requests` = attempted,
+  `availability` = 2xx / attempted, `summary.json` `burst` = {n_bursts, attempted, completed_rows,
+  transport_errors, http_errors, drain_s per burst, drain_s_median}; `hey.csv` = merged rows with
+  offsets shifted to the run start and a `burst` column; `env.burst_size`, `env.burst_gap_s`
+  (None on every closed-loop run). A burst whose requests all fail is recorded (0 rows), not crashed.
+- **Gate in burst mode** (run_lock_session.sh): the 99 % SUCCESSES rule does not apply (failures are
+  the measurement); a run with **zero** successes is unusable (platform down). INCOMPLETE,
+  LOADGEN FALLBACK, sampling, drift and the quiet gate apply unchanged.
+- `tools/run_final.sh --workload burst` (12 legs of §31.2, `--hygiene` forced, pre-flight line
+  `Workload burst: pre-registered`, OW driver store per leg); `tools/go.sh --workload burst`
+  (session `burst_session`, watchdog 4 h). Tests: `TestW3BurstMode`. Smoke test (unmeasured, a local
+  dummy server, no platform): 1100 requests in bursts of 500 with 2 % 503s → 3 bursts, 30 HTTP
+  errors counted; 200 requests at a closed port → 200 transport errors, 0 ok, no crash.
+
+### 31.7 Decision rules
+1. Each prediction is judged per platform from this session's own legs. A failed prediction is a
+   **finding**, reported as such. No leg is re-run to rescue one.
+2. A leg that fails twice is missing. A platform whose `steady` leg is missing has B2–B4 not
+   evaluable; "all four" then becomes "all evaluable".
+3. Nothing is pooled with Part A, W1, W2 or owlog29; anchors are context only. OW is "OpenWhisk
+   standalone, log-driver log store, 2 action containers" wherever compared.
+4. cp is cited idle-subtracted (§31.3). Raw untracked host CPU is not cited (§29.4).
+5. Latency: in `steady`, `host_saturated` legs do not cite QoS (Part A rule). In the burst arms the
+   tail **is** the result and is cited with the leg's saturation stated.
+6. Energy: RAPL, probe basis, per arm, no prediction.
+7. Results go to VERIFIED_RESULTS.md **Part F** (generator `figures/make_burst_tables.py`, verdicts
+   at emit time), analysis JSON under `results/burst_analysis/`.

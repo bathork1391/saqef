@@ -3448,3 +3448,93 @@ class TestW2DeployedArmCheck(unittest.TestCase):
         rf = open(os.path.join(REPO, "tools", "run_final.sh")).read()
         self.assertIn('SAQEF_EXPECT_KIB="$want"', rf)
         self.assertIn("unset SAQEF_WORKLOAD_VARIANT SAQEF_EXPECT_KIB", rf)
+
+
+class TestW3BurstMode(unittest.TestCase):
+    """Runbook §31: SAQEF_BURST="N:GAP_S" turns the measured window into bursts of N
+    simultaneous requests. hey leaves transport failures out of its CSV, so a burst run counts
+    them as failed requests (requests = attempted). Unset, nothing changes."""
+
+    @classmethod
+    def setUpClass(cls):
+        loader = importlib.machinery.SourceFileLoader("saqef_harness_w3", os.path.join(REPO, "saqef_harness.py"))
+        spec = importlib.util.spec_from_loader("saqef_harness_w3", loader)
+        cls.h = importlib.util.module_from_spec(spec)
+        loader.exec_module(cls.h)
+
+    def test_parse_burst(self):
+        self.assertEqual(self.h.parse_burst("100:1"), (100, 1.0))
+        self.assertIsNone(self.h.parse_burst(""))
+        self.assertIsNone(self.h.parse_burst(None))
+        for bad in ("0:1", "100:-1", "100", "x:1"):
+            with self.assertRaises(ValueError):
+                self.h.parse_burst(bad)
+
+    def test_merge_counts_transport_failures(self):
+        b = [[(0.010, "200", 0.0), (0.020, "503", 0.001)], [(0.5, "200", 1.6)]]
+        m = self.h.merge_bursts(b, [3, 1], 2.5)
+        self.assertEqual(m["requests"], 4)                 # attempted, not CSV rows
+        self.assertEqual(m["ok"], 2)
+        self.assertEqual(m["burst"]["transport_errors"], 1)
+        self.assertEqual(m["burst"]["http_errors"], 1)
+        self.assertEqual(m["burst"]["drain_s"], [0.021, 0.5])
+        self.assertEqual(m["errors"], 2)
+        self.assertTrue(m["raw"].startswith("response-time,status-code,offset,burst\n"))
+
+    def test_merge_all_failed(self):
+        m = self.h.merge_bursts([[], []], [100, 100], 3.0)
+        self.assertEqual((m["requests"], m["ok"], m["p50"]), (200, 0, None))
+        self.assertEqual(m["burst"]["transport_errors"], 200)
+        self.assertIsNone(m["burst"]["drain_s_median"])
+
+    def _fake_hey(self, d, rows_per_call):
+        """A hey that logs its argv and prints `rows_per_call` 200 rows (fewer than -n = drops)."""
+        log = os.path.join(d, "hey_calls")
+        with open(os.path.join(d, "hey"), "w") as f:
+            f.write('#!/bin/bash\necho "$*" >> %s\n' % log
+                    + 'echo "response-time,DNS+dialup,DNS,Request-write,Response-delay,Response-read,status-code,offset"\n'
+                    + 'for i in $(seq 1 %d); do echo "0.0100,0,0,0,0.01,0,200,0.000$i"; done\n' % rows_per_call)
+        os.chmod(os.path.join(d, "hey"), 0o755)
+        return log
+
+    def test_run_burst_shape_and_gaps(self):
+        with tempfile.TemporaryDirectory() as d:
+            log = self._fake_hey(d, 3)
+            old = os.environ["PATH"]
+            os.environ["PATH"] = d + ":" + old
+            try:
+                t = time.perf_counter()
+                m = self.h.run_burst("http://x/", 11, 4, 0.2)
+                el = time.perf_counter() - t
+            finally:
+                os.environ["PATH"] = old
+            calls = open(log).read().splitlines()
+        # ceil(11/4) = 3 bursts: 4, 4, 3 simultaneous; two gaps (none after the last)
+        self.assertEqual([c.split()[:4] for c in calls],
+                         [["-n", "4", "-c", "4"], ["-n", "4", "-c", "4"], ["-n", "3", "-c", "3"]])
+        self.assertGreaterEqual(el, 0.4)
+        self.assertEqual(m["requests"], 11)                # attempted
+        self.assertEqual(m["ok"], 9)                       # the fake answers 3 per call
+        self.assertEqual(m["burst"]["transport_errors"], 2)  # 1 dropped in each of the first two
+        self.assertEqual(m["burst"]["n_bursts"], 3)
+
+    def test_run_once_and_gate_wiring(self):
+        src = open(os.path.join(REPO, "saqef_harness.py")).read()
+        self.assertIn('elif args.loadgen == "hey" and _BURST:', src)
+        self.assertIn('"burst_size": _BURST[0] if _BURST else None', src)
+        gate = open(os.path.join(REPO, "tools", "run_lock_session.sh")).read()
+        i = gate.index('if env.get("burst_size"):')
+        self.assertLess(i, gate.index('elif r.get("successes") is not None and want and r.get("successes") < 0.99 * want:'))
+        self.assertIn("NO SUCCESSES 0/%s (burst mode)", gate)
+
+    def test_session_wiring(self):
+        rf = open(os.path.join(REPO, "tools", "run_final.sh")).read()
+        self.assertIn('burst) PFX="burst_"; HYGIENE=1 ;;', rf)
+        self.assertIn("Workload burst: pre-registered", rf)
+        legs = re.search(r'BURST_LEGS=\(("of steady".*?)\)\n', rf, re.S).group(1)
+        self.assertEqual(len(re.findall(r'"\w+ \w+"', legs)), 12)
+        self.assertIn('export SAQEF_BURST="${b}:${BURST_GAP_S}"', rf)
+        self.assertIn("unset SAQEF_BURST\n    done", rf)
+        go = open(os.path.join(REPO, "tools", "go.sh")).read()
+        self.assertIn("burst) MAX_H=4 ;;", go)
+        self.assertIn('"$REPO"/results/burst_session', go)

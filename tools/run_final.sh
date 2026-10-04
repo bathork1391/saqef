@@ -32,6 +32,12 @@
 # The handlers are swapped (and OF/Kn images rebuilt) before each leg whose arm differs from
 # the last; OW runs with SAQEF_OW_LOGSTORE=driver (§29.3). Prefix mem_. Handlers restored on exit.
 #
+# --workload burst (runbook §31, W3): Part A's CPU-bound handler (no swap), each platform under
+# three arrival patterns in the same session: steady (closed loop, c = 8, as Part A) and bursts
+# of 100 or 500 simultaneous requests with 1 s idle after each (SAQEF_BURST). Failed requests are
+# measured, not gated (only a run with no success is unusable). OW with the driver log store.
+# Always with --hygiene (§30.11). Prefix burst_.
+#
 # --arm owlog29 (runbook §29): OpenWhisk only, CPU-bound handler, c = 1/4/8, each c measured
 # twice in the same session: the standalone's default log collector (one `docker logs` per
 # activation) and SAQEF_OW_LOGSTORE=driver (none). Order alternates per c. Prefix owlog29_.
@@ -74,8 +80,19 @@ case "$WORKLOAD" in
     cpu) ;;
     payload) PFX="payload_" ;;
     memory) PFX="mem_" ;;
-    *) echo "unknown --workload '$WORKLOAD' (cpu|payload|memory)" >&2; exit 2 ;;
+    burst) PFX="burst_"; HYGIENE=1 ;;   # §30.11: every session from W3 on prunes docker leftovers
+    *) echo "unknown --workload '$WORKLOAD' (cpu|payload|memory|burst)" >&2; exit 2 ;;
 esac
+# W3 legs (runbook §31.2), in run order: "platform arm". Arms: steady = closed loop c = 8;
+# b100 / b500 = bursts of 100 / 500 simultaneous requests, BURST_GAP_S idle after each.
+# Order alternates by platform so no arm is always first.
+BURST_GAP_S=1
+BURST_LEGS=()
+if [ "$WORKLOAD" = burst ]; then
+    BURST_LEGS=("of steady" "of b100" "of b500" "fn b500" "fn b100" "fn steady"
+                "kn steady" "kn b100" "kn b500" "ow b500" "ow b100" "ow steady")
+fi
+burst_size() { case "$1" in b100) echo 100 ;; b500) echo 500 ;; *) echo "" ;; esac; }
 # W2 legs (runbook §30.2), in run order: "c platform arm". For each c, each platform's two arms
 # run back to back; which arm goes first alternates with the platform and with c, so neither
 # arm is always first (a slow drift cannot line up with one arm).
@@ -241,6 +258,9 @@ PY
     fi
     if [ -n "$RERUN" ] && ! grep -qF "Workload memory rerun $RERUN: pre-registered" <<<"$prereg"; then
         bad "W2 rerun $RERUN is not pre-registered in the committed runbook (need the line 'Workload memory rerun $RERUN: pre-registered')"
+    fi
+    if [ "$WORKLOAD" = burst ] && ! grep -qF "Workload burst: pre-registered" <<<"$prereg"; then
+        bad "W3 is not pre-registered in the committed runbook (need the line 'Workload burst: pre-registered')"
     fi
     if [ -n "$ARM" ] && ! grep -qF "Arm $ARM: pre-registered" <<<"$prereg"; then
         bad "arm $ARM is not pre-registered in the committed runbook (need the line 'Arm $ARM: pre-registered')"
@@ -428,6 +448,17 @@ if [ "$CHECK_ONLY" = 1 ] || [ "$DRY_RUN" = 1 ]; then
                 read -r c ls <<< "$leg"
                 echo "  ${PFX}tier1ow${c}_${ls}: SAQEF_OW_LOGSTORE=$ls --concurrency $c --repeat $OW_REPEAT --discard-warmup $OW_DISCARD + JVM thread sampler (arm $ARM)"
             done
+        elif [ "$WORKLOAD" = burst ]; then
+            for leg in "${BURST_LEGS[@]}"; do
+                read -r p arm <<< "$leg"
+                b=$(burst_size "$arm")
+                if [ -n "$b" ]; then load="SAQEF_BURST=${b}:${BURST_GAP_S} --concurrency $b"; else load="closed loop --concurrency 8"; fi
+                if [ "$p" = ow ]; then
+                    echo "  ${PFX}${p}_${arm}: $load SAQEF_OW_LOGSTORE=driver --repeat $OW_REPEAT --discard-warmup $OW_DISCARD + JVM thread sampler"
+                else
+                    echo "  ${PFX}${p}_${arm}: $load --repeat $LIGHT_REPEAT"
+                fi
+            done
         elif [ "$WORKLOAD" = memory ]; then
             for leg in "${MEM_LEGS[@]}"; do
                 read -r c p arm <<< "$leg"
@@ -474,7 +505,7 @@ say "final session start (workload $WORKLOAD), repo $REPO"
 # Safety net 1: whatever happens from here -- normal end, abort, crash, or being
 # killed by the RuntimeMaxSec watchdog go.sh sets -- the desktop comes back.
 restore_handlers() {
-    [ "$WORKLOAD" = cpu ] && return 0
+    [ "$WORKLOAD" = cpu ] || [ "$WORKLOAD" = burst ] && return 0
     # Never rebuild after a failed restore: that bakes the swapped handlers into the images.
     if bash "$REPO/tools/workload.sh" restore; then
         bash "$REPO/tools/workload.sh" build || true
@@ -571,7 +602,27 @@ elif [ -n "$AMEND" ]; then
             || failed=$((failed + 1))
     done
 fi
-if [ "$WORKLOAD" = memory ]; then
+if [ "$WORKLOAD" = burst ]; then
+    say "=== W3 burst: ${#BURST_LEGS[@]} legs, steady / b100 / b500 per platform, gap ${BURST_GAP_S}s, OW with the driver log store"
+    for leg in "${BURST_LEGS[@]}"; do
+        read -r p arm <<< "$leg"
+        b=$(burst_size "$arm")
+        if [ -n "$b" ]; then export SAQEF_BURST="${b}:${BURST_GAP_S}"; conc="$b"
+        else unset SAQEF_BURST; conc=8; fi
+        say "    arrival pattern for this leg: $arm (SAQEF_BURST=${SAQEF_BURST:-unset}, concurrency $conc)"
+        if [ "$p" = ow ]; then
+            export SAQEF_OW_LOGSTORE=driver
+            run_one "${PFX}${p}_${arm}" ow openwhisk --concurrency "$conc" --repeat "$OW_REPEAT" \
+                --discard-warmup "$OW_DISCARD" --ow-duration 300 "${IW[@]}" \
+                || failed=$((failed + 1))
+            unset SAQEF_OW_LOGSTORE
+        else
+            run_one "${PFX}${p}_${arm}" "$p" "${LONG[$p]}" --concurrency "$conc" --repeat "$LIGHT_REPEAT" "${IW[@]}" \
+                || failed=$((failed + 1))
+        fi
+        unset SAQEF_BURST
+    done
+elif [ "$WORKLOAD" = memory ]; then
     say "=== W2 memory: ${#MEM_LEGS[@]} legs, two arms per platform/c, OW with the driver log store"
     for leg in "${MEM_LEGS[@]}"; do
         read -r c p arm <<< "$leg"

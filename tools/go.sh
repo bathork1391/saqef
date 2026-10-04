@@ -6,6 +6,7 @@
 #   sudo bash tools/go.sh --arm owlog29       OpenWhisk log-collector A/B (runbook §29)
 #   sudo bash tools/go.sh --workload memory   W2 memory-bound night (runbook §30)
 #   sudo bash tools/go.sh --workload memory --rerun 2   W2 again as mem2_, with docker hygiene (§30.8)
+#   sudo bash tools/go.sh --workload burst    W3 bursty arrivals (runbook §31; docker hygiene always on)
 #   sudo bash tools/go.sh --status            how far the latest session got
 #   sudo bash tools/go.sh --stop              stop the session now and bring the desktop back
 #
@@ -41,7 +42,7 @@ while [ $# -gt 0 ]; do
         --amend) AMEND="${2:-}"; shift ;;
         --arm) ARM="${2:-}"; shift ;;
         --rerun) RERUN="${2:-}"; shift ;;
-        *) echo "unknown option: $1 (use --workload cpu|payload|memory, --amend ID, --arm ID, --rerun N, --status, --stop)" >&2; exit 2 ;;
+        *) echo "unknown option: $1 (use --workload cpu|payload|memory|burst, --amend ID, --arm ID, --rerun N, --status, --stop)" >&2; exit 2 ;;
     esac
     shift
 done
@@ -49,10 +50,11 @@ case "$WORKLOAD" in
     cpu) MAX_H=4 ;;        # hard ceiling; a CPU session takes ~2 h
     payload) MAX_H=6 ;;    # 36 legs instead of 15; expected ~3.5-4 h
     memory) MAX_H=6 ;;     # 24 legs + 8 probe deploys + per-leg swaps; expected ~3.5 h (runbook §30.2)
-    *) echo "unknown --workload '$WORKLOAD' (cpu|payload|memory)" >&2; exit 2 ;;
+    burst) MAX_H=4 ;;      # 12 legs; expected ~2 h (runbook §31.2)
+    *) echo "unknown --workload '$WORKLOAD' (cpu|payload|memory|burst)" >&2; exit 2 ;;
 esac
 # Amendment (runbook §28.8 style): a few named legs under their own prefix.
-AMEND_ARGS=() SESS_NAME="$(case "$WORKLOAD" in payload) echo payload ;; memory) echo mem ;; *) echo final ;; esac)"
+AMEND_ARGS=() SESS_NAME="$(case "$WORKLOAD" in payload) echo payload ;; memory) echo mem ;; burst) echo burst ;; *) echo final ;; esac)"
 if [ -n "$AMEND" ]; then
     AMEND_ARGS=(--amend "$AMEND"); MAX_H=2; SESS_NAME="payload_amend${AMEND/./_}"
 fi
@@ -73,7 +75,7 @@ if [ "$ACTION" = stop ]; then
     exit 0
 fi
 if [ "$ACTION" = status ]; then
-    S=$(ls -td "$REPO"/results/final_session "$REPO"/results/payload_session "$REPO"/results/payload_amend*_session "$REPO"/results/owlog*_session "$REPO"/results/mem_session "$REPO"/results/mem[2-9]_session 2>/dev/null | head -1)
+    S=$(ls -td "$REPO"/results/final_session "$REPO"/results/payload_session "$REPO"/results/payload_amend*_session "$REPO"/results/owlog*_session "$REPO"/results/mem_session "$REPO"/results/mem[2-9]_session "$REPO"/results/burst_session 2>/dev/null | head -1)
     echo "== service"; systemctl status "$UNIT" --no-pager 2>/dev/null | sed -n 1,5p || echo "  not running"
     [ -n "$S" ] || { echo "  no session yet"; exit 0; }
     echo "== session: $(basename "$S")"

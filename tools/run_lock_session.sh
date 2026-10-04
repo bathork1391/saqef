@@ -718,7 +718,13 @@ for plat in [p for p in ("openfaas", "fn", "knative", "openwhisk") if short[p] i
             problems.append("%s LOADGEN FALLBACK (%s!=%s)" % (nm, env.get("loadgen"), env.get("loadgen_requested")))
         # A run whose successes fall short is not usable either (2026-10-03 OW 512k:
         # the JVM died mid-run 3, and runs 4-6 recorded 3000 requests, 0 successes).
-        if r.get("successes") is not None and want and r.get("successes") < 0.99 * want:
+        if env.get("burst_size"):
+            # W3 bursty arrivals (runbook §31): failed requests are the measurement there, not
+            # a broken run, so the 99 % rule below does not apply. A run with no success at all
+            # (platform down) is still unusable. Closed-loop runs never set burst_size.
+            if r.get("successes") is not None and r.get("successes") < 1:
+                problems.append("%s NO SUCCESSES 0/%s (burst mode)" % (nm, want))
+        elif r.get("successes") is not None and want and r.get("successes") < 0.99 * want:
             problems.append("%s SUCCESSES %s/%s" % (nm, r.get("successes"), want))
         run_verdicts.append({"name": nm, "usable": len(problems) == n_before,
                              "problems": problems[n_before:]})
