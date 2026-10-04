@@ -84,6 +84,7 @@ whenever a new section records a bug, a gotcha or a "do not repeat".
 | `freq_mhz_after` low (400–2600) in an uncapped leg | §31.15 anchors (idle reading after the run; only all runs pinned at 2400–2600 marks a cap) |
 | Re-running a leg whose data was spoiled by a box fault | §31.15 (same design, only the fault removed; P0 citability check; last session for those legs) |
 | `mem_` cp +34–78 % vs `mem2_`: leftovers? | §31.14 D (corrects §30.11 B.1: confounded with a capped clock at 32–35 % battery; not separable) |
+| `git_dirty: true` in a session whose pre-flight passed (31.15) | §31.16 C (an untracked file outside the measurement path, `drafts/`; the harness flag counts any `git status` line, pre-flight only the measurement path) |
 
 ## 1. Noisy-neighbor contamination from background processes (incl. this agent)
 
@@ -3673,3 +3674,75 @@ and that is not a re-run. (9) Outcome as §31.16, analysis JSON `results/burst_a
 **Do not repeat:** re-running Fn steady or 31.13; citing a leg's cp/drain/latency/energy when its P0
 fails; reading K1 or K2 as within-session effects; using `freq_mhz_after` thresholds per run (it is
 an idle reading; only the all-runs-pinned pattern means anything).
+
+### 31.16 Session 2026-10-04 (`burst_amend31_15_`): outcome
+Adjudicated 2026-10-04 against §31.15. **Every prediction holds on both legs. P0 holds, so Fn's
+burst cp, drain, latency and energy are citable from this session (F-T5, "own session, no
+in-session steady").** This closes W3 for Fn (§31.15 rule 3).
+
+**Legs.** Calibration 17:58–18:23 UTC, legs 18:23–18:33 UTC, measurement code at commit `3501612`
+(pre-flight's measurement-path check passed; see the `git_dirty` note below), `--hygiene` on,
+idle-w in session (`lock_burst_amend31_15_calib`: bare 5.74, of 5.95, fn 5.93, kn 7.31, ow 7.42 W).
+**Both legs passed on attempt 1**, no `_r2`. Every run records `sampler_defer_names = true`,
+`burst_size` 500/100. Usable runs = run_2..run_6 (run_1 discarded as registered).
+
+**A. Verdicts (§31.15; Fn only).**
+| | b100 | b500 |
+|---|---|---|
+| **P0 (a)** pre-flight check 8 | passed: AC online, `Charging/74%`, 3429 MHz under 4-core load | (same session) |
+| **P0 (b)** power state at the attempt | `Charging/92%` | `Charging/91%` |
+| **P0 (c)** all six runs `freq_mhz_after` in 2350–2700? | no: 2800–3200 | no: 2778–3000 |
+| **P0** | **holds** | **holds** |
+| **B1** availability ≥ 0.999 (median; worst run) | **holds** 1.0; worst 1.0 | **holds** 1.0; worst 1.0 |
+| **K1** cp ≤ 0.90 × §31.14 and fn within ±10 % | **holds**: cp 1.220 ≤ 1.328 (×0.83); fn 4.84 (−3.0 %) | **holds**: cp 0.827 ≤ 0.852 (×0.87); fn 3.98 (−1.6 %) |
+| **K2** cp ±15 % and drain ±20 % of F-T3 | **holds**: cp 1.220 (+8.4 %); drain 0.185 s (+8.8 %) | **holds**: cp 0.827 (+4.7 %); drain 0.493 s (+5.4 %) |
+| B2, B4 | not evaluable (fixed in §31.15) | not evaluable |
+| B3 | no prediction | no prediction |
+| R1 (descriptive) run_1 errors, all HTTP 500, per burst | 15: 9 / 6 in bursts 1–2 | 92: 35 / 35 / 16 / 4 / 2 in bursts 1–5 |
+| S1 (descriptive) run_1 max sampling gap | 0.32 s | 0.60 s |
+| Fn function containers (leg-gate count) | 68 | 103 |
+
+- **B1 replicates §31.14:** 30,000 attempted requests over the 10 usable runs, 0 HTTP and 0
+  transport errors. Two sessions now agree that bursts into a grown Fn pool lose nothing; the loss
+  is in pool growth (run_1), which W4 takes up.
+- **K1: the clock mechanism of §31.14 C is supported.** Uncapped, cp falls 13–17 % against the
+  capped session while function CPU moves only 1.6–3.0 %, the pattern a fixed amount of
+  control-plane work per request and a 5 ms wall-time handler predict. The fall is smaller than the
+  20–35 % effect size written in §31.15 (the threshold, ≤ 0.90×, is what was registered and it
+  holds). b500's margin is 0.025 ms/inv, about one idle-probe sensitivity step (±0.028 ms/inv per
+  0.01 core): K1 holds there, but narrowly. Cross-session, n = 5 vs 5 (rule 6).
+- **K2: `burst_`'s uncapped values reproduce** within +5 to +9 % on cp and drain, well inside the
+  bands. Cross-session; not a day-shift estimate.
+- **R1** replicates the pattern again: all errors HTTP 500, decaying to zero as the pool fills,
+  none in usable runs. b500 92 / 92 errors are faster than run_1's median success (fast
+  rejections, §31.11); b100 only 7 / 15 (31.13: 20 / 20). Descriptive, not examined further.
+- **S1** below 1 s in both legs again (§31.14: 0.25 / 0.64 s).
+- b500 run_1 (discarded) was `host_saturated` again; usable runs not.
+
+**B. Citable values (F-T5; usable-run medians, cp idle-subtracted).** b100 / b500: throughput
+85.7 / 358.3 rps, drain 0.185 / 0.493 s, p50 95.6 / 341.8 ms, p99 190.7 / 538.1 ms, cp 1.220 / 0.827
+ms/inv (raw 1.280 / 0.847; ± 0.117 / 0.028 per 0.01 core of idle-probe error; CV over runs 0.8 /
+5.2 %), function 4.84 / 3.98 ms/inv, untracked host (idle-subtracted) 11.8 / 4.2 ms/inv. Energy, RAPL
+probe basis: 43.6 / 20.3 mJ/inv; idle probe ‡ on both legs (8.46 / 9.94 W vs calib 5.93 W), the
+usual light-platform pattern (§30.10 E), so probe basis is the value cited. RAPL FIT warnings
+expected (§25.1). b500's cp drifts 12.5 % across the five runs (0.827 → 0.930); the median is cited.
+
+**C. Notes (post hoc, descriptive).**
+- **`git_dirty = true` in every run** (31.13: false). Cause: the untracked folder `drafts/`
+  (created 17:22 UTC, before the session; a W4 draft). `harness_git_dirty()` counts any
+  `git status --porcelain` line; pre-flight's check counts only the measurement path, which was
+  clean, and `git diff 3501612 HEAD` is empty. Not a protocol deviation; index row added.
+- Idle-w calibration is ~2 W above 31.13's (fn 5.93 vs 3.97 W) and ~0.4 W above `burst_`'s morning
+  calibration (5.51 W): the uncapped clock raises idle power too. Energy per invocation is
+  therefore higher than in the capped session (b100 43.6 vs 33.2 mJ/inv); the capped values stay
+  not citable (§31.14).
+- `freq_mhz_after` here sits at 2.8–3.2 GHz in every run, above the scatter seen in other uncapped
+  legs (400–2600). It is outside P0 (c)'s pinned band; it is one idle reading, not interpreted.
+
+**Decision.** Fn's W3 burst values come from F-T5 (cite as "own session, no in-session steady";
+B2/B4 for Fn remain not evaluable). F-T3 and F-T4 stay as recorded. W3 is closed; next is W4
+(cold start / small pool), which also inherits the run_1 pool-growth 500s.
+
+**Do not repeat:** re-running Fn b100/b500 (rule 3, last session); pooling F-T5 with F-T3 or F-T4;
+reading K1/K2 as within-session effects or as a day shift; treating `git_dirty` as a deviation
+without checking `git status` for untracked non-measurement files.
