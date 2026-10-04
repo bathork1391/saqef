@@ -266,6 +266,22 @@ print(f[len(f) // 2] if f else 0)
 PY
 }
 
+# §33 amendments only: a session directory without DONE = stopped (power guard, abort, crash).
+stopped_amendment() {
+    case "$AMEND" in 33.*) ;; *) return 1 ;; esac
+    [ -d "$SESS" ] && [ ! -f "$SESS/DONE" ]
+}
+archive_stopped() {
+    local dest="$REPO/results/aborted_$(date -u +%Y%m%dT%H%MZ)" p
+    mkdir -p "$dest/idle_w_calibration"
+    for p in "$REPO"/results/*_cpubound_lock_${PFX}* "$REPO"/results/lock_session_${PFX}* \
+             "$REPO"/results/idle_probe_${PFX}* "$REPO"/results/${PFX}box_state "$SESS"; do
+        [ -e "$p" ] && mv "$p" "$dest/"
+    done
+    [ -e "$REPO/results/idle_w_calibration/lock_${PFX}calib" ] && mv "$REPO/results/idle_w_calibration/lock_${PFX}calib" "$dest/idle_w_calibration/"
+    echo "$dest"
+}
+
 preflight() {
     problems=()
     echo "== pre-flight ($(ts))"
@@ -323,10 +339,16 @@ PY
     esac
     echo "  EPP: $epp governor: $(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor) no_turbo: $(cat /sys/devices/system/cpu/intel_pstate/no_turbo 2>/dev/null)"
 
-    # 4. no previous final_ results (run_lock_session refuses to clobber anyway)
+    # 4. no previous final_ results (run_lock_session refuses to clobber anyway). Exception (§33):
+    # a §33 amendment session that stopped before finishing is archived whole at launch and the
+    # amendment starts again; nothing from the stopped attempt is used.
     local collide
     collide=$(ls -d "$REPO"/results/*_cpubound_lock_${PFX}* "$REPO"/results/lock_session_${PFX}* 2>/dev/null || true)
-    [ -z "$collide" ] || bad "results for prefix $PFX already exist: $(echo $collide | tr ' ' ',')"
+    if [ -n "$collide" ] && stopped_amendment; then
+        echo "  earlier attempt of $PFX stopped before finishing: it will be archived as results/aborted_<UTC>/ and not used (§33)"
+    else
+        [ -z "$collide" ] || bad "results for prefix $PFX already exist: $(echo $collide | tr ' ' ',')"
+    fi
 
     # 5. measurement-path code committed (the run must correspond to a commit)
     local dirty
@@ -668,8 +690,11 @@ if [ "$CHECK_ONLY" = 1 ] || [ "$DRY_RUN" = 1 ]; then
     exit 1
 fi
 
+ARCHIVED=""
+stopped_amendment && ARCHIVED=$(archive_stopped)
 mkdir -p "$SESS"
 exec >> "$SESS/session.log" 2>&1
+[ -n "$ARCHIVED" ] && echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] earlier stopped attempt archived to $ARCHIVED (not used, §33)"
 say "final session start (workload $WORKLOAD), repo $REPO"
 # Safety net 1: whatever happens from here -- normal end, abort, crash, or being
 # killed by the RuntimeMaxSec watchdog go.sh sets -- the desktop comes back.

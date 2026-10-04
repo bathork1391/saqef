@@ -4083,6 +4083,12 @@ Never merged silently.
 is missing and stays missing; no third revisit. (3) Outcome as §33.1-outcome / §33.2-outcome,
 analysis JSON `results/<prefix>analysis/`, tables in VERIFIED_RESULTS Parts C and D with the
 footnote. (4) Run after W4, on mains with the power gate passing; never before W4 in the same night.
+(5) **Power cut or any stop (added 2026-10-05 01:58 PKT, before any 33.x data):** a 33.x session
+that stops before finishing (no `DONE` file) is moved whole to `results/aborted_<UTC>/` by the next
+launch of the same command, and nothing from it is used, not even a completed leg (33.2's value is
+the pair; 33.1's pooling needs its bridge). The command then runs the amendment from the start.
+A finished session cannot be run again (pre-flight refuses its prefix). (6) The user may run 33.x
+before W4; rule (4)'s order is a preference, not a condition.
 
 **Do not repeat:** revisiting W1 OpenWhisk 512k; merging these cells into the original columns
 without the footnote; a third attempt at either cell.
@@ -4091,13 +4097,13 @@ without the footnote; a third attempt at either cell.
 Both are post hoc. Neither changes a verdict. JSON in `../saqef-paper/results/*_analysis/`.
 
 ### 34.1 How Fn's pool grows in a burst run (`tools/fn_pool_growth.py`, `fn_pool_growth_analysis/`)
-Every Fn burst leg on disk (`burst_` b100/b500 incl. `_r2`, 31.13, 31.15): 8 first runs, 37 later
+Every Fn burst leg on disk (`burst_` b100/b500 incl. `_r2`, 31.13, 31.15): 8 first runs, 36 later
 runs. Birth = docker's own container creation time; request times from hey. Neither depends on
 the sampler's ~100 ms resolution (§31.18 B). Function containers = Fn's ULID-named ones only.
 - **Every first run starts with 20 function containers** (left by `--verify`, §31.11) and **every
   later run with the full pool** (b100 68–69, b500 99–103) and **no birth inside its window**
-  (37/37). So the usable runs measure a grown, stable pool, as §31.14 said.
-- **The first container is created 0.24–0.33 s after the window opens at b100 and 0.57–0.61 s at
+  (36/36). So the usable runs measure a grown, stable pool, as §31.14 said.
+- **The first container is created 0.24–0.33 s after the window opens at b100 and 0.56–0.61 s at
   b500** (all 8 first runs, both clock states). A review figure of "~1.1 s" does not reproduce
   from docker's creation times; it is likely the sampler's first sighting, which lags creation by
   container start + rescan.

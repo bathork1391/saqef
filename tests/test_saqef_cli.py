@@ -3923,3 +3923,13 @@ class TestRevisit33(unittest.TestCase):
     def test_go_passes_arm_and_amend(self):
         go = open(os.path.join(REPO, "tools", "go.sh")).read()
         self.assertIn('AMEND_ARGS+=(--amend "$AMEND")', go)
+
+    def test_stopped_amendment_is_archived_not_reused(self):
+        rf = open(os.path.join(REPO, "tools", "run_final.sh")).read()
+        fn = rf[rf.index("stopped_amendment() {"):rf.index("preflight() {")]
+        self.assertIn('case "$AMEND" in 33.*) ;; *) return 1 ;; esac', fn)
+        self.assertIn('[ ! -f "$SESS/DONE" ]', fn)
+        self.assertIn("aborted_", fn)
+        main = rf[rf.index("ARCHIVED=\"\""):]
+        self.assertLess(main.index("archive_stopped"), main.index('mkdir -p "$SESS"'))
+
