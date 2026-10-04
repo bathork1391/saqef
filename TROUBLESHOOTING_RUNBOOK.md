@@ -3241,3 +3241,21 @@ light cp at c = 8 (mem2_ cache arm, idle-subtracted): OF 0.46, Fn 0.60, Kn 0.73 
 6. Energy: RAPL, probe basis, per arm, no prediction.
 7. Results go to VERIFIED_RESULTS.md **Part F** (generator `figures/make_burst_tables.py`, verdicts
    at emit time), analysis JSON under `results/burst_analysis/`.
+
+### 31.8 Audit: did hey's missing transport failures mask anything in earlier data? No (2026-10-04)
+Checked every run with request counts in `../saqef-paper/results/` (765 runs), before any W3 data.
+- **A dropped request always shows.** hey `-n 3000` attempts exactly 3000, so any transport failure
+  leaves `requests` (CSV rows) < 3000, and the INCOMPLETE gate rejects that run. 748 of 765 runs have
+  3000 rows, so zero transport failures.
+- **The 17 short runs, none cited:** 6 `payload_512kow*` run_3 (JVM heap death, §28.7; gated out,
+  `usable = false`); 2 `owab2_baseline` runs (pre-final OW diagnostic, no acceptance file, not in
+  VERIFIED_RESULTS); 9 `conc16_quick` runs at 2992 = 16 × 187. That last case is a **second hey quirk**,
+  not a failure: hey gives each of `-c` workers `n / c` requests (integer division) and drops the
+  remainder. W3 is immune: steady is 3000 / 8, and each burst is `-n m -c m`.
+- **Non-2xx responses are in the CSV and were counted all along.** Two cited runs carry one each:
+  `payload_1kc8_of` run_5 and `payload_64kc4_of` run_4, 2999 / 3000 (availability 0.9997, inside the
+  99 % rule, cp/fn per successful invocation). 18 other full-count runs with non-2xx are in gated-out
+  legs and 4 in uncited quick legs.
+
+**Decision: no re-run.** The bug could hide failures only in runs the INCOMPLETE gate already rejects.
+It matters only for W3, where failed requests are the measurement (§31.6 fix).
