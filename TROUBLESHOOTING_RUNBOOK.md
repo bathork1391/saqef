@@ -85,6 +85,10 @@ whenever a new section records a bug, a gotcha or a "do not repeat".
 | Re-running a leg whose data was spoiled by a box fault | §31.15 (same design, only the fault removed; P0 citability check; last session for those legs) |
 | `mem_` cp +34–78 % vs `mem2_`: leftovers? | §31.14 D (corrects §30.11 B.1: confounded with a capped clock at 32–35 % battery; not separable) |
 | `git_dirty: true` in a session whose pre-flight passed (31.15) | §31.16 C (an untracked file outside the measurement path, `drafts/`; the harness flag counts any `git status` line, pre-flight only the measurement path) |
+| "OpenFaaS 0.8.3 has no scale API" / why OF is not in W4 | §31.17 B (it has `/system/scale-function`; no scale-from-zero path; the alert fires on `code="200"` only) |
+| Which sessions ran on battery / capped? Does anything need a re-run? | §31.17 C (upower history per session; only `mem_` and 31.13; no) |
+| Can AC and battery give the same performance? | §31.17 D (firmware cap; only a fixed low clock equalises, breaks comparability; stop on battery) |
+| What are the missing W1 / owlog cells, would a retry work? | §31.17 E |
 
 ## 1. Noisy-neighbor contamination from background processes (incl. this agent)
 
@@ -3746,3 +3750,89 @@ B2/B4 for Fn remain not evaluable). F-T3 and F-T4 stay as recorded. W3 is closed
 **Do not repeat:** re-running Fn b100/b500 (rule 3, last session); pooling F-T5 with F-T3 or F-T4;
 reading K1/K2 as within-session effects or as a day shift; treating `git_dirty` as a deviation
 without checking `git status` for untracked non-measurement files.
+
+### 31.17 After §31.16: review notes, power history of every session, what the missing cells are, W4 scope (2026-10-05, checked on disk)
+Written for a reviewer who arrives cold. Nothing here changes a verdict or a cited number.
+
+**A. Second expert review of §31.16 (each point checked on disk).**
+- "60,000 requests is 2× the real count": **refuted.** Each session is 2 legs × 5 usable runs × 3000
+  = 30,000 (b100 = 30 bursts × 100, b500 = 6 bursts × 500, per run). 31.13 + 31.15 = 60,000, all 2xx;
+  the 60,000 was stated as the two sessions together.
+- "cp is partly paid per burst" is not identified: **agreed** (already marked post hoc in §31.16).
+  cp totals over the same 3000 requests are 3.84 CPU-s (b100, 30 bursts) and 2.54 CPU-s (b500,
+  6 bursts); pure per-request predicts 1:1, pure per-burst 5:1. Neither fits; mechanism open.
+- K1's b500 margin (0.025 ms/inv ≈ one idle-probe step) is a hold not to build on: **agreed**.
+- Fn steady 1063 rps (`burst_`): confirmed (`throughput_rps` 1062.75).
+
+**B. OpenFaaS in W4: the draft's evidence was wrong; the exclusion stands for a better reason.**
+- `drafts/W4_cold_start_DRAFT.md` said the 0.8.3 gateway has "neither `scale_from_zero` nor the
+  `/system/scale-function` API". Binaries extracted 2026-10-05 (`docker export`, `strings`):
+  `functions/gateway:0.8.3` contains `system/scale-function/%s` and
+  `plugin.ExternalServiceQuery.SetReplicas`; `functions/faas-swarm:0.3.3` serves
+  `/system/scale-function/{name:[-a-zA-Z_0-9]+}` and logs `Scaling %s to %d replicas`. Absent:
+  `scale_from_zero` and any scaling handler (only `MakeAlertHandler`). So the **scaling API exists;
+  the request path that holds a call while a zero pool scales up does not.**
+- Why OF cannot scale from zero on this stack (`OPENFAAS_DEPLOY/prometheus/`): the only scale
+  trigger is the alert `rate(gateway_function_invocation_total{code="200"}[10s]) > 5` for 5 s. At
+  0 replicas no request returns 200, so the alert cannot fire. Even warm, scrape 5 s + evaluation
+  15 s + `[10s]` + `for: 5s` + alertmanager `group_wait: 5s` ≈ 30–40 s before any scale-up,
+  against a ~35 s b100 window. §32 states this reason, not the binary one.
+- Harness-scaled OF arm (`docker service scale hello` 0 → N at the first burst): **feasible,
+  cp-blind, deferred.** Swarm starts tasks in dockerd, so the start-up cost is outside OF's cp
+  containers but inside the idle-subtracted untracked bucket (`tools/untracked_dyn.py`), where
+  Fn's and Knative's container starts also land. Comparable only as cp + untracked per created
+  container, and the scale-up is timed by the harness, not the platform.
+- **W4b (OpenFaaS CE on k8s), reviewer-reported, not verified here:** the CE gateway is under the
+  OpenFaaS CE EULA (not Apache/MIT) with limits on commercial use and no academic carve-out;
+  waivers only in writing. Get written confirmation from OpenFaaS before any setup work. The
+  existing 2018 Swarm stack predates that EULA. Also for W4b: CE caps at 5 replicas (Parts A–F use
+  16), CE scale-from-zero is documented inconsistently (smoke test needed), and CE in this k3s
+  cluster would land in Knative's cp bucket (`platforms/knative.py` treats k3s as Knative's
+  substrate), so it needs its own cluster. Pro (paid, k8s-only) adds scale-*to*-zero, which W4
+  does not need.
+
+**C. Battery state during every session (`/var/lib/upower/history-charge-DELL_*.dat`, kept since
+2026-09-28) against the cap's fingerprint (`freq_mhz_after` in 2350–2700 MHz).**
+| session | battery during it | runs in the capped band | legs mostly in band |
+|---|---|---|---|
+| `final_` (Part A) | 100 %, full | 2 / 78 | 0 |
+| `payload_` (W1) | 66–100 %, charging / full / briefly on battery | 8 / 191 | 0 |
+| `payload_amend28_8_` | 84–90 % | counted in the `payload_` row | 0 |
+| `owlog29_` | 71–76 %, `pending-charge` | 2 / 25 | 0 |
+| `mem_` (never cited) | **30–38 %, discharging / `pending-charge`** | 10 / 40 | partly capped (§31.14 D) |
+| `mem2_` (W2) | charging throughout (calibration at 30–50 %, legs from ~58 %) | 4 / 120 | 0 |
+| `burst_` (W3) | 94–100 % | 2 / 66 | 0 |
+| `burst_amend31_13_` | **50–56 %, discharging** | 10 / 10 | 2 / 2 |
+| `burst_amend31_15_` | 72–94 %, charging | 0 / 10 | 0 |
+The cap appears only in the two sessions run at low battery without charging, and neither feeds a
+cited number. **No closed session needs a re-run.**
+
+**D. AC vs battery: can the box perform the same on both? (post hoc, 2026-10-05.)** The OS-visible
+package power limits do not explain it (read uncapped, on mains at 100 %: RAPL long-term 200 W,
+short-term 51 W; `scaling_max_freq` 4.4 GHz; `platform_profile` performance; §31.14 C found the OS
+settings unchanged while capped). The ~2.5 GHz
+cap is applied by the laptop's embedded controller, out of the OS's reach. The only OS-level way to
+make AC and battery identical is to pin every session to a clock below the cap (turbo off, max
+~2.4 GHz). That would change the box under W4 relative to Parts A–F, and §31.14–31.16 show cp
+scales with the clock (K1), so W4's cp could not sit next to the earlier parts. **Decision:
+keep turbo, keep the power gate, stop on battery.** A long session on battery would also drain it
+into the low-battery cap. Gap found: the power check runs before each leg attempt, not during one,
+so a leg the outage interrupts mid-way is not marked. W4's tooling adds a power check at leg end
+(see §32).
+
+**E. The cells still missing, in plain terms, and whether a retry would recover them.**
+| cell | what it measures | why it is missing | retry would… | changes a verdict? |
+|---|---|---|---|---|
+| W1 Knative 64k c=8 | Knative cp when 8 clients send 64 KiB bodies | quiet gate failed 4× over two sessions, each right after scaling to 16 pods (§28.9 A) | probably pass now (settle fix §29.2, `--hygiene` §30.7) | no: a third session cannot pool with the main one (bridge +15 %, outside ±10 %); P2 2/2 and P3 "fails" stand |
+| W1 OpenWhisk 512k (n = 2 per cell) | OW cp for 512 KiB bodies | standalone OW keeps every activation in memory (~1 MB each), dies after ~7,000 activations (§28.7) | fail the same way | no: the death is the finding ("standalone OW, in-memory store") |
+| OW log-collector arm, c=8 cli | the `docker logs` collector's cost at 8 clients | quiet gate ~40 s after the OW JVM restart (§29.2 A) | probably pass (settle fix) | no: answered at c=1 and c=4 (Q2 by 2× margin); the cli store is retired (§29.3) |
+| Fn B2/B4 (W3) | Fn's burst drain and burst-1 latency vs its own steady leg, same session | by design: 31.13/31.15 did not repeat Fn steady | — | **added to W4 (§32) as one Fn steady leg next to Fn warm b100**; decided by the user 2026-10-05 |
+
+**F. Timing of W4.** At 00:10 PKT 2026-10-05, with a power outage expected at 02:00–03:00: W4
+tooling is estimated at 2–3 h (draft) before smoke tests, and the session at ~2 h. W4 is
+pre-registered and built tonight (no measurement; coding works on battery) and run on mains with
+the power gate passing.
+
+**Do not repeat:** "the 0.8.3 gateway has no scale API" (it has one; the alert rule is the reason);
+retrying the cells in E to fill tables; pinning the clock to make battery runs comparable without
+re-measuring every part.
