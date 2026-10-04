@@ -1197,6 +1197,30 @@ def cgroup_sampler(samples, stop, first_sample, rescan_s=0.25, sample_s=0.05):
     showed up in cp/fn, but it inflated host_saturation_pct, polluted the
     host-residual check, and stole ~40% of the box from the system under test."""
     cache = {}  # container ID -> (name, cpu_cgroup_dir, mem_cgroup_dir, born)
+    # SAQEF_SAMPLER_DEFER_NAMES=1 (runbook §31.12; default off, every closed session ran without
+    # it): the 'docker inspect' for a new container (14 ms idle, ~40 ms under container churn)
+    # ran serially ON this sampling thread, so a burst that created 48-79 Fn containers blinded
+    # the sampler for seconds. With the flag, samples are keyed by container ID during the
+    # window; a separate thread resolves names, and the samples are re-keyed after stop.
+    defer = os.environ.get("SAQEF_SAMPLER_DEFER_NAMES") == "1"
+    named = {}          # container ID -> (name, born), filled by the resolver thread
+    todo = []           # IDs waiting for a name
+    todo_cv = threading.Condition()
+    resolver_done = threading.Event()
+
+    def resolver():
+        while True:
+            with todo_cv:
+                while not todo and not resolver_done.is_set():
+                    todo_cv.wait(0.05)
+                if not todo and resolver_done.is_set():
+                    return
+                cid = todo.pop(0)
+            named[cid] = container_name(cid)
+
+    if defer:
+        rth = threading.Thread(target=resolver, daemon=True)
+        rth.start()
 
     def resolve(cid, cdir=None):
         """Cached name+cgroup+birth lookup. One inspect per container ID, ever."""
@@ -1219,6 +1243,12 @@ def cgroup_sampler(samples, stop, first_sample, rescan_s=0.25, sample_s=0.05):
         if found:
             for cid, cdir in found:
                 hit = cache.get(cid)
+                if hit is None and defer:  # new container: name it off this thread
+                    hit = (cid, cdir, cdir, None)
+                    cache[cid] = hit
+                    with todo_cv:
+                        todo.append(cid)
+                        todo_cv.notify()
                 if hit is None:  # new container: one inspect, then cached
                     nm, born = container_name(cid)
                     if not nm:
@@ -1283,6 +1313,22 @@ def cgroup_sampler(samples, stop, first_sample, rescan_s=0.25, sample_s=0.05):
         snap[cname] = (cum, read_mem_mb(mdir) if mdir else 0.0, born)
     if snap:
         samples.append((time.time(), snap, "cum"))
+    if defer:
+        # After the window: let the resolver finish, then re-key every sample from container ID
+        # to name (and fill the birth time the birth-slice recovery needs). A container that
+        # vanished before it could be inspected has no name; it is dropped, as the inline
+        # inspect dropped it before (that scan returned None).
+        with todo_cv:
+            resolver_done.set()
+            todo_cv.notify()
+        rth.join(timeout=8)   # under the caller's th.join(timeout=10)
+        for i, (t, snap, kind) in enumerate(samples):
+            new = {}
+            for cid, (cum, mem, _born) in snap.items():
+                nm, born = named.get(cid) or (None, None)
+                if nm:
+                    new[nm] = (cum, mem, born)
+            samples[i] = (t, new, kind)
 
 
 def sample_totals(samples, cp_sub, fn_sub="", cp_members=None, fn_members=None,
@@ -1965,7 +2011,9 @@ def run_once(args, cp_sub):
                 "workload_variant": os.environ.get("SAQEF_WORKLOAD_VARIANT") or None,
                 # W3 provenance (runbook §31): None for every closed-loop run.
                 "burst_size": _BURST[0] if _BURST else None,
-                "burst_gap_s": _BURST[1] if _BURST else None},
+                "burst_gap_s": _BURST[1] if _BURST else None,
+                # §31.12: True when container names were resolved off the sampling thread.
+                "sampler_defer_names": os.environ.get("SAQEF_SAMPLER_DEFER_NAMES") == "1"},
         # One name for this value, not two. 90d153f added rapl_fit_err_pct as an
         # alias of rapl_validation_err_pct; the committed corpus already uses the
         # latter, so the alias bought nothing and invited the two to drift.

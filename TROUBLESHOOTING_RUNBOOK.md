@@ -73,6 +73,11 @@ whenever a new section records a bug, a gotcha or a "do not repeat".
 | Fn returns HTTP 500 during the first bursts of a run | §31.9 B (post hoc, 0.4–2.3 % while the pool grows, 0 after; W4 candidate) |
 | OpenFaaS drains a 500-burst at ~360 rps although steady does 981, host idle | §31.9 A (B2 fails; gateway/watchdog queueing, cause not examined) |
 | `idle_crosscheck.py` FileNotFoundError for `lock_session_<prefix>calib` | §31.9 C (calibration lives in `idle_w_calibration/lock_<prefix>calib`) |
+| Sampling gap when many containers start at once (Fn bursts) | §31.11 (sampler ran one `docker inspect` per new container on its own thread; fix §31.12 `SAQEF_SAMPLER_DEFER_NAMES=1`) |
+| "Sampling gap = CPU totals wrong"? | §31.11 (no: cumulative counters; gap costs time resolution; cp cross-check unchanged) |
+| Fn pool at window start is not cold / differs between burst and steady legs | §31.11 (`--verify` fires min(c, 100) calls: ~20 containers in burst legs) |
+| Fn HTTP 500s: rejection or timeout? | §31.11 (fast rejections in container-creating bursts; no logs kept, W4 harvests them) |
+| Re-running only failed legs of a closed session | §31.13 (amendment: missing legs only; B2/B4 need in-session steady, so not evaluable) |
 
 ## 1. Noisy-neighbor contamination from background processes (incl. this agent)
 
@@ -3347,8 +3352,12 @@ OpenFaaS's B4 ratio (steady saturated); using steady c = 8 throughput as "capaci
 whose steady leg does not saturate (Knative); quoting OW's B3 b100 failure without its 0.0025-core
 margin.
 
-## 31.10 W3 amendment: Fn with a discarded warm-up run — pre-registration (written 2026-10-04, before any amendment data)
-Amendment 31.10: pre-registered
+## 31.10 W3 amendment: Fn with a discarded warm-up run — WITHDRAWN 2026-10-04, before any data
+Amendment 31.10: withdrawn before any data (superseded by §31.13)
+
+**Withdrawn** the same day, never run. It re-ran Fn steady, which had already passed (repetition),
+and it would have run with the sampler that §31.11 shows blinds itself during container creation.
+§31.13 replaces it: only the two missing legs, with the §31.12 sampler fix. Text kept as written.
 
 **Question.** Is Fn's B0–B2 and B4 (§31.5) answered when its bursts hit an already-grown pool?
 That is the regime §31.2 meant to test ("queueing under bursts, not cold start"). In `burst_` Fn's
@@ -3400,6 +3409,95 @@ idle-sub 1.13 / 0.79 ms/inv, 68–69 / 99 containers.
    Fn's original `burst_` steady leg stays in F-T1 as recorded.
 4. cp idle-subtracted (§31.3); energy RAPL probe basis, no prediction.
 5. Results: VERIFIED_RESULTS.md Part F, new table F-T4 (generator `figures/make_burst_tables.py`),
-   analysis JSON `results/burst_amend31_10_analysis/`; outcome as §31.11.
+   analysis JSON `results/burst_amend31_10_analysis/`; outcome as §31.11 (withdrawn; see §31.13).
 
 **Do not repeat:** discarding run_1 in any `burst_` leg retroactively (§31.9); reading R1 as B1.
+
+### 31.11 Correction to §31.9: why Fn's sampling gap fired, what the 500s are (expert review, checked on disk, 2026-10-04)
+Verdicts unchanged: Fn b100/b500 stay **missing** (rule 2), B1 is not re-judged from runs 2–5, W3
+is not re-run. Corrections to §31.9's text:
+- **The sampler blinded itself.** For each new container, `cgroup_sampler.scan()` ran one `docker
+  inspect` (`container_name`) **serially on the sampling thread** (saqef_harness.py:1163, :1222).
+  One inspect costs 14 ms on an idle box (measured here, median of 20). The expert measured ~35–45 ms
+  per new container under churn, not re-measured here, which would account for ~60 % of the 3.05 s gap.
+  Run_1 created **48–49 (b100) and 79 (b500)** Fn containers in the window. §31.9's "the container
+  starts load the host and stall the sampler" is incomplete: our own instrument is a main cause;
+  host load may explain the rest. Fix: §31.12.
+- **The gap costs time resolution, not CPU totals.** §31.9 had it backwards. CPU comes from
+  differencing cumulative cgroup counters, so totals don't depend on cadence. Run_1's cp cross-check
+  against /proc (`cp_sampler_vs_delta_pct`) is −0.65 / −0.69 % (b100) and −1.54 / −1.38 % (b500).
+  Runs 2–5 are −0.98 … −2.25 %. The gate stays as registered; it fired for a reason that matters
+  for W4.
+- **The pool was never cold.** The legs' unmeasured `--verify` (100 calls, at `min(concurrency,
+  100)` in flight, saqef_harness.py:2250) pre-grows Fn's pool. At run_1's window start ~**20** Fn
+  containers already existed, from first appearance in `samples.csv`. The expert's "42" also counted
+  fnserver and 21 Knative system containers. §31.6's "[--concurrency] reaches only unmeasured steps"
+  is true for gating, but the verify step sets Fn's starting pool: 100-wide in burst legs, 8-wide in
+  steady.
+- **The 500s are fast rejections.** b100: 30 of 30 answered in 22–78 ms, all faster than the
+  median success (94 ms). b500: 133 of 136 faster than the median success (326 ms). 3, in one
+  attempt, took up to 453 ms. All fall in the bursts where containers are being created (0–1 for
+  b100, 0–3 for b500). That is consistent with Fn refusing requests while it starts containers.
+  Cause not read from Fn's logs (none were kept).
+- **Sample size for pool growth: 2 per arm, not 5.** Runs 2–5 reuse run_1's pool and create none.
+  Independent growth observations: 17 / 13 errors (b100), 70 / 66 (b500).
+- **W4 context (post hoc):** run_1's extra function CPU is 21.0 − ~14.25 = 6.8 s over 48 containers
+  (b100) and 22.6 − ~11.8 = 10.8 s over 79 (b500). That's ≈ **0.14 s of function CPU per hot
+  container created**, both arms.
+- Not checked here, so not recorded as findings: the expert's OpenFaaS ~1 s single-request stalls
+  and OpenWhisk's first-window effect. W4's per-burst split is meant to cover them.
+
+### 31.12 Sampler fix: container names resolved off the sampling thread (flag, default off)
+`SAQEF_SAMPLER_DEFER_NAMES=1`: during the window the cgroup sampler keys samples by container ID.
+A separate thread runs the `docker inspect` for each new ID, and after stop every sample is re-keyed
+to its name, with the birth time filled for the birth-slice recovery. A container that vanished
+before it could be named is dropped, as before. The sampling loop now spawns no subprocess. Default
+off: every closed session ran without it. Each run records `env.sampler_defer_names`. Tests
+`TestSamplerDeferNames`: with 6 new containers and 50 ms inspects, the old path's max gap is
+≥ 0.25 s and the flagged path's < 0.15 s, with names and birth times restored. Discovery (a cgroup
+filesystem walk) is still on the sampling thread. If W4 shows residual gaps from host load, the next
+step is a sampler in its own process.
+
+## 31.13 W3 amendment: only Fn's missing legs, warm pool, fixed sampler — pre-registration (written 2026-10-04, before any data)
+Amendment 31.13: pre-registered
+
+**Question.** In `burst_`, did Fn absorb bursts of 100 and 500 into a pool that is already grown?
+That is §31.2's intended regime and the B1 question for the only platform without an answer. No
+repetition: **only the two missing legs** (`fn b100`, `fn b500`). Steady already passed and is not
+re-run.
+
+**Design (fixed).**
+- Legs, in order: `burst_amend31_13_fn_b500`, `burst_amend31_13_fn_b100` (Fn's order in `burst_`).
+  Arms exactly as §31.2 (`SAQEF_BURST=500:1` / `100:1`), CPU-bound handler, Fn config unchanged,
+  `--verify` unchanged (~20 containers pre-warmed, as in `burst_`, §31.11).
+- **`--repeat 6 --discard-warmup 1`**: run_1 grows the pool and is dropped before gating and from
+  every statistic (the mechanism OW uses). 5 usable runs, all into the grown pool. Each leg starts
+  from Fn's fresh-session reset.
+- **`SAQEF_SAMPLER_DEFER_NAMES=1`** (§31.12) on both legs. CPU totals don't depend on it
+  (§31.11); it removes the self-inflicted blind interval.
+- Otherwise as §31.2: `--cpu-probe 60`, in-session idle-w calibration (5 states × 3 × 60 s,
+  unchanged), `--hygiene`, quiet gate 15 %, burst-mode gate (§31.6), one `_r2` retry.
+- **Run:** `sudo bash tools/go.sh --workload burst --amend 31.13`. Expected ≈ 40 min (calibration
+  25 + legs ~13); ~55 min with retries. Watchdog 2 h.
+
+**Predictions (Fn).**
+- **B1** availability ≥ 0.999 (median over usable runs; worst run reported) in b100 and in b500.
+- **B2, B4: not evaluable**, fixed now. They need a steady leg from the same session (§31.5) and
+  steady is deliberately not repeated. Drain and p99 are reported **descriptively**, next to
+  `burst_`'s Fn steady (1063 rps, p99 13.7 ms) labelled cross-session context, not a verdict.
+- **B3** no prediction (§31.5); cp idle-subtracted and container count reported.
+- **R1 (replicates §31.9 B / §31.11; descriptive, not counted toward B1).** In each leg's discarded
+  run_1, availability < 1.0, every non-2xx an HTTP 500 in the first 4 bursts; usable runs 0 errors.
+  Read from run_1's own files.
+- **S1 (instrument check, descriptive).** Run_1's max sampling gap with the fix, against `burst_`'s
+  1.77–3.28 s. Below 1 s would mean the self-inflicted part was most of it; above 1 s, host load
+  remains (§31.12 next step).
+
+**Decision rules.** (1) A failed prediction is a finding, nothing re-run. (2) A leg failing twice
+is missing. (3) Not pooled with `burst_`: Part F gets a separate table F-T4, "amendment 31.13, warm
+pool, run_1 discarded, sampler fix", and F-T1 and F-T3 stay as recorded. (4) cp idle-subtracted,
+energy RAPL probe basis, no prediction. (5) Outcome as §31.14, analysis JSON
+`results/burst_amend31_13_analysis/`.
+
+**Do not repeat:** re-running Fn steady or any passed leg; reading R1 or S1 as B1; comparing
+F-T4's drain/p99 to `burst_` steady as a verdict.

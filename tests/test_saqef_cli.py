@@ -3534,40 +3534,114 @@ class TestW3BurstMode(unittest.TestCase):
         legs = re.search(r'BURST_LEGS=\(("of steady".*?)\)\n', rf, re.S).group(1)
         self.assertEqual(len(re.findall(r'"\w+ \w+"', legs)), 12)
         self.assertIn('export SAQEF_BURST="${b}:${BURST_GAP_S}"', rf)
-        self.assertIn("unset SAQEF_BURST\n    done", rf)
+        self.assertIn("unset SAQEF_BURST SAQEF_SAMPLER_DEFER_NAMES\n    done", rf)
         go = open(os.path.join(REPO, "tools", "go.sh")).read()
         self.assertIn("burst) MAX_H=4 ;;", go)
         self.assertIn('"$REPO"/results/burst_session', go)
 
 
-class TestW3Amend3110(unittest.TestCase):
-    """§31.10: Fn-only W3 legs with run_1 discarded, never the 12-leg plan or another corpus."""
+class TestW3Amend3113(unittest.TestCase):
+    """§31.13: only Fn's two missing W3 legs, run_1 discarded, deferred names; 31.10 withdrawn."""
 
     def _dry(self, *args):
         return subprocess.run(["bash", os.path.join(REPO, "tools", "run_final.sh"), "--dry-run", *args],
                               capture_output=True, text=True)
 
-    def test_dry_run_lists_exactly_three_fn_legs(self):
-        out = self._dry("--workload", "burst", "--amend", "31.10").stdout
+    def test_dry_run_lists_exactly_the_two_missing_legs(self):
+        out = self._dry("--workload", "burst", "--amend", "31.13").stdout
         legs = [l.split(":")[0].strip() for l in out.splitlines() if l.strip().startswith("burst_")]
-        self.assertEqual(legs, ["burst_amend31_10_calib", "burst_amend31_10_fn_b500",
-                                "burst_amend31_10_fn_b100", "burst_amend31_10_fn_steady"])
+        self.assertEqual(legs, ["burst_amend31_13_calib", "burst_amend31_13_fn_b500",
+                                "burst_amend31_13_fn_b100"])
         for l in out.splitlines():
-            if l.strip().startswith("burst_amend31_10_fn_"):
-                self.assertIn("--repeat 6 --discard-warmup 1", l)
+            if l.strip().startswith("burst_amend31_13_fn_"):
+                self.assertIn("--repeat 6 --discard-warmup 1 SAQEF_SAMPLER_DEFER_NAMES=1", l)
 
-    def test_unknown_or_mismatched_amendment_refused(self):
+    def test_withdrawn_and_mismatched_amendments_refused(self):
+        self.assertEqual(self._dry("--workload", "burst", "--amend", "31.10").returncode, 2)
         self.assertEqual(self._dry("--workload", "burst", "--amend", "28.8").returncode, 2)
-        self.assertEqual(self._dry("--workload", "payload", "--amend", "31.10").returncode, 2)
-        self.assertEqual(self._dry("--workload", "memory", "--amend", "31.10").returncode, 2)
+        self.assertEqual(self._dry("--workload", "payload", "--amend", "31.13").returncode, 2)
+        self.assertEqual(self._dry("--workload", "memory", "--amend", "31.13").returncode, 2)
 
     def test_plain_burst_unchanged(self):
         out = self._dry("--workload", "burst").stdout
         legs = [l for l in out.splitlines() if l.strip().startswith("burst_") and "calib" not in l]
         self.assertEqual(len(legs), 12)
-        self.assertFalse(any("discard" in l for l in legs if " ow " not in l and "_ow_" not in l))
+        self.assertFalse(any("DEFER" in l for l in legs))
+        self.assertFalse(any("discard" in l for l in legs if "_ow_" not in l))
+
+    def test_flag_is_scoped_to_the_leg(self):
+        rf = open(os.path.join(REPO, "tools", "run_final.sh")).read()
+        self.assertIn("unset SAQEF_BURST SAQEF_SAMPLER_DEFER_NAMES\n    done", rf)
 
     def test_go_session_name_and_status(self):
         go = open(os.path.join(REPO, "tools", "go.sh")).read()
         self.assertIn('SESS_NAME="${SESS_NAME}_amend${AMEND/./_}"', go)
         self.assertIn('"$REPO"/results/burst_amend*_session', go)
+
+
+class TestSamplerDeferNames(unittest.TestCase):
+    """§31.12: with SAQEF_SAMPLER_DEFER_NAMES=1 a slow 'docker inspect' must not stall sampling."""
+
+    @classmethod
+    def setUpClass(cls):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("h_defer", os.path.join(REPO, "saqef_harness.py"))
+        cls.h = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cls.h)
+
+    def _run(self, defer, inspect_s=0.05, n_new=6):
+        import threading
+        import time as _t
+        h = self.h
+        base = [("a" * 64, "/cg/a")]
+        new = [(("%x" % i) * 64, "/cg/%d" % i) for i in range(1, n_new + 1)]
+        live = [list(base)]
+        names = {"a" * 64: "fnserver"}
+        names.update({cid: "fn%d" % i for i, (cid, _) in enumerate(new, 1)})
+
+        def fake_name(cid):
+            _t.sleep(inspect_s)
+            return names[cid], 1000.0
+
+        saved = (h.container_name, h.discover_cgroup_container_dirs, h.read_cpu_cumulative, h.read_mem_mb)
+        h.container_name = fake_name
+        h.discover_cgroup_container_dirs = lambda *a, **kw: live[0]
+        h.read_cpu_cumulative = lambda d: _t.time()
+        h.read_mem_mb = lambda d: 1.0
+        old_env = os.environ.get("SAQEF_SAMPLER_DEFER_NAMES")
+        os.environ["SAQEF_SAMPLER_DEFER_NAMES"] = "1" if defer else "0"
+        samples, stop, first = [], threading.Event(), threading.Event()
+        try:
+            th = threading.Thread(target=h.cgroup_sampler, args=(samples, stop, first, 0.01, 0.01), daemon=True)
+            th.start()
+            first.wait(timeout=5)
+            _t.sleep(0.1)
+            live[0] = base + new          # a burst creates n_new containers at once
+            _t.sleep(0.6)
+            stop.set()
+            th.join(timeout=10)
+        finally:
+            h.container_name, h.discover_cgroup_container_dirs, h.read_cpu_cumulative, h.read_mem_mb = saved
+            if old_env is None:
+                os.environ.pop("SAQEF_SAMPLER_DEFER_NAMES", None)
+            else:
+                os.environ["SAQEF_SAMPLER_DEFER_NAMES"] = old_env
+        ts = [s[0] for s in samples]
+        gap = max(b - a for a, b in zip(ts, ts[1:]))
+        return samples, gap
+
+    def test_default_path_is_blind_while_naming(self):
+        _, gap = self._run(defer=False)
+        self.assertGreaterEqual(gap, 0.25, "6 serial 50 ms inspects should blind the old path")
+
+    def test_deferred_path_keeps_sampling_and_rekeys_to_names(self):
+        samples, gap = self._run(defer=True)
+        self.assertLess(gap, 0.15, "deferred naming must not stall the sampling loop (gap %.3f)" % gap)
+        keys = set().union(*(set(s[1]) for s in samples))
+        self.assertEqual(keys, {"fnserver"} | {"fn%d" % i for i in range(1, 7)})
+        last = samples[-1][1]
+        self.assertTrue(all(v[2] == 1000.0 for v in last.values()), "birth time filled after re-key")
+
+    def test_env_records_the_flag(self):
+        src = open(os.path.join(REPO, "saqef_harness.py")).read()
+        self.assertIn('"sampler_defer_names": os.environ.get("SAQEF_SAMPLER_DEFER_NAMES") == "1"', src)
