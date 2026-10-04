@@ -5,6 +5,7 @@ overhead of four FaaS platforms (OpenFaaS, Fn, Knative, OpenWhisk standalone) on
 Results are only as good as the discipline below. Every rule here was paid for with a lost night.
 
 ## Where things are
+- `NEXT_STEPS.md`: what is still to run or do, with the exact commands. Keep it current.
 - `TROUBLESHOOTING_RUNBOOK.md`: bug ledger, every pre-registration and outcome. **Start at its
   "Index: symptom → section" table.** Append a row there whenever you record a new bug or gotcha.
 - `../saqef-paper/VERIFIED_RESULTS.md`: the ONE results file (Part A CPU corpus, Part C W1, ...),

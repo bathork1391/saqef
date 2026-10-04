@@ -6,8 +6,11 @@ traces up to 2026-10-04 have no host CPU per interval, so that check cannot be d
 substitute, post hoc: per usable run,
     dynamic W   = e_rapl_j / wall_s - leg's idle-probe W (probe basis, §27.8)
     busy cores  = host_cpu_sec / host_window_s
-then fits dynamic W = k * busy^alpha over all runs (log-log least squares). alpha = 1 is linear,
-alpha < 1 means each extra busy core adds less power (shared power budget, lower clock, §25.1).
+then fits dynamic W = k * busy^alpha (log-log least squares) WITHIN each platform, across its
+concurrency legs: the platform is held constant, so alpha is a load response, not a between-platform
+correlation (review 2026-10-05). alpha = 1 is linear; alpha < 1 means each extra busy core adds
+less power (shared power budget, lower clock, §25.1). A platform whose legs span < 1 busy core is
+not fitted (no load range). The pooled fit over all runs is kept as a descriptive line only.
 
 Usage: python3 tools/energy_linearity.py --res DIR --session final_ [--json OUT]
 """
@@ -49,6 +52,13 @@ def points(res, session):
     return out
 
 
+PLATFORM = {"of": "openfaas", "fn": "fn", "kn": "knative"}
+
+
+def platform(stamp):
+    return PLATFORM.get(stamp.rsplit("_", 1)[-1], "openwhisk")
+
+
 def fit(pts):
     xs = [math.log(p["busy_cores"]) for p in pts if p["dyn_w"] > 0]
     ys = [math.log(p["dyn_w"]) for p in pts if p["dyn_w"] > 0]
@@ -67,8 +77,20 @@ def main():
     a = ap.parse_args()
     pts = points(a.res, a.session)
     f = fit(pts)
+    per = {}
+    for pl in sorted({platform(p["stamp"]) for p in pts}):
+        sel = [p for p in pts if platform(p["stamp"]) == pl]
+        legs = {}
+        for p in sel:
+            legs.setdefault(p["stamp"], []).append(p)
+        leg_rows = sorted(({"stamp": k, "busy_cores": round(statistics.median(q["busy_cores"] for q in v), 2),
+                            "w_per_busy_core": round(statistics.median(q["w_per_busy_core"] for q in v), 2)}
+                           for k, v in legs.items()), key=lambda r: r["busy_cores"])
+        span = leg_rows[-1]["busy_cores"] - leg_rows[0]["busy_cores"]
+        per[pl] = {"legs": leg_rows, "busy_span": round(span, 2),
+                   "fit": fit(sel) if span >= 1.0 else None}
     bands = []
-    for lo, hi in ((0, 1.5), (1.5, 3), (3, 5), (5, 9)):
+    for lo, hi in ((0, 3), (3, 5), (5, 9)):
         sel = [p for p in pts if lo <= p["busy_cores"] < hi]
         if sel:
             bands.append({"busy_cores": [lo, hi], "n": len(sel),
@@ -76,8 +98,12 @@ def main():
                           "w_per_busy_core_range": [min(p["w_per_busy_core"] for p in sel),
                                                     max(p["w_per_busy_core"] for p in sel)],
                           "dyn_w_median": round(statistics.median(p["dyn_w"] for p in sel), 1)})
-    out = {"session": a.session, "fit": f, "bands": bands, "points": pts}
-    print("dynamic W ~ busy_cores^%.2f (r = %.3f, n = %d runs)" % (f["alpha"], f["r"], f["n"]))
+    out = {"session": a.session, "per_platform": per, "pooled_fit_descriptive": f, "bands": bands, "points": pts}
+    for pl, v in per.items():
+        print("%-9s %s | %s" % (pl, ("alpha %.2f (r %.2f, n %d)" % (v["fit"]["alpha"], v["fit"]["r"], v["fit"]["n"]))
+                                if v["fit"] else "not fitted (legs span %.2f busy cores)" % v["busy_span"],
+                                "; ".join("%.2f cores %.2f W/core" % (r["busy_cores"], r["w_per_busy_core"]) for r in v["legs"])))
+    print("pooled (descriptive): dynamic W ~ busy_cores^%.2f (r = %.3f, n = %d runs)" % (f["alpha"], f["r"], f["n"]))
     for b in bands:
         print("  busy %s cores: n=%d, W per busy core %.2f (%.2f-%.2f), dynamic W %.1f" % (
             b["busy_cores"], b["n"], b["w_per_busy_core_median"], *b["w_per_busy_core_range"], b["dyn_w_median"]))

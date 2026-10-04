@@ -94,7 +94,7 @@ whenever a new section records a bug, a gotcha or a "do not repeat".
 | W4 session stopped by a power cut: what now? | §32 rule 3 (`go.sh --workload cold --part 2` runs only incomplete blocks) |
 | Revisiting a missing cell in a later session | §33 (pre-registered amendment, same table with a footnote, bridge rule for pooling) |
 | When does Fn create containers in a burst / are the 500s before them? | §34.1 (first birth 0.24–0.61 s; 48 per first wave; burst-0 500s precede the first birth) |
-| Is power linear in busy cores? Within-run check of §25.6? | §34.2 (sublinear, W ∝ busy^0.64; within-run not possible before W4: no host CPU per trace row) |
+| Is power linear in busy cores? Within-run check of §25.6? | §34.2 (sublinear within each light platform, α 0.56–0.79; within-run not possible before W4: no host CPU per trace row) |
 | "Untracked host ms/inv" read as orchestration cost | §31.18 A (mostly hey, sampler, dockerd, kernel; not a platform metric) |
 | Sub-100 ms timing claims from samples.csv | §31.18 B (sampler ~19 Hz: not resolvable; CPU totals unaffected) |
 | acceptance.json says "RAPL FIT ... NOT citable" on a citable leg | §31.18 A (model fit, warn only; RAPL energy unaffected) |
@@ -4101,7 +4101,8 @@ the sampler's ~100 ms resolution (§31.18 B). Function containers = Fn's ULID-na
   b500** (all 8 first runs, both clock states). A review figure of "~1.1 s" does not reproduce
   from docker's creation times; it is likely the sampler's first sighting, which lags creation by
   container start + rescan.
-- **Burst 0 creates exactly 48 containers in all 8 first runs** (20 + 48 = 68, the b100 pool).
+- **Burst 0 creates exactly 48 containers in all 8 first runs** (20 + 48 = 68, the b100 pool),
+  all within **21–41 ms** of each other (b100 first runs: 21, 26, 33, 41 ms): one tight wave.
   b500 adds its remaining 31–33 over bursts 2–4 (last birth 7.1–8.1 s). Why 48 per wave is not
   known (not examined; Fn's own scheduling).
 - **The HTTP 500s come first:** at b100 every burst-0 error (7–9 per run) completed before the
@@ -4117,9 +4118,18 @@ the sampler's ~100 ms resolution (§31.18 B). Function containers = Fn's ULID-na
 and the per-interval CPU in `samples_raw.csv` is container-only, missing the 55–75 % untracked
 share (§31.18 A). Fixed for W4 on: every trace row now carries `host_busy_ticks` (cumulative
 /proc/stat busy ticks), checked live 2026-10-05.
-**Run-level substitute (post hoc), Part A (`final_`, 75 usable runs, 15 legs):** dynamic W (RAPL,
-probe basis) against host busy cores fits **W ∝ busy^0.64** (log-log, r = 0.92). Power is
-**sublinear** in load: W per busy core falls from 6.7 (≤ 1.5 busy cores, n = 3) through 4.7
-(1.5–3, n = 26) and 3.5 (3–5, n = 28) to 3.2 (5–9, n = 18). This is §25.1's finding on the whole
-corpus: no constant W per core exists on this box, so any W/core model (3.5 W included) is wrong
-by construction, and energy is cited from RAPL directly (§25.2, §27.5).
+**Run-level substitute (post hoc), Part A (`final_`, 75 usable runs), fitted within each platform
+across its own concurrency legs** (review 2026-10-05: a fit pooled over all legs mixes platforms
+and is kept as a descriptive line only). Dynamic W (RAPL, probe basis) ∝ busy cores^α:
+| platform | α (r, runs) | W per busy core, from c = 1 to c = 8 (leg medians) |
+|---|---|---|
+| OpenFaaS | 0.56 (0.97, 20) | 5.76 → 4.84 → 4.09 → 3.24 (1.6 → 7.4 busy cores) |
+| Fn | 0.64 (0.98, 20) | 5.27 → 4.33 → 3.74 → 3.10 (1.6 → 7.0) |
+| Knative | 0.79 (0.97, 20) | 4.39 → 4.02 → 3.80 → 3.19 (2.1 → 7.1) |
+| OpenWhisk | not fitted: its three legs all sit at 3.6–3.7 busy cores | 3.30 / 3.34 / 3.27 |
+On each light platform, with the platform held fixed, every step up in load adds less power per
+busy core: power is **sublinear** in load (α 0.56–0.79). Pooled over everything, α = 0.64 (r = 0.92;
+descriptive). Consequence, worded to what the data shows: **no single W-per-core constant holds
+across this corpus's load range (3.1–5.8 W per busy core here), and none extrapolates to zero load**.
+A constant calibrated for a narrow load range could hold inside that range; 3.5 W was never
+calibrated on this box at all (§25.1). Energy is cited from RAPL directly (§25.2, §27.5).
