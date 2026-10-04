@@ -69,6 +69,10 @@ whenever a new section records a bug, a gotcha or a "do not repeat".
 | hey drops timed-out / refused requests from its CSV; availability = 2xx / rows overstates success | §31.6 (closed loop: the INCOMPLETE gate already voided such runs, 8 of 680; W3 counts attempted − rows as failures; audit §31.8: nothing masked, no re-run) |
 | "Log store does not cap OW throughput" (smoke test) | §29.2 C (wrong; corrected by §29.1 Q4) |
 | Pre-flight says "not pre-registered" though the line is committed | §30.9 (`git show | grep -q` SIGPIPE race under pipefail; fixed) |
+| Fn burst legs (W3) FAIL `run_1 SAMPLING GAP` 1.8–3.3 s, runs 2–5 clean | §31.9 (hot pool grows 10 → 68–99 containers in run_1; legs missing under rule 2; not a box problem) |
+| Fn returns HTTP 500 during the first bursts of a run | §31.9 B (post hoc, 0.4–2.3 % while the pool grows, 0 after; W4 candidate) |
+| OpenFaaS drains a 500-burst at ~360 rps although steady does 981, host idle | §31.9 A (B2 fails; gateway/watchdog queueing, cause not examined) |
+| `idle_crosscheck.py` FileNotFoundError for `lock_session_<prefix>calib` | §31.9 C (calibration lives in `idle_w_calibration/lock_<prefix>calib`) |
 
 ## 1. Noisy-neighbor contamination from background processes (incl. this agent)
 
@@ -3264,3 +3268,81 @@ Checked every run with request counts in `../saqef-paper/results/` (765 runs), b
 **Decision: no re-run** (agreed by the expert review). The bug could hide failures only in runs the
 INCOMPLETE gate already rejects.
 It matters only for W3, where failed requests are the measurement (§31.6 fix).
+
+### 31.9 Session 2026-10-04 (`burst_`): outcome
+
+**Legs.** 12 legs, 11:21–13:08 UTC, commit `94780c5` (`git_dirty = false` on every run), `--hygiene`
+on, idle-w calibration in session (`lock_burst_calib`: of 5.54, fn 5.51, kn 6.77, ow 6.89 W).
+**10 passed; Fn b100 and Fn b500 failed twice** (rule 2: missing). Every OW leg log shows
+`activation log store = driver`; every burst run records `env.burst_size` 100/500, gap 1.0 s; steady
+runs record none. Tables: VERIFIED_RESULTS.md **Part F** (`figures/make_burst_tables.py`), analysis
+JSON `../saqef-paper/results/burst_analysis/`.
+
+**Why Fn's burst legs failed.** All four attempts failed on **run_1 only**: `SAMPLING GAP` 1.77 /
+2.21 s (b100) and 3.05 / 3.28 s (b500), limit 1 s. Runs 2–5 of every attempt pass every gate
+(`acceptance.json` usable = run_2..run_5). In run_1 the function CPU is ~2× the later runs (b500
+22.6 vs 11.7–11.9 s) and b500's host saturation is 83 % vs 46–49 %. The function-container count is
+99 (b500) / 68–69 (b100) in every run, vs 9–10 in steady. Inference (not measured directly): run_1
+is where Fn's hot-container pool grows from ~10 to 68–99 containers; the container starts load the
+host and stall the sampler. The pool then persists (1 s gaps < Fn's 30 s idle timeout), so later runs
+are clean. Not a box problem: the box was quiet before each retry (2.0–2.5 % busy), and every other
+leg's worst gap was ≤ 0.21 s (all runs, incl. OW's discarded run_1).
+
+**A. Verdicts** (per platform, this session's legs; B1 on the median over usable runs, §31.3):
+| | OpenFaaS | Fn | Knative | OW (driver) |
+|---|---|---|---|---|
+| B0 steady availability 1.0 | holds | holds | holds | holds |
+| B1 availability ≥ 0.999 in b100, b500 | holds (b100 worst run 0.9963) | not evaluable | holds | holds |
+| B2 b500 drain in [0.67, 1.5] × 500/rps_steady | **fails** ×2.72 | not evaluable | **fails** ×0.57 | holds ×1.27 |
+| B3 cp idle-sub within ±15 % of steady | **fails** b100 ×1.22, b500 ×1.23 | no prediction | holds ×0.92, ×0.97 | **fails** b100 ×1.16; b500 ×1.08 |
+| B4 b500 p99 ≥ 5 × steady | not citable (rule 5; ×77 descriptive) | not evaluable | holds ×15.5 | holds ×82.6 |
+
+- **B1: bursts are absorbed.** 90,000 attempted requests over the 30 usable runs of the six evaluable
+  burst legs; 0 transport errors. The only failures are **12 HTTP 502** from OpenFaaS b100: 1 in
+  run_4, **11 in run_5, all in burst 12**, answered in 34–50 ms. That is a fast gateway rejection, not
+  a timeout. That run's availability is 0.9963, below 0.999; the leg median is 1.0, so B1 holds as
+  registered. Report the worst run beside it.
+- **B2 fails on OpenFaaS:** a 500-burst drains in 1.39 s (median; runs 1.36–1.45), so ~361 rps,
+  against 981 rps in steady. The host is **not** busy while it drains (host saturation 18–20 % in
+  b500 vs 86–89 % in steady), so the limit is queueing in the gateway / watchdog path, not CPU.
+  Cause not examined. **B2 fails on Knative the other way:** 0.41 s, faster than 500/702 rps. Post
+  hoc: steady c = 8 does not saturate Knative (host saturation not flagged, 702 rps), so the steady
+  rate understates its capacity; a burst fills more of the 16 × cc 4 slots. B2's reference
+  (rps_steady as capacity) is valid only where steady saturates. That is a design limit of the
+  prediction, recorded, not re-judged.
+- **B3 fails on OpenFaaS, robustly:** 0.391 → 0.477 / 0.481 ms/inv idle-subtracted (raw 0.393 →
+  0.504 / 0.493). Run CVs are 0.7–4.6 %. To erase b500's +0.09 ms/inv, the idle probe would have to be
+  wrong by ~0.019 core, 8× its own value (0.0025). **OW b100 fails by a hair:** 3.040 vs threshold
+  3.008 (2.616 × 1.15). The margin, 0.03 ms/inv, is 0.0025 core of idle-probe error (sensitivity
+  ±0.13 per 0.01 core). OW's first usable run is high in all three arms (steady 3.26, b100 6.04, b500
+  5.70 raw, vs ~2.7 / 3.6 / 3.0 for the rest), as in W2 (§30.10); the medians absorb it. A finding as
+  registered, but fragile; do not lean on it.
+- **B4 holds** where citable: Knative ×15.5, OW ×82.6. OpenFaaS's steady leg is host-saturated in 5/5
+  runs, so its steady p99 is not cited (rule 5); descriptively ×77.
+- **Energy** (RAPL, probe basis, no prediction, F-T1): OF 23.8 / 29.4 / 24.8, Kn 28.8 / 28.2 / 24.4,
+  OW 36.9 / 40.8 / 49.5 mJ/inv (steady / b100 / b500). The idle probe sits outside the calibration
+  spread on all 14 legs (‡), as in W2 (§30.10 E).
+
+**B. Post hoc (not pre-registered, not citable for B1): Fn fails requests while its pool grows.**
+Fn's gate-failed run_1s had **HTTP 500s in all four attempts**: b500 70 and 66 (availability 0.977,
+0.978), b100 17 and 13 (0.994, 0.996). All of them fall in **the first 2–4 bursts**. Runs 2–5, with
+the pool already grown, have 0 errors (1.0). The sampling gap affects CPU attribution only; hey's
+counts are independent of it. Same pattern in both attempts of both legs. Under rule 2 Fn's B1 is
+**not evaluable**. The descriptive answer to §31.1 for Fn is: bursts that force the hot pool to grow
+lose ~0.5–2 % of requests to HTTP 500, and bursts into an existing pool lose none. This is
+start-up behaviour, which belongs to W4 (cold start), not a queueing result. Fn's usable runs 2–5
+(F-T3, not citable): drain b100 0.17 s, b500 0.46–0.47 s; cp idle-sub 1.13 (b100) and 0.79 (b500) vs
+0.54 steady.
+
+**C. Tooling.** `idle_crosscheck.py --calib` takes `lock_<prefix>calib` (here `lock_burst_calib`,
+not `lock_session_burst_calib`). Fn's function containers are named by ID, not `hello*`. The Part F
+generator counts them as the leg gate table does (not fnserver, not `k8s_`).
+
+**Decision.** No re-run (rule 1). Fn b100/b500 stay missing. Recommended for the W4 pre-registration:
+make "first burst into a cold or small Fn pool" an explicit arm, measuring availability and 500s per
+burst. Do not discard run_1 retroactively here.
+
+**Do not repeat:** reading Fn's burst usable runs (F-T3) as a B1–B4 verdict (rule 2); citing
+OpenFaaS's B4 ratio (steady saturated); using steady c = 8 throughput as "capacity" for a platform
+whose steady leg does not saturate (Knative); quoting OW's B3 b100 failure without its 0.0025-core
+margin.
