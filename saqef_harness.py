@@ -268,7 +268,10 @@ class EnergyTrace(threading.Thread):
     shape in between, so power-vs-load linearity and within-run drift can be
     checked offline against the per-interval CPU in samples_raw.csv without
     referencing any global W/core constant. One sysfs read per domain per
-    second: negligible next to the cgroup sampler."""
+    second: negligible next to the cgroup sampler. Each row also carries the host's cumulative
+    busy CPU ticks (/proc/stat, USER_HZ), so §25.6's within-run linearity check (power against
+    host busy cores per interval) can be done; container CPU alone misses the untracked
+    55-75 % of host CPU (§31.18 A). Added 2026-10-05 (§34); earlier traces have no such column."""
 
     def __init__(self, interval_s=1.0):
         super().__init__(daemon=True)
@@ -278,10 +281,10 @@ class EnergyTrace(threading.Thread):
 
     def run(self):
         while True:
-            self.rows.append((time.time(), rapl_energy(), psys_energy()))
+            self.rows.append((time.time(), rapl_energy(), psys_energy(), host_cpu_ticks()))
             if self._stop_ev.wait(self.interval_s):
                 break
-        self.rows.append((time.time(), rapl_energy(), psys_energy()))
+        self.rows.append((time.time(), rapl_energy(), psys_energy(), host_cpu_ticks()))
 
     def stop(self):
         self._stop_ev.set()
@@ -2191,9 +2194,9 @@ def write_run(outdir, summary, all_snaps, reqs, raw_samples=None):
     if trace:
         with open(os.path.join(outdir, "energy_trace.csv"), "w", newline="") as f:
             w = csv.writer(f)
-            w.writerow(["t_epoch", "pkg_energy_j", "psys_energy_j"])
-            for t, pkg, ps in trace:
-                w.writerow([round(t, 3), pkg, ps])
+            w.writerow(["t_epoch", "pkg_energy_j", "psys_energy_j", "host_busy_ticks"])
+            for t, pkg, ps, hb in trace:
+                w.writerow([round(t, 3), pkg, ps, hb])
     with open(os.path.join(outdir, "summary.json"), "w") as f:
         json.dump(clean_json(summary), f, indent=2)
     with open(os.path.join(outdir, "samples.csv"), "w", newline="") as f:

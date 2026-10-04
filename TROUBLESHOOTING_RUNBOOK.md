@@ -93,6 +93,8 @@ whenever a new section records a bug, a gotcha or a "do not repeat".
 | OpenWhisk action update leaves the old action containers running | §32 design (they serve nothing; the invoker replaces them at the next request; W4 removes them before a cold run) |
 | W4 session stopped by a power cut: what now? | §32 rule 3 (`go.sh --workload cold --part 2` runs only incomplete blocks) |
 | Revisiting a missing cell in a later session | §33 (pre-registered amendment, same table with a footnote, bridge rule for pooling) |
+| When does Fn create containers in a burst / are the 500s before them? | §34.1 (first birth 0.24–0.61 s; 48 per first wave; burst-0 500s precede the first birth) |
+| Is power linear in busy cores? Within-run check of §25.6? | §34.2 (sublinear, W ∝ busy^0.64; within-run not possible before W4: no host CPU per trace row) |
 | "Untracked host ms/inv" read as orchestration cost | §31.18 A (mostly hey, sampler, dockerd, kernel; not a platform metric) |
 | Sub-100 ms timing claims from samples.csv | §31.18 B (sampler ~19 Hz: not resolvable; CPU totals unaffected) |
 | acceptance.json says "RAPL FIT ... NOT citable" on a citable leg | §31.18 A (model fit, warn only; RAPL energy unaffected) |
@@ -4084,3 +4086,40 @@ footnote. (4) Run after W4, on mains with the power gate passing; never before W
 
 **Do not repeat:** revisiting W1 OpenWhisk 512k; merging these cells into the original columns
 without the footnote; a third attempt at either cell.
+
+## 34. Two post hoc analyses on data already on disk (2026-10-05; no machine time; descriptive)
+Both are post hoc. Neither changes a verdict. JSON in `../saqef-paper/results/*_analysis/`.
+
+### 34.1 How Fn's pool grows in a burst run (`tools/fn_pool_growth.py`, `fn_pool_growth_analysis/`)
+Every Fn burst leg on disk (`burst_` b100/b500 incl. `_r2`, 31.13, 31.15): 8 first runs, 37 later
+runs. Birth = docker's own container creation time; request times from hey. Neither depends on
+the sampler's ~100 ms resolution (§31.18 B). Function containers = Fn's ULID-named ones only.
+- **Every first run starts with 20 function containers** (left by `--verify`, §31.11) and **every
+  later run with the full pool** (b100 68–69, b500 99–103) and **no birth inside its window**
+  (37/37). So the usable runs measure a grown, stable pool, as §31.14 said.
+- **The first container is created 0.24–0.33 s after the window opens at b100 and 0.57–0.61 s at
+  b500** (all 8 first runs, both clock states). A review figure of "~1.1 s" does not reproduce
+  from docker's creation times; it is likely the sampler's first sighting, which lags creation by
+  container start + rescan.
+- **Burst 0 creates exactly 48 containers in all 8 first runs** (20 + 48 = 68, the b100 pool).
+  b500 adds its remaining 31–33 over bursts 2–4 (last birth 7.1–8.1 s). Why 48 per wave is not
+  known (not examined; Fn's own scheduling).
+- **The HTTP 500s come first:** at b100 every burst-0 error (7–9 per run) completed before the
+  first container was created; at b500, 27–41 of each first run's errors did. All errors are HTTP
+  500. So Fn rejects the requests it cannot place while it starts creating containers, rather than
+  queueing them; this confirms §31.11's fast-rejection reading with timestamps, not latency alone.
+- For W4: these pools were never empty (20 at start), so this is a lower bound on Fn's cold
+  behaviour; W4's cold arm starts at 0.
+
+### 34.2 Is dynamic power linear in load? (`tools/energy_linearity.py`, `energy_linearity_analysis/final_.json`)
+§25.6 pre-registered a **within-run** check (1 Hz power against host busy cores per interval). It
+**cannot be done on any session so far**: `energy_trace.csv` never recorded host CPU per interval,
+and the per-interval CPU in `samples_raw.csv` is container-only, missing the 55–75 % untracked
+share (§31.18 A). Fixed for W4 on: every trace row now carries `host_busy_ticks` (cumulative
+/proc/stat busy ticks), checked live 2026-10-05.
+**Run-level substitute (post hoc), Part A (`final_`, 75 usable runs, 15 legs):** dynamic W (RAPL,
+probe basis) against host busy cores fits **W ∝ busy^0.64** (log-log, r = 0.92). Power is
+**sublinear** in load: W per busy core falls from 6.7 (≤ 1.5 busy cores, n = 3) through 4.7
+(1.5–3, n = 26) and 3.5 (3–5, n = 28) to 3.2 (5–9, n = 18). This is §25.1's finding on the whole
+corpus: no constant W per core exists on this box, so any W/core model (3.5 W included) is wrong
+by construction, and energy is cited from RAPL directly (§25.2, §27.5).
