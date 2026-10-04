@@ -64,6 +64,8 @@ whenever a new section records a bug, a gotcha or a "do not repeat".
 | OW (driver store) flat at ~305 rps from c = 4 to c = 8 | §29.2 D (only 2 action containers: user-memory 1024 MB; light platforms run 16) |
 | `git_dirty: true` in every W1/W2 run JSON | §30.10 E (the arm swap into tracked handler paths; check box_state handler hashes, not the flag) |
 | Idle probe 0.7–1.5 W above the session calibration on every light-platform leg (‡) | §30.10 E (both arms alike; probe basis is the rule; within-session ratios unaffected) |
+| Did docker leftovers bias earlier sessions? (idle floor per session) | §30.11 B (Part A and W1 no; `mem_` yes, cp +34–78 %; OW cli +15 % residual and §28.8 bridge: candidate cause) |
+| Why does dram inflate cp on Fn and Knative but not OpenFaaS or OpenWhisk? | §30.11 A (post hoc; start-up, CPU saturation and pinning ruled out; cache/bus interference inferred, not measured) |
 | "Log store does not cap OW throughput" (smoke test) | §29.2 C (wrong; corrected by §29.1 Q4) |
 | Pre-flight says "not pre-registered" though the line is committed | §30.9 (`git show | grep -q` SIGPIPE race under pipefail; fixed) |
 
@@ -3056,3 +3058,69 @@ energy is cited on the probe basis (§27.8).
 **Do not repeat:** reading Knative's c = 8 M1 value as counted (rule 3 flags it); reading M3 as
 "holds" by counting Knative; quoting W2 cp ratios as a property of FaaS in general (two of four
 platforms move).
+
+### 30.11 Post hoc checks after §30.10 (2026-10-04; existing legs only, no new data)
+Reviewed by the developer (2026-10-04): mem2_ adjudication accepted, go for W3 after its
+pre-registration. Two questions were then tested on disk. Nothing below was pre-registered.
+
+**A. Why Fn and Knative, not OpenFaaS or OpenWhisk (M1–M3 failures).**
+- *Ruled out, container start-up:* function containers per run are equal across arms (Fn 9–10 vs 10,
+  Kn 16 vs 16, OF 16 vs 16), and the extra cp is flat over runs 1–5 (Fn dram 0.85–0.88 every run).
+- *Ruled out, CPU saturation alone:* the cache arm loads the host as much at c = 8 (~7 of 8 cores,
+  `host_saturated`) without the inflation; Kn dram used *less* host CPU (6.63 vs 7.12 cores).
+- *Ruled out, pinning:* nothing is pinned (no cpuset/taskset anywhere in the stack).
+- *Inferred, not measured:* the dram arm flushes the shared L3 and saturates the bus, so the same
+  request-path code costs more CPU. It fits: (1) at c = 1 (no bus contention) the order is already
+  Kn +19 % > Fn +12 % > OF +6 %; (2) at c = 8 every core runs a streaming handler, so the proxies run on
+  cores a dram handler just left (Fn 1.08 → 1.47, Kn 1.13 → 1.56 from c = 4 to 8); (3) OW has 2 action
+  containers, so ~5 cores stay free, and it moves 1.04; (4) cp resident memory orders the light
+  platforms the same way (`cp_peak_mem_mb` c = 8: OF 23–24, Fn 35, Kn 87–112; n = 3, a hint only).
+  Proof would need per-process hardware counters (LLC misses, IPC) on the cp processes: a new
+  experiment, worth it only if the paper needs the mechanism rather than the effect.
+- *Knative c = 8 M0 failure:* hey is closed-loop (8 in flight), so rps ≈ 8 / latency. p50 8.4 → 10.0
+  ms through three slower proxies; rps falls 23 %. The handler's own CPU outside the copy loop rises
+  ~0.57 ms by the same mechanism.
+
+**B. Did docker leftovers bias earlier sessions? No for Part A and W1; yes for `mem_`.**
+Idle floor = median host cores during each leg's post-bench 60 s idle probe (`idle_probe_*`), light
+platforms (OF / Fn / Kn; OW):
+
+| session | OF | Fn | Kn | OW |
+|---|---|---|---|---|
+| remeasure_shares_ | 0.54 | 0.45 | 0.76 | 0.47 |
+| final_ (Part A) | 0.52 | 0.53 | 0.78 | 0.55 |
+| payload_ (W1) | 0.59 | 0.52 | 0.85 | 0.54 |
+| payload_amend28_8_ | | | 1.01 | |
+| owlog29_ | | | | 0.75 |
+| mem_ (failed night) | 0.97 | | 1.36 | 0.93 |
+| mem2_ (after prune) | 0.22 | 0.22 | 0.39 | 0.24 |
+
+1. *Dirty vs clean, same protocol and handlers (`mem_` vs `mem2_`, the 8 cells both nights passed):*
+   cp ms/inv 34–78 % higher on the dirty night in every cell (OF c1 cache 0.473 vs 0.273; OF gateway
+   alone 0.453 vs 0.261; OW c4 dram 4.38 vs 2.95), function CPU 3–14 % higher, throughput 2–14 % lower.
+   Cross-session (CLAUDE.md rule 6), but the effect is large and one-signed in all 8 cells. The
+   leftovers did not only fail the gate; containerd/dockerd polling slowed every process (likely the
+   same interference as A). **The `mem_` numbers in §30.7 A are biased; they were never cited or
+   pooled.**
+2. *Part A vs the clean box (descriptive, different handler: spin vs 256 KiB copy, both 5 ms,
+   cache-resident):* cp OF 0.29/0.39/0.40 vs 0.27/0.41/0.46 (c = 1/4/8), Fn 0.52/0.52/0.52 vs
+   0.50/0.52/0.60, Kn 0.70/0.66/0.72 vs 0.53/0.60/0.74; function CPU OF 5.87 vs 5.87, Fn 5.32 vs
+   5.31; c = 1 rps 170/173 vs 170/174. No systematic inflation at Part A's floor (~0.3 core above
+   clean); the dirty-night effect appears at ~0.75 core above clean. One exception: **Kn c = 1 cp
+   0.70 vs 0.53** (+33 %), Kn's floor being the highest (0.78). Stated as a caveat on Part A's Kn c = 1
+   cell; not corrected (different handler and session).
+3. *W1 (`payload_`):* floor ≈ Part A's; within-session slopes (P2–P5) compare legs at a common floor.
+   No action.
+4. *Candidate causes for two earlier unexplained residuals:* OW cli owlog29 vs Part A +15 % (§29.4
+   item 6; floor 0.75 vs 0.55), and the §28.8 Knative c = 8 bridge outside ±10 % (§28.9; floor 1.01
+   vs 0.85). Both were already reported unexplained and not pooled; nothing changes, the cause is now
+   a candidate (not proven).
+5. *Within-session comparisons* (W1 slopes, owlog29 cli vs driver, W2 ratios) are unaffected in kind:
+   each compares legs at one floor.
+
+**Decision: no re-run.** Part A and W1 are near the clean box; the biased night (`mem_`) was already
+excluded; owlog29's and the amendment's residuals were never used as numbers. From now on every
+session runs with `--hygiene`.
+
+**Do not repeat:** running any session without `--hygiene` (W3 and later default it on in their
+pre-registration); comparing absolute ms/inv across sessions without the idle-floor table above.
