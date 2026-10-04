@@ -6,7 +6,11 @@
 # desktop), so the switch to tty8 happens here once gdm is gone.
 # Redraws once a minute, so its own CPU cost is negligible next to the legs.
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ARG1="${1:-}"
 SESS="$REPO/results/${1:-final}_session"   # go.sh passes "payload" for a W1 night
+# "latest" (chained sessions, go.sh --revisit): follow whichever session directory is newest
+pick() { [ "${1:-}" = latest ] && SESS=$(ls -td "$REPO"/results/*_session 2>/dev/null | head -1); }
+pick "${1:-}"
 TTY=/dev/tty8
 START=$(date '+%H:%M')
 while systemctl is-active --quiet display-manager; do sleep 1; done   # never steal the screen from a live desktop
@@ -17,6 +21,7 @@ while systemctl is-active --quiet display-manager; do sleep 1; done   # never st
 # even if the switch never happens.
 active() { cat /sys/class/tty/tty0/active 2>/dev/null; }
 draw() {
+    pick "${ARG1:-}"
     printf '\033[2J\033[H'
     echo "  SAQEF measurement session RUNNING   (started $START, now $(date '+%H:%M'))"
     echo

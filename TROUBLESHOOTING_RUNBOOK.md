@@ -4088,7 +4088,11 @@ that stops before finishing (no `DONE` file) is moved whole to `results/aborted_
 launch of the same command, and nothing from it is used, not even a completed leg (33.2's value is
 the pair; 33.1's pooling needs its bridge). The command then runs the amendment from the start.
 A finished session cannot be run again (pre-flight refuses its prefix). (6) The user may run 33.x
-before W4; rule (4)'s order is a preference, not a condition.
+before W4; rule (4)'s order is a preference, not a condition. (7) Both may run back to back in one unattended launch,
+`sudo bash tools/go.sh --revisit 33` (33.1, then 33.2, ~2 h, watchdog 4 h). They remain two sessions
+with their own calibration, prefix and outcome; only the launch is shared. If the power guard stops
+33.1, 33.2's pre-flight refuses to start on battery; rerunning the same command archives the stopped
+attempt(s) (rule 5) and runs both again.
 
 **Do not repeat:** revisiting W1 OpenWhisk 512k; merging these cells into the original columns
 without the footnote; a third attempt at either cell.

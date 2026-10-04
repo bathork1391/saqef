@@ -12,6 +12,7 @@
 #   sudo bash tools/go.sh --workload cold --part 2   W4: only the blocks a power cut left unfinished
 #   sudo bash tools/go.sh --workload payload --amend 33.1   W1 Knative 64k c=8 + 512k bridge (§33, ~1 h)
 #   sudo bash tools/go.sh --arm owlog29 --amend 33.2        OW log stores at c=8, cli + driver (§33, ~50 min)
+#   sudo bash tools/go.sh --revisit 33                   both §33 amendments back to back (33.1 then 33.2, ~2 h)
 #   sudo bash tools/go.sh --status            how far the latest session got
 #   sudo bash tools/go.sh --stop              stop the session now and bring the desktop back
 #
@@ -37,7 +38,7 @@ export KUBECONFIG="${KUBECONFIG:-/etc/rancher/k3s/k3s.yaml}"
 UNIT=saqef-final
 WANT='{ "log-driver": "json-file", "log-opts": { "max-size": "64k", "max-file": "1" } }'
 
-WORKLOAD=cpu ACTION=run AMEND="" ARM="" RERUN="" PART=""
+WORKLOAD=cpu ACTION=run AMEND="" ARM="" RERUN="" PART="" REVISIT=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --stop) ACTION=stop ;;
@@ -48,6 +49,7 @@ while [ $# -gt 0 ]; do
         --arm) ARM="${2:-}"; shift ;;
         --rerun) RERUN="${2:-}"; shift ;;
         --part) PART="${2:-}"; shift ;;
+        --revisit) REVISIT="${2:-}"; shift ;;
         *) echo "unknown option: $1 (use --workload cpu|payload|memory|burst|cold, --part N, --amend ID, --arm ID, --rerun N, --status, --stop)" >&2; exit 2 ;;
     esac
     shift
@@ -78,6 +80,15 @@ fi
 # Whole-session rerun (runbook §30.8 style): W2 only, prefix mem<N>_, run_final adds --hygiene.
 if [ -n "$RERUN" ]; then
     AMEND_ARGS=(--rerun "$RERUN"); SESS_NAME="mem${RERUN}"
+fi
+# Several pre-registered sessions in one unattended launch (§33): each is its own run_final.sh,
+# one after the other; only the last restores the desktop, so the next one finds the box headless.
+CHAIN=()
+if [ -n "$REVISIT" ]; then
+    case "$REVISIT" in
+        33) CHAIN=("--workload payload --amend 33.1" "--arm owlog29 --amend 33.2"); MAX_H=4; SESS_NAME=latest ;;
+        *) echo "unknown --revisit '$REVISIT' (known: 33)" >&2; exit 2 ;;
+    esac
 fi
 if [ "$ACTION" = stop ]; then
     systemctl stop "$UNIT" 2>/dev/null || true
@@ -156,8 +167,14 @@ for i in $(seq 1 90); do
     [ "$i" = 90 ] && { echo "Knative did not come back in 15 min:"; echo "$pods"; exit 1; }
 done
 
-# 3. pre-flight: everything except desktop/agents must already be fine
-out=$(bash "$REPO/tools/run_final.sh" --check --workload "$WORKLOAD" "${AMEND_ARGS[@]}" 2>&1)
+# 3. pre-flight: everything except desktop/agents must already be fine (every chained session)
+if [ "${#CHAIN[@]}" -gt 0 ]; then
+    out=""
+    # shellcheck disable=SC2086
+    for c in "${CHAIN[@]}"; do out="$out$(bash "$REPO/tools/run_final.sh" --check $c 2>&1)"$'\n'; done
+else
+    out=$(bash "$REPO/tools/run_final.sh" --check --workload "$WORKLOAD" "${AMEND_ARGS[@]}" 2>&1)
+fi
 real=$(echo "$out" | grep "PROBLEM:" | grep -v -e "graphical session" -e "agent process")
 if [ -n "$real" ]; then
     echo "$out"
@@ -177,10 +194,23 @@ systemctl stop saqef-guard.timer 2>/dev/null || true
 systemctl reset-failed saqef-guard.service 2>/dev/null || true
 systemd-run --unit saqef-guard --on-active="$((MAX_H * 60 + 15))min" \
     systemctl start display-manager >/dev/null
+if [ "${#CHAIN[@]}" -gt 0 ]; then
+    cmd=""
+    for i in "${!CHAIN[@]}"; do
+        last=$(( ${#CHAIN[@]} - 1 ))
+        nr=""; [ "$i" -lt "$last" ] && nr=" --no-restore-gui"
+        cmd="$cmd bash '$REPO/tools/run_final.sh' ${CHAIN[$i]}$nr;"
+    done
+    systemd-run --unit "$UNIT" -p RuntimeMaxSec="${MAX_H}h" \
+        systemd-inhibit --what=sleep:idle:handle-lid-switch --why="SAQEF revisit $REVISIT" \
+        bash -c "$cmd" >/dev/null
+    say "sessions (revisit $REVISIT: ${#CHAIN[@]} back to back) launched as service '$UNIT'"
+else
 systemd-run --unit "$UNIT" -p RuntimeMaxSec="${MAX_H}h" \
     systemd-inhibit --what=sleep:idle:handle-lid-switch --why="SAQEF $WORKLOAD session" \
     bash "$REPO/tools/run_final.sh" --workload "$WORKLOAD" "${AMEND_ARGS[@]}" >/dev/null
 say "session ($WORKLOAD) launched as service '$UNIT'"
+fi
 
 # 5. leave the desktop
 echo

@@ -3933,3 +3933,15 @@ class TestRevisit33(unittest.TestCase):
         main = rf[rf.index("ARCHIVED=\"\""):]
         self.assertLess(main.index("archive_stopped"), main.index('mkdir -p "$SESS"'))
 
+    def test_revisit_chain_runs_both_and_keeps_box_headless_between(self):
+        go = open(os.path.join(REPO, "tools", "go.sh")).read()
+        self.assertIn('33) CHAIN=("--workload payload --amend 33.1" "--arm owlog29 --amend 33.2")', go)
+        # every chained session is pre-flighted, not only the first
+        self.assertIn('for c in "${CHAIN[@]}"; do out="$out$(bash "$REPO/tools/run_final.sh" --check $c', go)
+        # all but the last skip the desktop restore, so the next one finds the box headless
+        self.assertIn('[ "$i" -lt "$last" ] && nr=" --no-restore-gui"', go)
+        rf = open(os.path.join(REPO, "tools", "run_final.sh")).read()
+        self.assertIn("--no-restore-gui) RESTORE_GUI=0 ;;", rf)
+        scr = open(os.path.join(REPO, "tools", "screen_status.sh")).read()
+        self.assertIn('pick "${ARG1:-}"', scr)
+

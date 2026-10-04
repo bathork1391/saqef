@@ -17,6 +17,7 @@ The one place that says what is still to run or do. Details live in `TROUBLESHOO
 | 2 | `sudo bash tools/go.sh --workload payload --amend 33.1` | W1's missing Knative 64k c=8 cell (+ bridge) | ~1 h | §33 |
 | 3 | `sudo bash tools/go.sh --arm owlog29 --amend 33.2` | OpenWhisk log-store comparison at c=8 | ~50 min | §33 |
 
+**#2 and #3 together, one launch (~2 h):** `sudo bash tools/go.sh --revisit 33` (33.1 then 33.2).
 #2 and #3 may run before #1. If a power cut stops #2 or #3, just run the same command again on mains:
 the stopped attempt is moved to `results/aborted_<UTC>/` automatically and never used (§33 rule 5).
 
