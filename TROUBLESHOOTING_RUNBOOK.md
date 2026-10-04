@@ -62,6 +62,8 @@ whenever a new section records a bug, a gotcha or a "do not repeat".
 | Quiet gate fails on most legs; containerd + dockerd ≈ 1–1.9 cores with no traffic and no docker events | §30.7 B, D (docker leftovers: unused anonymous volumes + dangling images; confirmed by prune; `--hygiene`) |
 | Quiet-gate "top CPU processes" blames java/containerd | §29.2 B (old list was lifetime `ps %CPU`; now window `/proc` deltas) |
 | OW (driver store) flat at ~305 rps from c = 4 to c = 8 | §29.2 D (only 2 action containers: user-memory 1024 MB; light platforms run 16) |
+| `git_dirty: true` in every W1/W2 run JSON | §30.10 E (the arm swap into tracked handler paths; check box_state handler hashes, not the flag) |
+| Idle probe 0.7–1.5 W above the session calibration on every light-platform leg (‡) | §30.10 E (both arms alike; probe basis is the rule; within-session ratios unaffected) |
 | "Log store does not cap OW throughput" (smoke test) | §29.2 C (wrong; corrected by §29.1 Q4) |
 | Pre-flight says "not pre-registered" though the line is committed | §30.9 (`git show | grep -q` SIGPIPE race under pipefail; fixed) |
 
@@ -2989,3 +2991,68 @@ Check logic, protocol and gates unchanged.
 
 **Do not repeat:** `producer | grep -q` under pipefail when the producer writes more than one pipe
 buffer after the match.
+
+### 30.10 Session 2026-10-04 (`mem2_`, rerun 2): outcome
+Commit `68d658b`, headless, 06:07–09:00 UTC, `--hygiene`. Tables: VERIFIED_RESULTS.md **Part E**
+(`figures/make_mem_tables.py`, verdicts computed at emit time); analysis JSON `results/mem_analysis/`.
+
+**Legs.** 24 of 24 passed on the first attempt; no `_r2`. Quiet gate 1.8–5.1 % on every leg (§30.7's
+failing night: 15.2–25.8 %); the docker-leftover fix of §30.7 D held: hygiene removed 56 dangling
+layers before calibration and 0–26 per leg after, image count 40–41 throughout. Deployed-arm check 20/20 on every leg; every run records its `env.workload_variant`; all 6 OW leg
+logs show `activation log store = driver`. `host_saturated` on most c = 8 light-platform runs
+(rule 7: latency not cited for them).
+
+**A. Verdicts (§30.4, rules §30.5 applied literally; ratios dram / cache, medians over usable runs).**
+
+| c = 8 | cp ms/inv cache → dram | cp | fn | rps | M0 |
+|---|---|---|---|---|---|
+| OpenFaaS | 0.463 → 0.480 | 1.04 | 1.02 | 0.96 | ok |
+| Fn | 0.600 → 0.880 | 1.47 | 1.07 | 0.86 | ok |
+| Knative | 0.743 → 1.157 | 1.56 | 1.15 (1.145) | **0.77** | fails |
+| OW (driver) | 2.750 → 2.863 | 1.04 | 1.01 | 0.99 | ok |
+
+- **M0 fails in 1 of 12 cells**: Knative c = 8, throughput −23 % (fn 1.145, just inside). The
+  other 11 hold. Knative c = 8 is flagged (rule 3) and not counted below.
+- **M1 fails** (1 of 3 counted: Fn; with Knative 2 of 4, still fails).
+- **M2 fails** (1 of 3 counted: Fn 1.47 > 1.12; OF 1.04 vs 1.06, OW 1.04 vs 1.04; with Knative 2 of 4).
+- **M3 fails on rule 3** (2 of 3 counted: Fn 0.67 → 1.04, OW 1.05 → 1.17; OF 0.50 → 0.50). With
+  Knative (0.42 → 0.68) it would be 3 of 4. OW's step is inside its ±0.32 idle-probe sensitivity.
+- c = 1 and c = 4 (no prediction on magnitude): Fn 1.12 / 1.08, Knative 1.19 / 1.13, OW 1.04 / 1.11,
+  OF 1.06 / 0.99.
+
+**B. Finding.** Memory pressure in the function does **not** inflate control-plane CPU in general.
+At c = 8 it does on Fn (+47 %) and Knative (+56 %), and not on OpenFaaS (+4 %, inside the 3–5 % noise
+of two adjacent legs, §30.3) or OpenWhisk (+4 %). Knative and Fn also already show +12–19 % at c = 1.
+
+**C. Post hoc (not pre-registered; tested on these legs only, `cp_anatomy.py`).**
+1. Where it lands, c = 8: Fn's whole cp is fnserver (0.60 → 0.88). Knative: kourier 0.38 → 0.62,
+   activator 0.35 → 0.52, and the queue-proxy sidecar (counted as function) 0.83 → 1.19. So part of
+   Knative's +0.92 ms function rise is its own request path (+0.35), not the handler.
+2. OpenWhisk's flat ratio is expected from §30.2: only 2 action containers stream memory at once.
+   OpenFaaS at 16 replicas runs 8 streaming functions too, and its gateway moves 4 %. Why the OF gateway
+   is insensitive and fnserver / kourier / activator are not is **not answered** by this data.
+3. Knative c = 8 M0 failure: the host is at 83–89 % busy; the dram leg needs +1.3 ms CPU per call
+   (fn + cp), so throughput falls. The design check fails because of the effect, not a mismatched
+   handler (fn ratio 1.145 includes the +0.35 queue-proxy).
+4. Energy (no prediction): dram costs more per call at c = 8 on every platform (probe basis: OF +9 %,
+   Fn +10 %, Kn +20 %, OW +4 %).
+
+**D. Corrections / caveats.** OW cp CV 16–43 %: the first usable run is high in every OW leg, both
+arms (§29.1 post hoc 2); medians used. The idle probe sits 0.7–1.5 W above the session calibration on
+all 18 light-platform legs (‡ in E-T1), both arms alike, so the within-session ratios are unaffected;
+energy is cited on the probe basis (§27.8).
+
+**E. Provenance gotchas (no number affected).**
+- Run JSON says `git_dirty = true` on every leg. Since the §29.4 item 4 fix the flag is real, and a
+  W1/W2 session swaps the arm's handler into the tracked paths (`hello/func.py`, `OF_FUNCTION/`,
+  `KNATIVE_FUNCTION/`, `OW_FUNCTION/`). Checked: box_state_pre handler hashes = `workloads/mem_dram/`,
+  box_state_post = `workloads/mem_cache/` (the last leg's arm); tree clean before (pre-flight) and
+  after (handlers restored). For workload sessions, read box_state, not the flag.
+- 18/24 idle-crosscheck flags: see D.
+
+**Tooling.** `figures/make_mem_tables.py` (new), Part E in `tools/emit_verified_results.py`
+(existing lines unchanged). No measurement code changed.
+
+**Do not repeat:** reading Knative's c = 8 M1 value as counted (rule 3 flags it); reading M3 as
+"holds" by counting Knative; quoting W2 cp ratios as a property of FaaS in general (two of four
+platforms move).
