@@ -3223,6 +3223,10 @@ light cp at c = 8 (mem2_ cache arm, idle-subtracted): OF 0.46, Fn 0.60, Kn 0.73 
   (session `burst_session`, watchdog 4 h). Tests: `TestW3BurstMode`. Smoke test (unmeasured, a local
   dummy server, no platform): 1100 requests in bursts of 500 with 2 % 503s → 3 bursts, 30 HTTP
   errors counted; 200 requests at a closed port → 200 transport errors, 0 ok, no crash.
+- Burst legs pass `--concurrency` = N (provenance). It reaches only unmeasured steps: the 10-request
+  warm-up (10 threads instead of 8) and `--verify` (its 100 calls fired at once); neither gates or
+  enters a measured window. Dry run 2026-10-04: exactly the 12 legs of §31.2; pre-flight problems only
+  "graphical session" and "agent running".
 
 ### 31.7 Decision rules
 1. Each prediction is judged per platform from this session's own legs. A failed prediction is a
