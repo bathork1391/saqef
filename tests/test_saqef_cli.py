@@ -3888,3 +3888,38 @@ class TestColdAnalysis(unittest.TestCase):
         o = ca.block(res, "cold_", "ow")
         self.assertFalse(o["C3"])           # no separation: equal cp
         self.assertFalse(o["C3u"])
+
+
+class TestRevisit33(unittest.TestCase):
+    """§33: two missing cells revisited in disclosed amendment sessions; nothing else changes."""
+
+    def _dry(self, *args):
+        env = dict(os.environ, SAQEF_POWER_PROBE_S="0")
+        return subprocess.run(["bash", os.path.join(REPO, "tools", "run_final.sh"), "--dry-run", *args],
+                              capture_output=True, text=True, env=env)
+
+    def _legs(self, out, pfx):
+        return [l.split(":")[0].strip() for l in out.splitlines()
+                if l.strip().startswith(pfx) and "calib" not in l]
+
+    def test_33_1_legs(self):
+        out = self._dry("--workload", "payload", "--amend", "33.1").stdout
+        self.assertEqual(self._legs(out, "payload_amend33_1_"),
+                         ["payload_amend33_1_64kc8_kn", "payload_amend33_1_512kc8_kn"])
+        self.assertIn("hygiene:", out)
+
+    def test_33_2_legs(self):
+        out = self._dry("--arm", "owlog29", "--amend", "33.2").stdout
+        self.assertEqual(self._legs(out, "owlog29_amend33_2_"),
+                         ["owlog29_amend33_2_tier1ow8_cli", "owlog29_amend33_2_tier1ow8_driver"])
+
+    def test_plain_arm_and_misuse_unchanged(self):
+        out = self._dry("--arm", "owlog29").stdout
+        self.assertEqual(len(self._legs(out, "owlog29_tier1ow")), 6)
+        self.assertEqual(self._dry("--workload", "cpu", "--amend", "33.2").returncode, 2)
+        self.assertEqual(self._dry("--arm", "owlog29", "--amend", "33.1").returncode, 2)
+        self.assertEqual(self._dry("--workload", "burst", "--amend", "33.1").returncode, 2)
+
+    def test_go_passes_arm_and_amend(self):
+        go = open(os.path.join(REPO, "tools", "go.sh")).read()
+        self.assertIn('AMEND_ARGS+=(--amend "$AMEND")', go)

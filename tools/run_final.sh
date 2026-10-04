@@ -163,6 +163,10 @@ if [ -n "$AMEND" ]; then
     case "$WORKLOAD:$AMEND" in
         # Kn c=8 at 1k/64k (no citable leg on 2026-10-03) + Kn 512k c=8 as the bridge cell
         payload:28.8) AMEND_LEGS=("1k 8 kn" "64k 8 kn" "512k 8 kn"); PFX="payload_amend${AMEND/./_}_" ;;
+        # §33.1: W1's last missing Knative cell (64k c=8, quiet gate 4x) + 28.8's 512k bridge
+        payload:33.1) AMEND_LEGS=("64k 8 kn" "512k 8 kn"); PFX="payload_amend${AMEND/./_}_"; HYGIENE=1 ;;
+        # §33.2: OpenWhisk log-store arm at c=8, both stores in one session (handled with --arm)
+        cpu:33.2) [ "$ARM" = owlog29 ] || { echo "amendment 33.2 needs --arm owlog29" >&2; exit 2; } ;;
         # §31.13: only Fn's two missing W3 legs (31.10 was withdrawn before data), run_1 (pool
         # growth) discarded, container names resolved off the sampling thread (§31.12)
         # §31.15: the same two legs and design again, power gate passing (31.13 ran capped,
@@ -170,7 +174,7 @@ if [ -n "$AMEND" ]; then
         burst:31.15) BURST_LEGS=("fn b500" "fn b100"); BURST_REPEAT=$OW_REPEAT
                      BURST_DISCARD=$OW_DISCARD BURST_DEFER=1; PFX="burst_amend${AMEND/./_}_" ;;
         burst:31.13) echo "amendment 31.13 is closed (outcome §31.14); its re-run is --amend 31.15" >&2; exit 2 ;;
-        payload:*|burst:*) echo "unknown amendment '$AMEND' for --workload $WORKLOAD (known: payload 28.8, burst 31.15)" >&2; exit 2 ;;
+        payload:*|burst:*) echo "unknown amendment '$AMEND' for --workload $WORKLOAD (known: payload 28.8 33.1, burst 31.15)" >&2; exit 2 ;;
         *) echo "--amend needs --workload payload or burst" >&2; exit 2 ;;
     esac
 fi
@@ -178,13 +182,15 @@ fi
 # runbook (pre-flight check 7). ARM_LEGS entries: "c logstore".
 ARM_LEGS=()
 if [ -n "$ARM" ]; then
-    [ "$WORKLOAD" = cpu ] && [ -z "$AMEND" ] || { echo "--arm needs --workload cpu and no --amend" >&2; exit 2; }
+    [ "$WORKLOAD" = cpu ] && { [ -z "$AMEND" ] || [ "$AMEND" = 33.2 ]; } || { echo "--arm needs --workload cpu and no --amend (except 33.2)" >&2; exit 2; }
     case "$ARM" in
         # §29: alternating order per c, so a slow drift cannot line up with one log store
         owlog29) ARM_LEGS=("1 cli" "1 driver" "4 driver" "4 cli" "8 cli" "8 driver") ;;
         *) echo "unknown arm '$ARM' (known: owlog29)" >&2; exit 2 ;;
     esac
     PFX="${ARM}_"
+    # §33.2: only c=8, both stores (the cli leg failed the quiet gate twice in owlog29_)
+    if [ "$AMEND" = 33.2 ]; then ARM_LEGS=("8 cli" "8 driver"); PFX="${ARM}_amend33_2_"; HYGIENE=1; fi
 fi
 
 declare -A LONG=([of]=openfaas [fn]=fn [kn]=knative [ow]=openwhisk)

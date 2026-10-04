@@ -92,6 +92,7 @@ whenever a new section records a bug, a gotcha or a "do not repeat".
 | Knative pods stay `Terminating` ~300 s after scale-down / teardown | §32 design (PID-1 python server ignores SIGTERM; grace = revision timeout 300 s; W4 waits it out) |
 | OpenWhisk action update leaves the old action containers running | §32 design (they serve nothing; the invoker replaces them at the next request; W4 removes them before a cold run) |
 | W4 session stopped by a power cut: what now? | §32 rule 3 (`go.sh --workload cold --part 2` runs only incomplete blocks) |
+| Revisiting a missing cell in a later session | §33 (pre-registered amendment, same table with a footnote, bridge rule for pooling) |
 | "Untracked host ms/inv" read as orchestration cost | §31.18 A (mostly hey, sampler, dockerd, kernel; not a platform metric) |
 | Sub-100 ms timing claims from samples.csv | §31.18 B (sampler ~19 Hz: not resolvable; CPU totals unaffected) |
 | acceptance.json says "RAPL FIT ... NOT citable" on a citable leg | §31.18 A (model fit, warn only; RAPL energy unaffected) |
@@ -4037,3 +4038,49 @@ analysis JSON `results/cold_analysis/`, VERIFIED_RESULTS Part G.
 
 **Do not repeat:** OpenFaaS in W4 on the 0.8.3 stack; comparing W4 Knative numbers with Parts A–F
 (different scaling config); using a cold run whose pool was not empty; judging B2/B4 at b100.
+
+## 33. Revisiting two missing cells — pre-registration (written 2026-10-05, before any data)
+Amendment 33.1: pre-registered
+Amendment 33.2: pre-registered
+
+**Why (user decision, 2026-10-05).** Two cells failed only on the quiet gate, for causes fixed
+since: W1 Knative 64k c=8 (4 attempts over `payload_` and `payload_amend28_8_`, each right after a
+16-pod scale-up, §28.9 A) and the OpenWhisk log-collector arm's cli leg at c=8 (twice, ~40 s after a
+JVM restart, §29.2 A). The fixes are the 20 s settle windows (§29.2) and `--hygiene` (§30.7). The
+user prefers revisiting them in a new, disclosed session to a third same-session attempt. Not a
+rescue: no verdict depends on either cell (§31.17 E), and the original attempts stay on record.
+Not revisited: W1 OpenWhisk 512k (the standalone's in-memory store crashes the same way, §28.7).
+
+**Reporting rule (fixed now).** Each result goes into the **same table** as the cell it fills, in
+its own column or row marked with one footnote: "measured in a later session (amendment 33.x,
+date); not pooled with the original session" — unless the pooling rule below allows pooling.
+Never merged silently.
+
+**33.1 — W1 Knative 64k c=8 (`sudo bash tools/go.sh --workload payload --amend 33.1`, ~1 h).**
+- Legs: `payload_amend33_1_64kc8_kn`, then `payload_amend33_1_512kc8_kn` (bridge, as 28.8's).
+- Protocol identical to §28.2 / §28.8 (handler swap, bodies, TOTAL 3000, REPEAT 5, `--cpu-probe 60`,
+  same gates incl. the one-sided 20 % drift gate, payload probe, in-session calibration, one `_r2`),
+  plus today's session guards: `--hygiene`, 20 s settle windows, power gate and in-leg power poll.
+- Pooling rule (28.8 rule 1, unchanged): the 64k cell may be shown as Part C's 64k c=8 value only
+  if the bridge's cp **and** fn ms/inv are both within ±10 % of the main session's 512k c=8 cell
+  (cp 2.220, fn 2.627 ms/inv). Otherwise it is reported in its own column next to 28.8's 1k c=8.
+- Descriptive (no verdict changes): Knative 64k c=8 cp, fn, activator + kourier ms/inv; P2's
+  ordering at c=8 for Knative is shown across sessions only, labelled so.
+
+**33.2 — OpenWhisk log stores at c=8 (`sudo bash tools/go.sh --arm owlog29 --amend 33.2`, ~50 min).**
+- Legs: `owlog29_amend33_2_tier1ow8_cli`, then `owlog29_amend33_2_tier1ow8_driver`, protocol
+  identical to §29 (CPU-bound handler, `--repeat 6 --discard-warmup 1`, JVM thread sampler,
+  in-session calibration), plus `--hygiene`, 20 s settle windows and the power guards.
+- Both stores run in this one session, so **Q1–Q5 are judged at c = 8 from this pair**, with §29's
+  thresholds unchanged (Q1 driver child row ≤ 1.0 ms/inv; Q2 cli − driver cp ≥ 9.0 ms/inv; Q3 driver
+  share in [40, 60] % and driver cp > 5 × 0.72; Q4 driver rps within ±15 % of cli; Q5 untracked
+  lower with driver). The driver leg also bridges to `owlog29_tier1ow8_driver` (cp 3.03 ms/inv),
+  reported side by side, not pooled.
+
+**Decision rules.** (1) A failed prediction is a finding; nothing is re-run. (2) A leg failing twice
+is missing and stays missing; no third revisit. (3) Outcome as §33.1-outcome / §33.2-outcome,
+analysis JSON `results/<prefix>analysis/`, tables in VERIFIED_RESULTS Parts C and D with the
+footnote. (4) Run after W4, on mains with the power gate passing; never before W4 in the same night.
+
+**Do not repeat:** revisiting W1 OpenWhisk 512k; merging these cells into the original columns
+without the footnote; a third attempt at either cell.

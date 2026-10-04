@@ -10,6 +10,8 @@
 #   sudo bash tools/go.sh --workload burst --amend 31.15   W3: Fn's two legs again, uncapped (§31.15, ~40 min)
 #   sudo bash tools/go.sh --workload cold     W4 cold start (runbook §32; ~2.5 h)
 #   sudo bash tools/go.sh --workload cold --part 2   W4: only the blocks a power cut left unfinished
+#   sudo bash tools/go.sh --workload payload --amend 33.1   W1 Knative 64k c=8 + 512k bridge (§33, ~1 h)
+#   sudo bash tools/go.sh --arm owlog29 --amend 33.2        OW log stores at c=8, cli + driver (§33, ~50 min)
 #   sudo bash tools/go.sh --status            how far the latest session got
 #   sudo bash tools/go.sh --stop              stop the session now and bring the desktop back
 #
@@ -66,6 +68,8 @@ fi
 # Arm (runbook §29 style): a named comparison under its own prefix; reuses AMEND_ARGS to reach run_final.
 if [ -n "$ARM" ]; then
     AMEND_ARGS=(--arm "$ARM"); MAX_H=2; SESS_NAME="$ARM"
+    # §33.2: an amendment of an arm (only c=8, both stores)
+    [ -n "$AMEND" ] && { AMEND_ARGS+=(--amend "$AMEND"); SESS_NAME="${ARM}_amend${AMEND/./_}"; }
 fi
 # W4 continuation after a power cut (runbook §32): only the blocks without a complete result.
 if [ -n "$PART" ]; then
