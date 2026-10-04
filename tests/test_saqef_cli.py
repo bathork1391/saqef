@@ -3871,6 +3871,8 @@ class TestColdAnalysis(unittest.TestCase):
         self.assertTrue(b["C3"])
         self.assertAlmostEqual(b["untracked_ms_per_container"], 375.0)  # untracked 3cp+9: (18-12)/16
         self.assertAlmostEqual(b["instrument_ms_per_container"], 0.0)
+        self.assertAlmostEqual(b["untracked_net_ms_per_container"], 375.0)
+        self.assertTrue(b["C3u"])               # one run per arm: 18 - 1.5 > 12 - 1.5
         self.assertAlmostEqual(b["later_p50_rel"], 0.10)
         self.assertTrue(b["C4"])
         self._leg(res, "fn", "cold", 7, 900, 150, cp=2.0, created=70)
@@ -3881,3 +3883,8 @@ class TestColdAnalysis(unittest.TestCase):
         self.assertIsNone(f["C2"])          # Fn: no latency prediction
         self.assertFalse(f["C4"])           # +50 % later-burst p50
         self.assertFalse(ca.block(res, "cold_", "ow")["evaluable"])
+        self._leg(res, "ow", "cold", 10, 900, 100, cp=1.0, created=2)
+        self._leg(res, "ow", "warm", 10, 100, 100, cp=1.0, created=0)
+        o = ca.block(res, "cold_", "ow")
+        self.assertFalse(o["C3"])           # no separation: equal cp
+        self.assertFalse(o["C3u"])

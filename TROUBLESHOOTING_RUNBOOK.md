@@ -3990,6 +3990,29 @@ none was changed after the smoke tests.
   change in the instrument's own cost, which each run now records (`instrument_cpu_s`:
   harness process incl. sampler threads, and its reaped children incl. hey). Reported with that
   residual instrument difference beside it.
+- **Decision rule for C3 and C3u (amendment 2026-10-05 01:20 PKT, before any W4 data; review 5):**
+  each holds for a platform only if **every** usable cold run's quantity exceeds **every** usable
+  warm run's (complete separation; with 5 vs 5 runs the chance probability of that ordering is
+  1/252 ≈ 0.004). "> 0" on the median alone is not enough: run-to-run noise would pass it. C3u is
+  judged on untracked CPU-s **minus that run's `instrument_cpu_s`**, and also reported without the
+  subtraction. The value reported is the median per created container, as defined above.
+- **C3u is a prediction now** (it was descriptive): separation holds on every platform. Reason: if
+  cold-start work is mostly outside the platform's containers (C3's scope note), C3u is where the
+  signal is, and it needs a decision rule fixed before data.
+- **Interpretation fixed before data:** C3 failing while C3u holds is recorded as "C3 fails:
+  container creation is done outside the platform's own containers on this platform", never as
+  "cold starts cost no control-plane CPU". Both failing means no cold-start CPU cost is resolvable
+  above run-to-run noise with this instrument.
+- **Instrument terms that differ between arms (sign not predicted):** (a) the cgroup sampler's
+  reads scale with live containers, and a cold run has fewer for most of its window (biases C3u
+  down; inside `instrument_cpu_s`, so removed by the subtraction); (b) the sampler resolves each
+  new container's name with one `docker inspect` (§31.12), ~one per created container in a cold run
+  and ~none in a warm run. The CLI's own CPU is in `instrument_cpu_s`, but dockerd's work for those
+  calls is not, so it stays in C3u and biases it **up**, by at most one inspect's dockerd cost per
+  container. The sampler is therefore not a passive observer of dockerd during container churn;
+  stated as a limitation, with the count of inspects (= containers created) reported.
+- **Leg order unchanged:** a power cut inside the Fn block makes the whole block incomplete and
+  rule 3 runs it again whole, so moving `cold_fn_steady` earlier would not protect B2/B4.
 - **C4 recovery:** later-burst p50 of cold runs within **±15 %** of the warm arm's later-burst
   p50, every platform (the cold cost is a first-burst effect).
 - **C5 (descriptive):** function CPU-s per created container, against Fn's 0.14 s anchor.

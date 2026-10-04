@@ -11,8 +11,10 @@ Implements §32's metrics as registered, over each leg's usable runs (acceptance
   C2  first-burst p50 cold / warm >= 2 on Knative and OpenWhisk (Fn reported)
   C3  (cold cp CPU-s - median warm cp CPU-s) / containers created > 0, ms per container;
       C3b OpenWhisk's is the highest
-  C3u (descriptive) the same difference for untracked host CPU (host - cp - fn, idle-subtracted),
-      with the instrument's own CPU difference (instrument_cpu_s) beside it
+  C3u the same difference for untracked host CPU (host - cp - fn, idle-subtracted) minus the run's
+      instrument_cpu_s; also reported without that subtraction
+      C3 and C3u hold only on complete separation: every cold run above every warm run
+      (amendment 2026-10-05, before data)
   C4  later-burst p50, cold vs warm, within +-15 %
   C5  (cold fn CPU-s - median warm fn CPU-s) / containers created, s per container (descriptive)
   Fn  B1 b500 availability >= 0.999; B2 b500 drain in [0.67, 1.5] x 500 / steady rps;
@@ -119,7 +121,15 @@ def block(res, prefix, p):
     a = out["cold_first_avail"]
     out["C1"] = None if a is None else ((a < 0.99) if p == "fn" else (a >= 0.999))
     out["C2"] = None if p == "fn" or out["first_p50_ratio"] is None else out["first_p50_ratio"] >= 2
-    out["C3"] = None if out["cp_ms_per_container"] is None else out["cp_ms_per_container"] > 0
+    sep = lambda key: (None if any(r[key] is None for r in C + W)
+                       else min(r[key] for r in C) > max(r[key] for r in W))
+    for r in C + W:
+        r["untr_net_s"] = (r["untr_s"] - r["instr_s"]) if r["untr_s"] is not None and r["instr_s"] is not None else None
+    out["untracked_net_ms_per_container"] = (lambda v: v * 1000 if v is not None else None)(
+        per("untr_net_s", g(W, "untr_net_s")))
+    out["inspects_per_run"] = out["containers_created"]   # one docker inspect per new container (§31.12)
+    out["C3"] = sep("cp_s")
+    out["C3u"] = sep("untr_net_s")
     out["C4"] = None if out["later_p50_rel"] is None else abs(out["later_p50_rel"]) <= 0.15
     return out
 
