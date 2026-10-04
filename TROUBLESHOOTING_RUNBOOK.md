@@ -59,7 +59,7 @@ whenever a new section records a bug, a gotcha or a "do not repeat".
 | OW web action returns HTTP 204 with an empty body | §30.6 (dict result without `body`; W2 handler returns `body`) |
 | Fn reply is `str(dict)` with single quotes; a `"`-only regex misses it | §30.6 |
 | `FATAL: box not quiet` after settle passed (any platform) | §29.2 A (7–8 % idle floor of the stacks; settle now uses 20 s windows) |
-| Quiet gate fails on most legs; containerd + dockerd ≈ 1–1.9 cores with no traffic and no docker events | §30.7 B (idle floor doubled; leftover images from rebuilds suspected, unconfirmed) |
+| Quiet gate fails on most legs; containerd + dockerd ≈ 1–1.9 cores with no traffic and no docker events | §30.7 B, D (docker leftovers: unused anonymous volumes + dangling images; confirmed by prune; `--hygiene`) |
 | Quiet-gate "top CPU processes" blames java/containerd | §29.2 B (old list was lifetime `ps %CPU`; now window `/proc` deltas) |
 | OW (driver store) flat at ~305 rps from c = 4 to c = 8 | §29.2 D (only 2 action containers: user-memory 1024 MB; light platforms run 16) |
 | "Log store does not cap OW throughput" (smoke test) | §29.2 C (wrong; corrected by §29.1 Q4) |
