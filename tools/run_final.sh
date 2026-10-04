@@ -227,21 +227,22 @@ PY
     dirty=$(git -c safe.directory="$REPO" -C "$REPO" status --porcelain -- saqef saqef_harness.py platforms tools/run_lock_session.sh tools/run_final.sh tools/jvm_thread_sampler.py tools/workload.sh workloads hello OF_FUNCTION KNATIVE_FUNCTION OW_FUNCTION 2>&1) || bad "git status failed: $dirty"
     [ -z "$dirty" ] || bad "uncommitted measurement-path changes: $(echo "$dirty" | tr '\n' ';')"
 
-    # 7. an amendment runs only if its pre-registration is committed
-    if [ -n "$AMEND" ] && ! git -c safe.directory="$REPO" -C "$REPO" show HEAD:TROUBLESHOOTING_RUNBOOK.md 2>/dev/null \
-            | grep -qF "Amendment $AMEND: pre-registered"; then
+    # 7. an amendment runs only if its pre-registration is committed. Read the committed
+    # runbook once: piping `git show` into `grep -q` under pipefail races (grep exits on the
+    # match, git gets SIGPIPE, the pipeline returns 141 and a registered line reads as missing).
+    local prereg
+    prereg=$(git -c safe.directory="$REPO" -C "$REPO" show HEAD:TROUBLESHOOTING_RUNBOOK.md 2>/dev/null) \
+        || bad "cannot read the committed runbook (git show HEAD:TROUBLESHOOTING_RUNBOOK.md)"
+    if [ -n "$AMEND" ] && ! grep -qF "Amendment $AMEND: pre-registered" <<<"$prereg"; then
         bad "amendment $AMEND is not pre-registered in the committed runbook (need the line 'Amendment $AMEND: pre-registered')"
     fi
-    if [ "$WORKLOAD" = memory ] && ! git -c safe.directory="$REPO" -C "$REPO" show HEAD:TROUBLESHOOTING_RUNBOOK.md 2>/dev/null \
-            | grep -qF "Workload memory: pre-registered"; then
+    if [ "$WORKLOAD" = memory ] && ! grep -qF "Workload memory: pre-registered" <<<"$prereg"; then
         bad "W2 is not pre-registered in the committed runbook (need the line 'Workload memory: pre-registered')"
     fi
-    if [ -n "$RERUN" ] && ! git -c safe.directory="$REPO" -C "$REPO" show HEAD:TROUBLESHOOTING_RUNBOOK.md 2>/dev/null \
-            | grep -qF "Workload memory rerun $RERUN: pre-registered"; then
+    if [ -n "$RERUN" ] && ! grep -qF "Workload memory rerun $RERUN: pre-registered" <<<"$prereg"; then
         bad "W2 rerun $RERUN is not pre-registered in the committed runbook (need the line 'Workload memory rerun $RERUN: pre-registered')"
     fi
-    if [ -n "$ARM" ] && ! git -c safe.directory="$REPO" -C "$REPO" show HEAD:TROUBLESHOOTING_RUNBOOK.md 2>/dev/null \
-            | grep -qF "Arm $ARM: pre-registered"; then
+    if [ -n "$ARM" ] && ! grep -qF "Arm $ARM: pre-registered" <<<"$prereg"; then
         bad "arm $ARM is not pre-registered in the committed runbook (need the line 'Arm $ARM: pre-registered')"
     fi
 

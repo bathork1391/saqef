@@ -63,6 +63,7 @@ whenever a new section records a bug, a gotcha or a "do not repeat".
 | Quiet-gate "top CPU processes" blames java/containerd | §29.2 B (old list was lifetime `ps %CPU`; now window `/proc` deltas) |
 | OW (driver store) flat at ~305 rps from c = 4 to c = 8 | §29.2 D (only 2 action containers: user-memory 1024 MB; light platforms run 16) |
 | "Log store does not cap OW throughput" (smoke test) | §29.2 C (wrong; corrected by §29.1 Q4) |
+| Pre-flight says "not pre-registered" though the line is committed | §30.9 (`git show | grep -q` SIGPIPE race under pipefail; fixed) |
 
 ## 1. Noisy-neighbor contamination from background processes (incl. this agent)
 
@@ -2969,3 +2970,22 @@ Workload memory rerun 2: pre-registered
   in `box_state_pre/post`. If containerd + dockerd in a failing gate's window list exceed 0.5 core,
   §30.7 is the first suspect.
 - Part E of VERIFIED_RESULTS.md and `results/mem_analysis/` (rule 9) are built from `mem2_`.
+
+### 30.9 Pre-flight "W2 is not pre-registered" although the line is committed (2026-10-04)
+**Symptom.** `sudo bash tools/go.sh --workload memory --rerun 2` stopped in pre-flight with
+`W2 is not pre-registered in the committed runbook`, though `Workload memory: pre-registered` is in
+HEAD (§30). No data was taken.
+
+**Cause.** Check 7 piped `git show HEAD:TROUBLESHOOTING_RUNBOOK.md | grep -qF ...` under
+`set -o pipefail`. `grep -q` exits on the first match; `git show` still has the rest of the file
+(~16 KB after §30's line) to write, gets SIGPIPE, and the pipeline returns 141, so a registered line
+reads as missing. Racy: 118/200 failures as root, 0/300 as the user. The rerun line sits near the
+file's end, so it rarely lost the race. Every new section appended to the runbook made the earlier
+lines more exposed.
+
+**Fix.** `run_final.sh` reads the committed runbook once into a variable and greps it via a
+here-string (0/200 failures as root). An unreadable runbook is now its own pre-flight problem.
+Check logic, protocol and gates unchanged.
+
+**Do not repeat:** `producer | grep -q` under pipefail when the producer writes more than one pipe
+buffer after the match.
