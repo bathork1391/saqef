@@ -59,6 +59,7 @@ whenever a new section records a bug, a gotcha or a "do not repeat".
 | OW web action returns HTTP 204 with an empty body | §30.6 (dict result without `body`; W2 handler returns `body`) |
 | Fn reply is `str(dict)` with single quotes; a `"`-only regex misses it | §30.6 |
 | `FATAL: box not quiet` after settle passed (any platform) | §29.2 A (7–8 % idle floor of the stacks; settle now uses 20 s windows) |
+| Quiet gate fails on most legs; containerd + dockerd ≈ 1–1.9 cores with no traffic and no docker events | §30.7 B (idle floor doubled; leftover images from rebuilds suspected, unconfirmed) |
 | Quiet-gate "top CPU processes" blames java/containerd | §29.2 B (old list was lifetime `ps %CPU`; now window `/proc` deltas) |
 | OW (driver store) flat at ~305 rps from c = 4 to c = 8 | §29.2 D (only 2 action containers: user-memory 1024 MB; light platforms run 16) |
 | "Log store does not cap OW throughput" (smoke test) | §29.2 C (wrong; corrected by §29.1 Q4) |
@@ -2873,3 +2874,53 @@ handler, other session, not compared): Part A T2 cp 0.29–0.40 (OF), 0.50–0.5
   Live, attended, unmeasured: `probe-mem` passes for both arms on OF (`Hello kib=…`), Kn (JSON),
   OW (`ok kib=…`) and for Fn (`{'message': …, 'kib': …}`; cache arm live, dram arm in the smoke
   test). Handlers restored and images rebuilt afterwards. Tests: `TestW2DeployedArmCheck`.
+
+### 30.7 Session 2026-10-03/04 (`mem_`): outcome
+
+**Legs.** 24 legs, 8 passed, **16 failed twice**, and every failure was the **quiet gate** (ambient
+15.2–25.8 % against 15 %; no DRIFT, INCOMPLETE or arm-check failures). The deployed-arm check passed on
+every leg that reached it (20/20 replies), every run records the intended `env.workload_variant`, and
+every OW leg log shows `activation log store = driver`.
+Passed: OF c1 cache+dram, OF c4 cache+dram, OW c4 cache + dram (`_r2`), OW c1 cache, Kn c1 cache.
+Missing: **all Fn legs, all c = 8 legs**, Kn c1 dram, all Kn c4, OW c1 dram.
+
+**A. Verdicts (rule 2: a platform/c with either arm missing is not evaluable).** Evaluable cells:
+OF c1, OF c4, OW c4. Medians over usable runs (`acceptance.json`), ratio = dram / cache:
+
+| cell | cp ms/inv cache → dram | cp ratio | fn ratio | rps ratio |
+|---|---|---|---|---|
+| OF c1 | 0.473 → 0.493 | 1.04 | 1.01 | 0.98 |
+| OF c4 | 0.547 → 0.567 | 1.04 | 1.01 | 0.96 |
+| OW c4 (driver) | 3.56 → 4.38 | 1.23 | 1.01 | 0.96 |
+
+- **M0 holds** in all three evaluable cells (fn and throughput within ±15 %).
+- **M1, M2, M3: not evaluable.** No c = 8 cell has both arms; M2 needs c = 8 too. The session does
+  not answer §30.1.
+- Descriptive only: OF's cp ratio (1.04) is inside the 3–5 % noise of two adjacent legs (§30.3).
+  OW c4's 1.23 rests on one high first usable run (dram runs 5.71, 4.42, 3.70, 3.59, 4.38 vs cache
+  3.38–3.75; cp CV 19.4 %). The ranges overlap, so the 1.23 is not read as an effect.
+
+**B. Why the gate failed: the stacks' idle floor roughly doubled (post hoc, cause unconfirmed).**
+- In every failed leg the gate's window list is containerd 0.67–1.18 + dockerd 0.44–0.74 cores
+  (k3s ≈ 0.1). Nothing from outside the stacks appears. Gate % tracks containerd + dockerd leg by
+  leg. §29.2 A measured 0.34 + 0.18 cores.
+- Settle passed (≤ 12 %) right before most failing gates (e.g. `mem_c1_fn_dram`: settle 6.5 %, gate
+  16.4 %; nothing runs between them). Settle readings alternate high/low (Kn c1 dram `_r2`: 13.1 21.7
+  14.1 20.4 15.0 20.1 …), so the load is periodic and settle passes on a trough.
+- Live after the session (2026-10-04 05:02Z, no session, only k3s/Kn up): busy 10.5 / 18.5 / 8.3 %
+  over three 20 s windows; containerd 0.78, dockerd 0.54 cores; **zero docker events in 60 s**, so
+  this is polling, not container lifecycle.
+- Gate medians rise across sessions: final 6.2 %, payload 8.3 %, amend28_8 16.3 %, owlog29 12.3 %,
+  mem 16.8 %. Images on the box (`docker images -a`, lower bound by creation time) rise with them:
+  ≈ 430 → 510–560 → 575 → 590 → 660–730. Now 235 images (`docker system df`), 153 of them dangling, and 172 volumes;
+  every W2 arm swap rebuilds the OF/Kn images (legacy builder), adding dangling images.
+  **Suspected:** cri-dockerd/kubelet and dockerd listing and stat-ing every image and volume
+  periodically, so their cost grows with leftovers. Not confirmed. The test is a box change (prune
+  dangling images/volumes, then re-measure the idle floor), not yet done.
+
+**C. Consequences.** No gate is changed (§30.5; frozen). Part E is not emitted: no prediction is
+evaluable, and the three M0 cells alone do not need a table. These legs stay on disk and in
+`../saqef-paper/results/` as the record.
+
+**Do not repeat:** reading gate failures as outside load (the window list shows only the stacks'
+daemons); starting a W2 rerun before the idle floor is back near §29.2's 0.5 core.
