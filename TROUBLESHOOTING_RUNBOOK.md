@@ -2924,3 +2924,48 @@ evaluable, and the three M0 cells alone do not need a table. These legs stay on 
 
 **Do not repeat:** reading gate failures as outside load (the window list shows only the stacks'
 daemons); starting a W2 rerun before the idle floor is back near §29.2's 0.5 core.
+
+**D. Cause confirmed (2026-10-04 05:30Z, same box state, nothing else changed).** Removed: 21 exited
+containers, 48 old Fn function images (`hello:0.0.6`–`0.0.53`; Fn deploys with `--no-bump` now, so
+these were historical), 153 dangling local-build images, 171 unused anonymous volumes (734.8 MB).
+Kept: every tagged platform/runtime image, the Knative system images (referenced by digest, checked
+not dangling), the 22 running containers, the swarm and the registry. Result, idle, only k3s/Kn up:
+
+| | before | after |
+|---|---|---|
+| busy, 20 s windows | 10.5, 18.5, 8.3 % | 6.2, 5.5, 4.9, 5.2, 5.5, 5.4 % |
+| containerd / dockerd / k3s (cores, 60 s) | 0.78 / 0.54 / 0.09 | 0.11 / 0.11 / 0.09 |
+
+The floor is flat again and below §29.2's 0.52 core, which was itself probably inflated. Where the
+leftovers come from (image `Config.Volumes`): `fnserver` (`/var/lib/docker`, a new anonymous volume
+per Fn deploy), OpenFaaS `prometheus` and `alertmanager` (one each per OF deploy), `registry` (once);
+dangling images from every OF/Kn handler rebuild and every Fn deploy. A W2 night adds dozens of each.
+
+**E. Tooling (default off; no closed session's behaviour changes).** `run_final.sh --hygiene`:
+`box_hygiene` runs `docker volume prune -f` (unused anonymous volumes only) and `docker image prune -f`
+(dangling only; never `-a`, never `system prune`) before calibration and before every leg attempt,
+logging counts to `session.log`; the leg's own settle and quiet gate come after it. `snapshot_box`
+now records image/dangling/volume/container counts (provenance only). `--rerun N` (W2 only, N = 2–9)
+runs the whole W2 session under prefix `mem<N>_`, implies `--hygiene`, and needs its own
+pre-registration line; `go.sh --workload memory --rerun N`. Tests: `TestW2RerunHygiene`.
+
+**Do not repeat:** letting docker leftovers accumulate across sessions; a blind `docker system prune -a`
+(would delete the untagged-by-digest Knative images only if they were dangling; check first).
+
+### 30.8 W2 rerun 2 — pre-registration (written 2026-10-04, before any `mem2_` data)
+Workload memory rerun 2: pre-registered
+
+- **Why a rerun is allowed.** `mem_` evaluated no prediction (M1–M3 need c = 8; none had both arms).
+  The legs were lost to a box defect (§30.7 B/D), now fixed and confirmed; no prediction failed and
+  none is being rescued. The 15 % gate and every §30 element are unchanged.
+- **Protocol: §30.2–§30.5 verbatim** (handler arms, 24 legs and their order, TOTAL, repeats, OW
+  driver log store, settle, one `_r2` retry, gates, predictions M0–M3, decision rules 1–9), plus the
+  `--hygiene` step of §30.7 E. Prefix `mem2_`, session `mem2_session`; run with
+  `sudo bash tools/go.sh --workload memory --rerun 2`, bare shell / text mode, agents quit.
+- **No pooling.** `mem2_` is adjudicated on its own. `mem_` legs stay on disk as the record of the
+  failed night and are not pooled with `mem2_` or used to fill its missing cells. If `mem2_` again
+  leaves a c = 8 cell without both arms, rule 2 applies as written.
+- **Recorded per leg (new, provenance only):** hygiene counts in `session.log`; docker object counts
+  in `box_state_pre/post`. If containerd + dockerd in a failing gate's window list exceed 0.5 core,
+  §30.7 is the first suspect.
+- Part E of VERIFIED_RESULTS.md and `results/mem_analysis/` (rule 9) are built from `mem2_`.

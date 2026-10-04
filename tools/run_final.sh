@@ -54,7 +54,7 @@ WAIT_HEADLESS_S=1200     # how long to wait for the desktop/agents to go away
 WAIT_KNATIVE_S=900       # how long to wait for knative-serving to be Ready after a docker restart
 RESTORE_GUI=1
 
-CHECK_ONLY=0 DRY_RUN=0 WORKLOAD=cpu AMEND="" ARM=""
+CHECK_ONLY=0 DRY_RUN=0 WORKLOAD=cpu AMEND="" ARM="" RERUN="" HYGIENE=0
 while [ $# -gt 0 ]; do
     case "$1" in
         --check) CHECK_ONLY=1 ;;
@@ -64,6 +64,8 @@ while [ $# -gt 0 ]; do
         --workload=*) WORKLOAD="${1#*=}" ;;
         --amend) AMEND="${2:-}"; shift ;;
         --arm) ARM="${2:-}"; shift ;;
+        --rerun) RERUN="${2:-}"; shift ;;
+        --hygiene) HYGIENE=1 ;;
         *) echo "unknown option: $1" >&2; exit 2 ;;
     esac
     shift
@@ -89,6 +91,13 @@ if [ "$WORKLOAD" = memory ]; then
         done
         ci=$((ci + 1))
     done
+fi
+# Rerun of a whole W2 session under a new prefix (runbook §30.8): mem<N>_, never mem_, so the
+# closed session can not be overwritten or pooled by a `--prefix mem_` glob. Implies --hygiene.
+if [ -n "$RERUN" ]; then
+    [ "$WORKLOAD" = memory ] || { echo "--rerun needs --workload memory" >&2; exit 2; }
+    [[ "$RERUN" =~ ^[2-9]$ ]] || { echo "--rerun takes 2-9" >&2; exit 2; }
+    PFX="mem${RERUN}_"; HYGIENE=1
 fi
 mem_kib() { case "$1" in cache) echo 256 ;; dram) echo 65536 ;; esac; }
 PAYLOAD_SIZES=(1k 64k 512k)
@@ -227,6 +236,10 @@ PY
             | grep -qF "Workload memory: pre-registered"; then
         bad "W2 is not pre-registered in the committed runbook (need the line 'Workload memory: pre-registered')"
     fi
+    if [ -n "$RERUN" ] && ! git -c safe.directory="$REPO" -C "$REPO" show HEAD:TROUBLESHOOTING_RUNBOOK.md 2>/dev/null \
+            | grep -qF "Workload memory rerun $RERUN: pre-registered"; then
+        bad "W2 rerun $RERUN is not pre-registered in the committed runbook (need the line 'Workload memory rerun $RERUN: pre-registered')"
+    fi
     if [ -n "$ARM" ] && ! git -c safe.directory="$REPO" -C "$REPO" show HEAD:TROUBLESHOOTING_RUNBOOK.md 2>/dev/null \
             | grep -qF "Arm $ARM: pre-registered"; then
         bad "arm $ARM is not pre-registered in the committed runbook (need the line 'Arm $ARM: pre-registered')"
@@ -271,10 +284,25 @@ snapshot_box() {   # pre|post -- two files, so the post snapshot cannot overwrit
         echo "daemon.json: $(tr -d '\n' < /etc/docker/daemon.json)"
         echo "docker_started: $(systemctl show docker -p ActiveEnterTimestamp --value)"
         echo "k3s_exec: $(systemctl show k3s -p ExecStart --value | tr -s ' ' | head -c 300)"
+        echo "docker_objects: images=$(docker images -aq | wc -l) dangling=$(docker images -qf dangling=true | wc -l) volumes=$(docker volume ls -q | wc -l) containers=$(docker ps -aq | wc -l)"
         echo "sessions:"; loginctl list-sessions --no-legend
         echo "temps:"; for z in /sys/class/thermal/thermal_zone*; do echo "  $(cat $z/type) $(cat $z/temp)"; done
     } > "$BOX/box_state_$1.txt" 2>&1
     cp /etc/docker/daemon.json "$BOX/daemon.json" 2>/dev/null || true
+}
+
+# Docker leftovers raise the daemons' idle CPU: every fnserver and OpenFaaS deploy leaves an
+# anonymous volume, every handler rebuild a dangling image. 172 volumes + 153 dangling images
+# put containerd + dockerd at ~1.3 cores idle and failed 16 W2 legs on the quiet gate; pruning
+# them took it to ~0.2 core (runbook §30.7 B). Both prunes skip anything a container uses.
+# Runs only with --hygiene (default off; closed sessions unchanged), before each leg attempt,
+# so the leg's own settle + quiet gate see its aftermath.
+box_hygiene() {   # label
+    [ "$HYGIENE" = 1 ] || return 0
+    local v i
+    v=$(docker volume prune -f 2>&1 | grep -c '^[0-9a-f]\{64\}$')
+    i=$(docker image prune -f 2>&1 | grep -ci '^deleted: ')
+    say "    hygiene ($1): removed $v unused anonymous volume(s), $i dangling image layer(s); now $(docker volume ls -q | wc -l) volume(s), $(docker images -aq | wc -l) image(s)"
 }
 
 pkg_temp() {
@@ -349,6 +377,7 @@ run_one() {
     for attempt in 1 2; do
         st="$stamp"; [ "$attempt" = 2 ] && st="${stamp}_r2"
         t0=$(pkg_temp)
+        box_hygiene "$st"
         say ">>> leg $st ($long) attempt $attempt"
         sampler=""
         if [ "$short" = ow ]; then
@@ -391,6 +420,7 @@ if [ "$CHECK_ONLY" = 1 ] || [ "$DRY_RUN" = 1 ]; then
         else
             echo "  rebuild OF/Kn images from the working-tree handlers"
         fi
+        [ "$HYGIENE" = 1 ] && echo "  hygiene: prune unused anonymous volumes + dangling images before calibration and before every leg attempt"
         echo "  ${PFX}calib: idle_w for bare, of, fn, kn, ow (3 x 60 s each), no leg"
         if [ -n "$ARM" ]; then
             for leg in "${ARM_LEGS[@]}"; do
@@ -498,6 +528,7 @@ if [ "$WORKLOAD" = payload ]; then
         exit 7
     fi
 fi
+box_hygiene "before calibration"
 snapshot_box pre
 printf 'ts_utc\tstamp\tplatform\tattempt\trc\tgates_ok\tshare_pct\trps\tpkg_temp_start_C\tpkg_temp_end_C\n' > "$CKPT"
 

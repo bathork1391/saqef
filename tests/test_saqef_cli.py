@@ -3334,6 +3334,54 @@ class TestW2MemoryWorkload(unittest.TestCase):
         self.assertIn('|| die "could not copy', wl)
 
 
+class TestW2RerunHygiene(unittest.TestCase):
+    """Runbook §30.7 B / §30.8: a W2 rerun runs as mem<N>_ (never mem_), needs its own
+    pre-registration line, and prunes docker leftovers before every leg attempt; without
+    --hygiene the prune is a no-op, so closed sessions are unchanged."""
+
+    def _run(self, hygiene):
+        rf = open(os.path.join(REPO, "tools", "run_final.sh")).read()
+        fn = rf[rf.index("box_hygiene() {"):rf.index("\n}\n", rf.index("box_hygiene() {")) + 3]
+        with tempfile.TemporaryDirectory() as d:
+            log = os.path.join(d, "calls")
+            with open(os.path.join(d, "docker"), "w") as f:
+                f.write('#!/bin/bash\necho "$*" >> %s\n' % log
+                        + 'case "$1 $2" in\n'
+                        + '"volume prune") echo "Deleted Volumes:"; printf "%064d\\n" 1 2; echo; echo "Total reclaimed space: 1MB" ;;\n'
+                        + '"image prune") echo "Deleted Images:"; echo "untagged: hello:old"; echo "deleted: sha256:aa"; echo "Deleted: sha256:bb"; echo "Deleted: sha256:cc" ;;\n'
+                        + '"volume ls") echo v1 ;;\n"images -aq") printf "i1\\ni2\\n" ;;\nesac\n')
+            os.chmod(os.path.join(d, "docker"), 0o755)
+            script = 'say() { echo "$*"; }\nHYGIENE=%d\n%s\nbox_hygiene "leg_x"\n' % (hygiene, fn)
+            out = subprocess.run(["bash", "-c", script], capture_output=True, text=True,
+                                 env=dict(os.environ, PATH=d + ":" + os.environ["PATH"])).stdout
+            calls = open(log).read() if os.path.exists(log) else ""
+        return out, calls
+
+    def test_hygiene_counts_and_scope(self):
+        out, calls = self._run(1)
+        self.assertIn("removed 2 unused anonymous volume(s), 3 dangling image layer(s); now 1 volume(s), 2 image(s)", out)
+        self.assertIn("volume prune -f", calls)
+        self.assertIn("image prune -f", calls)
+        self.assertNotIn(" -a", calls.replace("images -aq", ""))   # never prune --all / tagged images
+        self.assertNotIn("system prune", calls)
+
+    def test_hygiene_off_by_default(self):
+        out, calls = self._run(0)
+        self.assertEqual((out, calls), ("", ""))
+        rf = open(os.path.join(REPO, "tools", "run_final.sh")).read()
+        self.assertIn('RERUN="" HYGIENE=0', rf)
+
+    def test_rerun_wiring(self):
+        rf = open(os.path.join(REPO, "tools", "run_final.sh")).read()
+        self.assertIn('PFX="mem${RERUN}_"; HYGIENE=1', rf)
+        self.assertIn("[[ \"$RERUN\" =~ ^[2-9]$ ]]", rf)
+        self.assertIn('Workload memory rerun $RERUN: pre-registered', rf)
+        self.assertIn('box_hygiene "$st"\n        say ">>> leg $st', rf)
+        self.assertLess(rf.index('box_hygiene "before calibration"'), rf.index('say ">>> idle_w calibration'))
+        go = open(os.path.join(REPO, "tools", "go.sh")).read()
+        self.assertIn('AMEND_ARGS=(--rerun "$RERUN"); SESS_NAME="mem${RERUN}"', go)
+
+
 class TestW2DeployedArmCheck(unittest.TestCase):
     """Runbook §30.6: run_lock_session refuses a leg whose deployed function serves the
     other arm (both arms burn 5 ms, so the data alone could not reveal it)."""
