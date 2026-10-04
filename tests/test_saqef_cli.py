@@ -3538,3 +3538,36 @@ class TestW3BurstMode(unittest.TestCase):
         go = open(os.path.join(REPO, "tools", "go.sh")).read()
         self.assertIn("burst) MAX_H=4 ;;", go)
         self.assertIn('"$REPO"/results/burst_session', go)
+
+
+class TestW3Amend3110(unittest.TestCase):
+    """§31.10: Fn-only W3 legs with run_1 discarded, never the 12-leg plan or another corpus."""
+
+    def _dry(self, *args):
+        return subprocess.run(["bash", os.path.join(REPO, "tools", "run_final.sh"), "--dry-run", *args],
+                              capture_output=True, text=True)
+
+    def test_dry_run_lists_exactly_three_fn_legs(self):
+        out = self._dry("--workload", "burst", "--amend", "31.10").stdout
+        legs = [l.split(":")[0].strip() for l in out.splitlines() if l.strip().startswith("burst_")]
+        self.assertEqual(legs, ["burst_amend31_10_calib", "burst_amend31_10_fn_b500",
+                                "burst_amend31_10_fn_b100", "burst_amend31_10_fn_steady"])
+        for l in out.splitlines():
+            if l.strip().startswith("burst_amend31_10_fn_"):
+                self.assertIn("--repeat 6 --discard-warmup 1", l)
+
+    def test_unknown_or_mismatched_amendment_refused(self):
+        self.assertEqual(self._dry("--workload", "burst", "--amend", "28.8").returncode, 2)
+        self.assertEqual(self._dry("--workload", "payload", "--amend", "31.10").returncode, 2)
+        self.assertEqual(self._dry("--workload", "memory", "--amend", "31.10").returncode, 2)
+
+    def test_plain_burst_unchanged(self):
+        out = self._dry("--workload", "burst").stdout
+        legs = [l for l in out.splitlines() if l.strip().startswith("burst_") and "calib" not in l]
+        self.assertEqual(len(legs), 12)
+        self.assertFalse(any("discard" in l for l in legs if " ow " not in l and "_ow_" not in l))
+
+    def test_go_session_name_and_status(self):
+        go = open(os.path.join(REPO, "tools", "go.sh")).read()
+        self.assertIn('SESS_NAME="${SESS_NAME}_amend${AMEND/./_}"', go)
+        self.assertIn('"$REPO"/results/burst_amend*_session', go)

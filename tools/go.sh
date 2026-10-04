@@ -7,6 +7,7 @@
 #   sudo bash tools/go.sh --workload memory   W2 memory-bound night (runbook §30)
 #   sudo bash tools/go.sh --workload memory --rerun 2   W2 again as mem2_, with docker hygiene (§30.8)
 #   sudo bash tools/go.sh --workload burst    W3 bursty arrivals (runbook §31; docker hygiene always on)
+#   sudo bash tools/go.sh --workload burst --amend 31.10   W3 Fn legs with run_1 discarded (§31.10, ~45 min)
 #   sudo bash tools/go.sh --status            how far the latest session got
 #   sudo bash tools/go.sh --stop              stop the session now and bring the desktop back
 #
@@ -56,7 +57,7 @@ esac
 # Amendment (runbook §28.8 style): a few named legs under their own prefix.
 AMEND_ARGS=() SESS_NAME="$(case "$WORKLOAD" in payload) echo payload ;; memory) echo mem ;; burst) echo burst ;; *) echo final ;; esac)"
 if [ -n "$AMEND" ]; then
-    AMEND_ARGS=(--amend "$AMEND"); MAX_H=2; SESS_NAME="payload_amend${AMEND/./_}"
+    AMEND_ARGS=(--amend "$AMEND"); MAX_H=2; SESS_NAME="${SESS_NAME}_amend${AMEND/./_}"
 fi
 # Arm (runbook §29 style): a named comparison under its own prefix; reuses AMEND_ARGS to reach run_final.
 if [ -n "$ARM" ]; then
@@ -75,7 +76,7 @@ if [ "$ACTION" = stop ]; then
     exit 0
 fi
 if [ "$ACTION" = status ]; then
-    S=$(ls -td "$REPO"/results/final_session "$REPO"/results/payload_session "$REPO"/results/payload_amend*_session "$REPO"/results/owlog*_session "$REPO"/results/mem_session "$REPO"/results/mem[2-9]_session "$REPO"/results/burst_session 2>/dev/null | head -1)
+    S=$(ls -td "$REPO"/results/final_session "$REPO"/results/payload_session "$REPO"/results/payload_amend*_session "$REPO"/results/owlog*_session "$REPO"/results/mem_session "$REPO"/results/mem[2-9]_session "$REPO"/results/burst_session "$REPO"/results/burst_amend*_session 2>/dev/null | head -1)
     echo "== service"; systemctl status "$UNIT" --no-pager 2>/dev/null | sed -n 1,5p || echo "  not running"
     [ -n "$S" ] || { echo "  no session yet"; exit 0; }
     echo "== session: $(basename "$S")"

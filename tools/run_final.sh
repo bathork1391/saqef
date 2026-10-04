@@ -122,14 +122,17 @@ PAYLOAD_SIZES=(1k 64k 512k)
 # mistaken for the main session. Each must be pre-registered in the COMMITTED runbook
 # (pre-flight check 7). Not a generic leg picker: §28.4 rule 2 forbids ad hoc re-runs.
 AMEND_LEGS=()
+BURST_REPEAT=$LIGHT_REPEAT BURST_DISCARD=0   # light-platform burst legs; §31.10 overrides for Fn
 if [ -n "$AMEND" ]; then
-    [ "$WORKLOAD" = payload ] || { echo "--amend needs --workload payload" >&2; exit 2; }
-    case "$AMEND" in
+    case "$WORKLOAD:$AMEND" in
         # Kn c=8 at 1k/64k (no citable leg on 2026-10-03) + Kn 512k c=8 as the bridge cell
-        28.8) AMEND_LEGS=("1k 8 kn" "64k 8 kn" "512k 8 kn") ;;
-        *) echo "unknown amendment '$AMEND' (known: 28.8)" >&2; exit 2 ;;
+        payload:28.8) AMEND_LEGS=("1k 8 kn" "64k 8 kn" "512k 8 kn"); PFX="payload_amend${AMEND/./_}_" ;;
+        # §31.10: Fn's three W3 arms with run_1 (pool growth) discarded; replaces the 12-leg W3 plan
+        burst:31.10) BURST_LEGS=("fn b500" "fn b100" "fn steady"); BURST_REPEAT=$OW_REPEAT
+                     BURST_DISCARD=$OW_DISCARD; PFX="burst_amend${AMEND/./_}_" ;;
+        payload:*|burst:*) echo "unknown amendment '$AMEND' for --workload $WORKLOAD (known: payload 28.8, burst 31.10)" >&2; exit 2 ;;
+        *) echo "--amend needs --workload payload or burst" >&2; exit 2 ;;
     esac
-    PFX="payload_amend${AMEND/./_}_"
 fi
 # Arms: a fixed, named comparison under its own prefix, pre-registered in the committed
 # runbook (pre-flight check 7). ARM_LEGS entries: "c logstore".
@@ -456,7 +459,7 @@ if [ "$CHECK_ONLY" = 1 ] || [ "$DRY_RUN" = 1 ]; then
                 if [ "$p" = ow ]; then
                     echo "  ${PFX}${p}_${arm}: $load SAQEF_OW_LOGSTORE=driver --repeat $OW_REPEAT --discard-warmup $OW_DISCARD + JVM thread sampler"
                 else
-                    echo "  ${PFX}${p}_${arm}: $load --repeat $LIGHT_REPEAT"
+                    echo "  ${PFX}${p}_${arm}: $load --repeat $BURST_REPEAT$([ "$BURST_DISCARD" -gt 0 ] && echo " --discard-warmup $BURST_DISCARD")"
                 fi
             done
         elif [ "$WORKLOAD" = memory ]; then
@@ -593,7 +596,7 @@ if [ -n "$ARM" ]; then
             || failed=$((failed + 1))
         unset SAQEF_OW_LOGSTORE
     done
-elif [ -n "$AMEND" ]; then
+elif [ -n "$AMEND" ] && [ "$WORKLOAD" = payload ]; then
     say "=== amendment $AMEND: ${#AMEND_LEGS[@]} leg(s), same protocol as the main session"
     for leg in "${AMEND_LEGS[@]}"; do
         read -r sz c p <<< "$leg"
@@ -603,6 +606,7 @@ elif [ -n "$AMEND" ]; then
     done
 fi
 if [ "$WORKLOAD" = burst ]; then
+    [ -n "$AMEND" ] && say "=== amendment $AMEND (runbook §31.10): Fn only, --repeat $BURST_REPEAT --discard-warmup $BURST_DISCARD"
     say "=== W3 burst: ${#BURST_LEGS[@]} legs, steady / b100 / b500 per platform, gap ${BURST_GAP_S}s, OW with the driver log store"
     for leg in "${BURST_LEGS[@]}"; do
         read -r p arm <<< "$leg"
@@ -617,7 +621,8 @@ if [ "$WORKLOAD" = burst ]; then
                 || failed=$((failed + 1))
             unset SAQEF_OW_LOGSTORE
         else
-            run_one "${PFX}${p}_${arm}" "$p" "${LONG[$p]}" --concurrency "$conc" --repeat "$LIGHT_REPEAT" "${IW[@]}" \
+            dw=(); [ "$BURST_DISCARD" -gt 0 ] && dw=(--discard-warmup "$BURST_DISCARD")
+            run_one "${PFX}${p}_${arm}" "$p" "${LONG[$p]}" --concurrency "$conc" --repeat "$BURST_REPEAT" "${dw[@]}" "${IW[@]}" \
                 || failed=$((failed + 1))
         fi
         unset SAQEF_BURST

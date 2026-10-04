@@ -3346,3 +3346,60 @@ burst. Do not discard run_1 retroactively here.
 OpenFaaS's B4 ratio (steady saturated); using steady c = 8 throughput as "capacity" for a platform
 whose steady leg does not saturate (Knative); quoting OW's B3 b100 failure without its 0.0025-core
 margin.
+
+## 31.10 W3 amendment: Fn with a discarded warm-up run — pre-registration (written 2026-10-04, before any amendment data)
+Amendment 31.10: pre-registered
+
+**Question.** Is Fn's B0–B2 and B4 (§31.5) answered when its bursts hit an already-grown pool?
+That is the regime §31.2 meant to test ("queueing under bursts, not cold start"). In `burst_` Fn's
+b100/b500 legs are missing (§31.9). Run_1 of every attempt grew the hot pool from ~10 to 68–99
+containers and failed the sampling-gap gate; runs 2–5 were clean. **This design choice was prompted
+by §31.9's data**, and is stated as such. It changes no gate. It uses the protocol OpenWhisk already
+runs under (`--discard-warmup 1`, run_lock_session.sh: the first run is dropped before gating and
+from every statistic).
+
+**Design (fixed).**
+- Fn only, three legs in one session, prefix `burst_amend31_10_`, run order **b500, b100, steady**
+  (as Fn's order in `burst_`): `burst_amend31_10_fn_b500`, `_fn_b100`, `_fn_steady`.
+- Arms exactly as §31.2 (steady = hey -n 3000 -c 8; b100 = `SAQEF_BURST=100:1`; b500 =
+  `SAQEF_BURST=500:1`), Part A's CPU-bound handler, Fn dynamic hot containers, unchanged config.
+- **All three legs `--repeat 6 --discard-warmup 1`** (steady too, so the arms share one protocol):
+  5 usable runs per leg. Each leg starts from Fn's fresh-session reset (fnserver + function
+  containers removed), so each leg's run_1 grows its own pool.
+- Otherwise as §31.2: `--cpu-probe 60`, idle-w calibration in session (5 states × 3 × 60 s,
+  unchanged), one `_r2` retry, `--hygiene` on, quiet gate 15 %, burst-mode gate (§31.6).
+- **Run:** `sudo bash tools/go.sh --workload burst --amend 31.10`. Expected ≈ 45 min (calibration
+  25 min + legs ~15 min, from `burst_` timings); ~1 h with retries. Watchdog 2 h.
+
+**Anchors (context only, not compared, rule 3):** `burst_` Fn steady: availability 1.0, 1063 rps,
+p99 13.7 ms, cp idle-sub 0.535 ms/inv, 9–10 function containers. `burst_` Fn b100/b500 runs 2–5
+(F-T3, not citable): availability 1.0, drain 0.17 / 0.46–0.47 s, p99 178–180 / 490–552 ms, cp
+idle-sub 1.13 / 0.79 ms/inv, 68–69 / 99 containers.
+
+**Predictions (Fn, judged against this session's own steady leg; thresholds as §31.5).**
+- **B0** steady availability = 1.0.
+- **B1** availability ≥ 0.999 (median over usable runs; worst run reported) in b100 and in b500.
+- **B2** b500 median drain within [0.67, 1.5] × 500 / rps_steady. Caveat fixed now (from §31.9 A):
+  Fn's steady c = 8 leg saturated the host in `burst_`, so rps_steady is a fair capacity reference.
+  If this session's steady leg has no `host_saturated` run, B2 is reported but marked "reference not
+  at capacity".
+- **B3** no prediction (as §31.5); cp idle-subtracted and container count reported per arm.
+- **B4** b500 p99 ≥ 5 × steady p99. If steady is `host_saturated` (expected, as in `burst_`), steady
+  p99 is not cited (rule 5) and B4 is "not citable", ratio descriptive. Fixed now so it can't be
+  argued afterwards.
+- **R1 (replication of the post hoc §31.9 B, descriptive, not counted toward B1).** In each burst
+  leg's discarded run_1, availability < 1.0 with every non-2xx an HTTP 500 in the first 4 bursts;
+  usable runs 2–6 have 0 errors. Read from the discarded run's own `summary.json` / `hey.csv` (its
+  CPU numbers are not used).
+
+**Decision rules.**
+1. A failed prediction is a finding; no leg is re-run to rescue one.
+2. A leg that fails twice is missing. If steady is missing, B2 and B4 are not evaluable.
+3. **Nothing is pooled with `burst_`** (different session, different repeat protocol). Fn's row in
+   Part F comes only from this amendment, labelled "amendment 31.10, warm pool, run_1 discarded".
+   Fn's original `burst_` steady leg stays in F-T1 as recorded.
+4. cp idle-subtracted (§31.3); energy RAPL probe basis, no prediction.
+5. Results: VERIFIED_RESULTS.md Part F, new table F-T4 (generator `figures/make_burst_tables.py`),
+   analysis JSON `results/burst_amend31_10_analysis/`; outcome as §31.11.
+
+**Do not repeat:** discarding run_1 in any `burst_` leg retroactively (§31.9); reading R1 as B1.
