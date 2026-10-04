@@ -36,6 +36,7 @@ import json
 import math
 import os
 import random
+import resource
 import re
 import shutil
 import statistics
@@ -710,6 +711,47 @@ def parse_burst(value):
 
 
 _BURST = parse_burst(os.environ.get("SAQEF_BURST"))
+
+
+# W4 cold start (runbook §32): SAQEF_POOL_CMD names a command (tools/pool.sh <platform>) that
+# counts the platform's function containers, empties the pool, and saves control-plane logs.
+# With it set, every repeat records the pool size at window start and end and harvests the
+# logs after the window; SAQEF_POOL_RESET=1 also empties the pool before every run. All of it
+# runs between runs, never inside a measured window. Unset (every earlier workload) = no-op.
+_POOL_CMD = os.environ.get("SAQEF_POOL_CMD") or None
+_POOL_RESET = os.environ.get("SAQEF_POOL_RESET") == "1"
+
+
+def pool_call(*args, timeout=900):
+    """Run `SAQEF_POOL_CMD args...` -> (rc, combined output). rc None on timeout/launch error."""
+    try:
+        r = subprocess.run(_POOL_CMD.split() + list(args), capture_output=True, text=True,
+                           timeout=timeout)
+        return r.returncode, (r.stdout or "") + (r.stderr or "")
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return None, repr(e)
+
+
+def pool_count():
+    """Function containers now, or None if the count could not be read (grep -c exits 1 on 0)."""
+    _, out = pool_call("count", timeout=60)
+    try:
+        return int(out.strip().splitlines()[-1])
+    except (ValueError, IndexError):
+        return None
+
+
+def pool_before_run():
+    """Reset (if requested) and count, right before a run. Returns the summary's `pool` dict."""
+    pool = {"cmd": _POOL_CMD, "reset_requested": _POOL_RESET}
+    if _POOL_RESET:
+        t = time.monotonic()
+        rc, out = pool_call("reset")
+        pool.update(reset_rc=rc, reset_s=round(time.monotonic() - t, 1),
+                    reset_log=out.strip()[-600:])
+    pool["at_start"] = pool_count()
+    pool["since_epoch"] = int(time.time()) - 1
+    return pool
 
 
 def merge_bursts(bursts, attempted_per_burst, wall):
@@ -1664,6 +1706,10 @@ def run_once(args, cp_sub):
     # short windows. Moving the read here makes host_window_s == wall_s by ordering.
     host_before = host_cpu_ticks()
     t_host_before = time.perf_counter()
+    # The instrument's own CPU over the window (runbook §32): this process (sampler threads,
+    # Python load generator if used) and its reaped children (hey, docker CLI calls). Both are
+    # host CPU outside every container, i.e. inside the untracked bucket. Recorded, not gated.
+    ru_self0, ru_kids0 = resource.getrusage(resource.RUSAGE_SELF), resource.getrusage(resource.RUSAGE_CHILDREN)
 
     # The sampler stamps every sample with time.time() (epoch seconds), so the
     # attribution window MUST be in that same time base or nothing overlaps it.
@@ -1719,6 +1765,7 @@ def run_once(args, cp_sub):
     # window and push host_saturation_pct spuriously over 100%.
     host_after = host_cpu_ticks()
     t_host_after = time.perf_counter()
+    ru_self1, ru_kids1 = resource.getrusage(resource.RUSAGE_SELF), resource.getrusage(resource.RUSAGE_CHILDREN)
     steal_after = steal_ticks()
     stop.set()
     th.join(timeout=10)
@@ -2074,6 +2121,9 @@ def run_once(args, cp_sub):
                               "wall_s": round(wall_loadgen, 2) if wall_loadgen else None}
         if ld.get("burst"):
             summary["burst"] = ld["burst"]
+    cpu = lambda a, b: round((b.ru_utime + b.ru_stime) - (a.ru_utime + a.ru_stime), 3)
+    summary["instrument_cpu_s"] = {"harness_self": cpu(ru_self0, ru_self1),
+                                   "harness_children": cpu(ru_kids0, ru_kids1)}
     return summary, all_snaps, reqs, ld, list(samples)
 
 
@@ -2509,9 +2559,16 @@ def main():
         summaries = []
         for i in range(1, args.repeat + 1):
             print(f"--- run {i}/{args.repeat} ---")
+            pool = pool_before_run() if _POOL_CMD else None
             summary, all_snaps, reqs, ld, raw = run_once(args, cp_sub)
+            if pool is not None:
+                pool["at_end"] = pool_count()
+                summary["pool"] = pool
             write_run(os.path.join(args.outdir, "run_%d" % i), summary, all_snaps, reqs,
                       raw_samples=raw)
+            if pool is not None:
+                pool_call("logs", str(pool["since_epoch"]),
+                          os.path.join(args.outdir, "run_%d" % i, "platform_logs.txt.gz"), timeout=300)
             if ld is not None:
                 with open(os.path.join(args.outdir, "run_%d" % i, "hey.csv"), "w") as f:
                     f.write(ld["raw"])

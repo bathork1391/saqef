@@ -89,6 +89,12 @@ whenever a new section records a bug, a gotcha or a "do not repeat".
 | Which sessions ran on battery / capped? Does anything need a re-run? | §31.17 C (upower history per session; only `mem_` and 31.13; no) |
 | Can AC and battery give the same performance? | §31.17 D (firmware cap; only a fixed low clock equalises, breaks comparability; stop on battery) |
 | What are the missing W1 / owlog cells, would a retry work? | §31.17 E |
+| Knative pods stay `Terminating` ~300 s after scale-down / teardown | §32 design (PID-1 python server ignores SIGTERM; grace = revision timeout 300 s; W4 waits it out) |
+| OpenWhisk action update leaves the old action containers running | §32 design (they serve nothing; the invoker replaces them at the next request; W4 removes them before a cold run) |
+| W4 session stopped by a power cut: what now? | §32 rule 3 (`go.sh --workload cold --part 2` runs only incomplete blocks) |
+| "Untracked host ms/inv" read as orchestration cost | §31.18 A (mostly hey, sampler, dockerd, kernel; not a platform metric) |
+| Sub-100 ms timing claims from samples.csv | §31.18 B (sampler ~19 Hz: not resolvable; CPU totals unaffected) |
+| acceptance.json says "RAPL FIT ... NOT citable" on a citable leg | §31.18 A (model fit, warn only; RAPL energy unaffected) |
 
 ## 1. Noisy-neighbor contamination from background processes (incl. this agent)
 
@@ -3836,3 +3842,175 @@ the power gate passing.
 **Do not repeat:** "the 0.8.3 gateway has no scale API" (it has one; the alert rule is the reason);
 retrying the cells in E to fill tables; pinning the clock to make battery runs comparable without
 re-measuring every part.
+
+### 31.18 Third and fourth expert reviews (2026-10-05, post hoc, checked on disk; written before any W4 data)
+Nothing below changes a verdict or a cited cp value. It qualifies what §31.16 reports beside cp.
+
+**A. Verified.**
+- **Untracked host CPU is mostly not the platform.** 31.15 usable runs (`runs.json`): host = cp + fn +
+  untracked with untracked **75 %** of host in b100 (54.2–56.1 of 72.5–74.5 CPU-s, ~1.6 cores) and
+  **55–67 %** in b500 (17.7–30.9 CPU-s, 2.2–3.1 cores). The leg's idle probe accounts for ~0.6–0.8
+  core. The rest is load-induced CPU outside every container: the load generator (`hey` runs on the
+  host), the harness's sampler, dockerd/containerd, and the kernel network stack. It rises with
+  concurrency (1.6 cores at c = 100, 2.3 at c = 500, same 3000 requests), a load-generator/network
+  signature. **So §31.16's "untracked host (idle-subtracted) 11.8 / 4.2 ms/inv" is not an
+  orchestration cost and is not cited as one.** It was never measured how much of it is the
+  instrument. From W4 on, each run records the harness's own and its children's CPU
+  (`instrument_cpu_s`, §32).
+- **cp is unaffected:** the independent cgroup delta check agrees with the sampler within −0.96 to
+  −2.91 % in every usable run of both legs.
+- **b500 host CPU drifts more than cp:** 31.84 → 45.92 CPU-s over the five usable runs (run_6 has a
+  10.0 s window against 8.2–8.6 s); cp 2.48–2.79 CPU-s. Descriptive.
+- **b100 vs b500 differ in pool size too** (68 vs 103 containers), so every b100-vs-b500 statement,
+  including "bigger bursts cost less cp per request", confounds burst size with pool size. With two
+  burst sizes, a per-request + per-burst split has zero degrees of freedom. Stays descriptive.
+- **`acceptance.json` writes "RAPL FIT x % (>15 %, NOT citable)"** on most gate-ok legs. It refers to
+  the retired 3.5 W/core *model* fit (§25.1); RAPL-measured energy (probe basis) is unaffected. The
+  string is not changed (committed acceptance files must regenerate byte-identically); read it
+  as "model fit, warn only".
+
+**B. Instrument limit, stated once.** The cgroup sampler reads at ~19 Hz (median gap ~53 ms), so
+**timing features shorter than ~100 ms are not resolvable**, and no sub-100 ms phase argument
+(e.g. CPU onset vs first response) is admissible. This limits *timing*, not CPU *totals*: totals
+are differences of cumulative counters (§31.11), so cp CPU-s per run, and margins such as
+K1's 0.025 ms/inv on b500, are not affected by it. K1's b500 margin is narrow for a different
+reason: it is about one step of idle-probe error (±0.028 ms/inv per 0.01 core).
+
+**C. Not adopted, with reasons.**
+- "Run a host-attribution session (W4a) before W4": W4's C1, C2 and C4 do not involve attribution;
+  C3 is now scoped to the platform's own containers, and C3u takes the cold − warm difference within
+  a block, in which the load generator and sampler (same load, similar pools) cancel to first order,
+  with the instrument's measured CPU beside it. A full split of the remainder (dockerd vs kernel) is
+  still open and is a candidate later session, not a precondition.
+- "W4 is largely answered by `burst_`/31.x run_1": those pools started at ~20 containers (verify,
+  §31.11), never at zero, and Knative/OpenWhisk had static or fixed pools. A post hoc analysis of
+  run_1 container births (lag from burst to first birth, 500s before the first birth) is worth doing
+  without machine time, and will be marked post hoc. Fn's cold arm costs ~11 min.
+- "In-session steady is missing for all four platforms": `burst_` had one for OpenFaaS, Knative and
+  OpenWhisk (their B2/B4 were judged, §31.9). Only Fn lacked it; W4 adds Fn b500 + steady (§32).
+
+**D. Process.** Numbers in outcome sections are copied from the tool output they come from (the
+analysis JSON under `results/*_analysis/`), not retyped; where prose and a generated table
+disagree, the generated table is right (31.16: 43.65 rounds to 43.6 in the table, prose said 43.7,
+fixed). Candidate later sessions from these reviews, not pre-registered: a fixed-N burst-size ladder
+at a fixed pool size (identifies per-request vs per-burst), and energy validation against a
+wall-plug meter (needs the meter).
+
+## 32. W4 cold start — pre-registration (written 2026-10-05, before any W4 data)
+Workload cold: pre-registered
+
+**Question.** What does a burst cost a platform, in control-plane CPU, function CPU, availability
+and latency, when it arrives at an **empty** function pool instead of a grown one? Paper claim:
+"cp cost per cold start" (§26 step 7), plus W3's open end: Fn loses requests (fast HTTP 500s) only
+while its pool grows (§31.9 B, §31.14 A, §31.16). Second question, carried over from W3 (user,
+2026-10-05): W3's B2 and B4 for Fn, judged within one session (31.13/31.15 had no Fn steady leg).
+
+**Platforms.** Fn, Knative, OpenWhisk standalone (driver log store, §29.3). **OpenFaaS is not in
+W4:** its only scale trigger on this stack is the Prometheus alert
+`rate(gateway_function_invocation_total{code="200"}[10s]) > 5` for 5 s, which cannot fire while
+0 replicas return no 200s, and even warm takes ~30–40 s, longer than a b100 window (§31.17 B). The
+gateway has the scale API but no scale-from-zero path. A harness-scaled OF arm is feasible but
+cp-blind and harness-timed; deferred. OpenFaaS CE on k8s (W4b) needs written licence confirmation
+first (§31.17 B).
+
+**Design (fixed).** One session, prefix `cold_`, `sudo bash tools/go.sh --workload cold`.
+- **Blocks and legs, in run order** (a block = one platform; every within-platform comparison
+  stays inside its block; cold/warm order alternates by platform):
+  1. Fn: `cold_fn_cold`, `cold_fn_warm`, `cold_fn_b500`, `cold_fn_steady`
+  2. OpenWhisk: `cold_ow_warm`, `cold_ow_cold`
+  3. Knative: `cold_kn_cold`, `cold_kn_warm`
+- **cold** = b100 (`SAQEF_BURST=100:1`, 30 bursts × 100, c = 100, TOTAL 3000), the pool emptied
+  before **every** run (`SAQEF_POOL_RESET=1`, `tools/pool.sh`), `--warmup 0` (no request before
+  the window). Light platforms `--repeat 5`; OW `--repeat 6 --discard-warmup 1` (JVM run_1 rule).
+- **warm** = the same b100 load into the pool the previous run grew; `--repeat 6
+  --discard-warmup 1` (run_1 grows the pool, as §31.13); default warm-up (20 requests).
+- **Fn b500** = W3's b500 into a grown pool, exactly as §31.15 (`SAQEF_BURST=500:1`, c = 500,
+  `--repeat 6 --discard-warmup 1`). **Fn steady** = W3's steady arm (closed loop c = 8, `--repeat 5`).
+- **Pool reset** (between runs, outside every window; smoke-tested unmeasured 2026-10-05):
+  Fn — its own 30 s idle timeout, wait for 0 hello containers (observed 30–35 s);
+  Knative — `minScale 0`, `maxScale 16`, cc 4 (`SAQEF_KN_SCALE_FROM_ZERO=1`, **W4 only**, both
+  arms; Parts A–F keep 16 static replicas): wait for 0 live pods (observed ~65 s), then for the
+  pods' 300 s termination grace to run out (PID-1 server ignores SIGTERM; same as every Knative
+  teardown since Part A), i.e. ~6 min per cold run; the old revision's pods are also waited out
+  before verify; OpenWhisk — re-PUT the action (new revision, same code) and remove the 2 stale
+  action containers (harness action; without it the invoker removes them inside the next window,
+  which would charge the replacement, not a cold start, to it), then wait for 0.
+- **Recorded per run, new for W4 and every later session:** `instrument_cpu_s` = CPU-s over the
+  window of the harness process (sampler threads) and of its reaped children (hey, docker CLI).
+  This is host CPU outside every container, i.e. part of "untracked" (review 2026-10-05: untracked
+  is 75 % of host CPU in 31.15 b100, 55–67 % in b500; §31.18).
+- **Recorded per run** (`summary.json` `pool`): reset rc / duration / log, function containers at
+  window start and end; control-plane logs since the run start (`platform_logs.txt.gz`: fnserver,
+  activator + autoscaler, openwhisk). Per-burst latency and status in `hey.csv` (`burst` column).
+- **Gate added for W4 only** (absent `pool` record = unchanged): a cold run whose reset failed or
+  whose pool was not empty at window start is unusable.
+- Otherwise as W3: `SAQEF_SAMPLER_DEFER_NAMES=1`, `--cpu-probe 60`, in-session idle-w
+  calibration, `--hygiene`, quiet gate 15 %, burst-mode success rule (§31.6), one `_r2` retry,
+  power gate (§31.14 F) and, new for every session, a 5 s power poll during each leg: power lost
+  during a leg stops the session (exit 8) and that leg does not count.
+- **Expected:** calibration 25 min; Fn ~30 min; OW ~20 min; Knative ~60 min; ≈ 2.3 h. Watchdog 4 h.
+
+**Metrics (fixed now).** First burst = `burst` 0 in `hey.csv`; later bursts = 1–29.
+availability = 2xx / attempted (§31.3); latency p50 per burst group over completed requests, per
+run, then median over usable runs. Containers created in a cold run = `pool.at_end − pool.at_start`
+(`at_start` = 0 by the gate). cp CPU-s per run, idle-subtracted = cp CPU-s − leg probe cp rate ×
+window (as `tools/untracked_dyn.py`). Function CPU-s per run likewise from the harness's fn bucket.
+Drain, p99, cp ms/inv for B2/B4 as §31.3.
+
+**Anchors (on disk; post hoc; none of these pools was empty).** W3 run_1 (pool growing from ~20,
+§31.11): Fn b100 burst 1 p50 99–101 ms, errors 7–8 in burst 1; Kn b100 burst 1 p50 66 ms; OW b100
+burst 1 p50 565 ms. Fn function CPU per created container ~0.14 s (§31.11). Fn steady `burst_`
+1063 rps, p99 13.7 ms; Fn b500 uncapped (F-T5) drain 0.493 s, p99 538 ms.
+**Disclosure:** the unmeasured smoke tests that checked each reset (2026-10-05, 00:00–00:40 PKT,
+single hey bursts, desktop up, no sampler) showed: Fn burst into an empty pool 68–71 % 2xx; Knative
+100 % 2xx, 4.0–5.1 s latency; OpenWhisk 100 % 2xx, 0.5–2.8 s. The predictions below are the
+draft's (`drafts/W4_cold_start_DRAFT.md`, written before the smoke tests) with thresholds as drafted;
+none was changed after the smoke tests.
+
+**Predictions.**
+- **P0 (citability, per block, as §31.15 P0):** pre-flight check 8 passed; every attempt's power
+  state AC online and `Charging`/`Full` (or `Not charging` ≥ 80 %); not all runs of a leg read
+  `freq_mhz_after` in 2350–2700 MHz; no power-poll line off mains. A block failing P0 keeps
+  availability verdicts; its cp, latency and energy are not citable.
+- **C1 availability, first burst, cold:** Fn < 0.99; Knative ≥ 0.999; OpenWhisk ≥ 0.999 (median
+  over usable cold runs).
+- **C2 first-burst latency:** p50 cold / p50 warm ≥ 2 on Knative and OpenWhisk. Fn: reported, no
+  prediction (its rejections are fast and hide latency).
+- **C3 cp cost per cold start:** (cold-run cp CPU-s − median warm-run cp CPU-s) / containers
+  created, median over cold runs, **> 0** on every platform, reported in ms per container. **C3b:**
+  OpenWhisk's value is the highest of the three (docker CLI per container, §28.9 D). **Scope:** cp
+  is the platform's own containers only. On Fn and OpenWhisk the container is created by
+  dockerd/containerd/runc on the host, outside every container, so most of a cold start's CPU
+  is expected in the untracked bucket, not in cp (on Knative, kubelet/k3s, also host). C3 is
+  reported as "platform cp per cold start", never as "cost of a cold start".
+- **C3u (descriptive, no threshold):** the same difference for host CPU outside all containers,
+  idle-subtracted (untracked, `tools/untracked_dyn.py` definition), per created container. The
+  load generator and sampler are the same in both arms (same load, final pools of similar size),
+  so they cancel to first order in cold − warm; what remains is container creation plus any
+  change in the instrument's own cost, which each run now records (`instrument_cpu_s`:
+  harness process incl. sampler threads, and its reaped children incl. hey). Reported with that
+  residual instrument difference beside it.
+- **C4 recovery:** later-burst p50 of cold runs within **±15 %** of the warm arm's later-burst
+  p50, every platform (the cold cost is a first-burst effect).
+- **C5 (descriptive):** function CPU-s per created container, against Fn's 0.14 s anchor.
+- **Fn, W3 within session (§31.5 definitions, unchanged):** **B1** b500 availability ≥ 0.999;
+  **B2** b500 median drain within [0.67, 1.5] × 500 / rps(steady); **B4** b500 p99 ≥ 5 × steady
+  p99; B0 steady availability 1.0. B3: no prediction (as §31.5).
+
+**Decision rules.** (1) A failed prediction is a finding; nothing is re-run. (2) A leg failing
+twice is missing; its comparisons are not evaluable. (3) **Power cut:** blocks completed in the
+session stand. A block in progress when the power guard stops the session is incomplete; none of
+its data is used, and `sudo bash tools/go.sh --workload cold --part 2` runs only the incomplete and
+unstarted blocks, under prefix `cold_p2_`, with its own calibration. That is the registered
+continuation, not a re-run (no data of the block is kept or compared). Comparisons across
+platforms that end up in different parts (C3b) are labelled cross-session. (4) Not pooled with
+W3: Fn's B1/B2/B4 here are W3's within-session answer for Fn, reported as F-T6 next to F-T3–F-T5,
+which stay as recorded. (5) cp idle-subtracted; energy RAPL probe basis, ‡ rules as §30.10 E; no
+energy prediction. (6) Labels: "Knative minScale 0 (W4 only)", "OpenWhisk standalone, driver log
+store; cold = new action revision, 2 stale containers removed by the harness", "Fn: native idle
+expiry". (7) The analysis tool (`tools/cold_analysis.py`) implements the metrics above as written;
+it is written before the outcome is adjudicated and committed with it. (8) Outcome as §32.1,
+analysis JSON `results/cold_analysis/`, VERIFIED_RESULTS Part G.
+
+**Do not repeat:** OpenFaaS in W4 on the 0.8.3 stack; comparing W4 Knative numbers with Parts A–F
+(different scaling config); using a cold run whose pool was not empty; judging B2/B4 at b100.

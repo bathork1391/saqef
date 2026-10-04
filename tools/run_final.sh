@@ -38,6 +38,12 @@
 # measured, not gated (only a run with no success is unusable). OW with the driver log store.
 # Always with --hygiene (§30.11). Prefix burst_.
 #
+# --workload cold (runbook §32, W4): bursts of 100 into an EMPTY function pool (cold) against the
+# same bursts into a grown pool (warm), per platform, Fn / Knative / OpenWhisk, plus one Fn steady
+# leg (W3's B2/B4 for Fn within one session). Each platform's legs form a block; a session stopped
+# by the power guard is continued with --part 2 (prefix cold_p2_), which runs only the blocks
+# without a complete result in the earlier part(s). Prefix cold_. Always with --hygiene.
+#
 # --arm owlog29 (runbook §29): OpenWhisk only, CPU-bound handler, c = 1/4/8, each c measured
 # twice in the same session: the standalone's default log collector (one `docker logs` per
 # activation) and SAQEF_OW_LOGSTORE=driver (none). Order alternates per c. Prefix owlog29_.
@@ -63,7 +69,7 @@ MIN_LOADED_MHZ=3200      # power gate (§31.14): capped = base clock, median 244
 POWER_PROBE_S="${SAQEF_POWER_PROBE_S:-3}"   # 0 skips the clock probe; allowed only with --check/--dry-run
 PSU_DIR="${SAQEF_PSU_DIR:-/sys/class/power_supply}"   # tests point this at a fake tree; same restriction
 
-CHECK_ONLY=0 DRY_RUN=0 WORKLOAD=cpu AMEND="" ARM="" RERUN="" HYGIENE=0
+CHECK_ONLY=0 DRY_RUN=0 WORKLOAD=cpu AMEND="" ARM="" RERUN="" HYGIENE=0 PART=1
 while [ $# -gt 0 ]; do
     case "$1" in
         --check) CHECK_ONLY=1 ;;
@@ -75,6 +81,7 @@ while [ $# -gt 0 ]; do
         --arm) ARM="${2:-}"; shift ;;
         --rerun) RERUN="${2:-}"; shift ;;
         --hygiene) HYGIENE=1 ;;
+        --part) PART="${2:-}"; shift ;;
         *) echo "unknown option: $1" >&2; exit 2 ;;
     esac
     shift
@@ -84,8 +91,34 @@ case "$WORKLOAD" in
     payload) PFX="payload_" ;;
     memory) PFX="mem_" ;;
     burst) PFX="burst_"; HYGIENE=1 ;;   # §30.11: every session from W3 on prunes docker leftovers
-    *) echo "unknown --workload '$WORKLOAD' (cpu|payload|memory|burst)" >&2; exit 2 ;;
+    cold) PFX="cold_"; HYGIENE=1 ;;
+    *) echo "unknown --workload '$WORKLOAD' (cpu|payload|memory|burst|cold)" >&2; exit 2 ;;
 esac
+# W4 legs (runbook §32), in run order: "block platform arm". A block is one platform's legs; the
+# within-platform comparisons never cross a block. cold = pool emptied before every run
+# (tools/pool.sh), no warm-up requests; warm = pool left as the previous run grew it, run_1
+# (pool growth) discarded; b500 = W3's b500 into a grown pool (as §31.15) and steady = closed
+# loop c = 8 (W3's steady arm): with them, W3's B2/B4 (defined on b500) can be judged for Fn
+# within one session. cold / warm are b100.
+COLD_LEGS=()
+if [ "$WORKLOAD" = cold ]; then
+    COLD_LEGS=("fn fn cold" "fn fn warm" "fn fn b500" "fn fn steady"
+               "ow ow warm" "ow ow cold"
+               "kn kn cold" "kn kn warm")
+    [[ "$PART" =~ ^[1-9]$ ]] || { echo "--part takes 1-9" >&2; exit 2; }
+    [ "$PART" = 1 ] || PFX="cold_p${PART}_"
+elif [ "$PART" != 1 ]; then
+    echo "--part needs --workload cold" >&2; exit 2
+fi
+# Blocks with a complete result in an earlier part: every leg passed, or failed twice (missing,
+# rule 2). A block cut by the power guard is incomplete and runs again whole in the next part.
+cold_done_blocks() {
+    local k ck
+    for k in $(seq 1 $((PART - 1))); do
+        ck="$REPO/results/$( [ "$k" = 1 ] && echo cold_ || echo "cold_p${k}_")session/block_done.txt"
+        [ -f "$ck" ] && cat "$ck"
+    done | sort -u
+}
 # W3 legs (runbook §31.2), in run order: "platform arm". Arms: steady = closed loop c = 8;
 # b100 / b500 = bursts of 100 / 500 simultaneous requests, BURST_GAP_S idle after each.
 # Order alternates by platform so no arm is always first.
@@ -154,6 +187,7 @@ if [ -n "$ARM" ]; then
     PFX="${ARM}_"
 fi
 
+declare -A LONG=([of]=openfaas [fn]=fn [kn]=knative [ow]=openwhisk)
 SESS="$REPO/results/${PFX}session"
 BOX="$REPO/results/${PFX}box_state"
 CKPT="$SESS/checkpoint.tsv"
@@ -292,7 +326,7 @@ PY
     local dirty
     # The handlers are part of the measured path too: a payload session swaps them in the
     # working tree, so they must start clean (go.sh restores a leftover swap itself).
-    dirty=$(git -c safe.directory="$REPO" -C "$REPO" status --porcelain -- saqef saqef_harness.py platforms tools/run_lock_session.sh tools/run_final.sh tools/jvm_thread_sampler.py tools/workload.sh workloads hello OF_FUNCTION KNATIVE_FUNCTION OW_FUNCTION 2>&1) || bad "git status failed: $dirty"
+    dirty=$(git -c safe.directory="$REPO" -C "$REPO" status --porcelain -- saqef saqef_harness.py platforms tools/run_lock_session.sh tools/run_final.sh tools/jvm_thread_sampler.py tools/workload.sh tools/pool.sh workloads hello OF_FUNCTION KNATIVE_FUNCTION OW_FUNCTION 2>&1) || bad "git status failed: $dirty"
     [ -z "$dirty" ] || bad "uncommitted measurement-path changes: $(echo "$dirty" | tr '\n' ';')"
 
     # 7. an amendment runs only if its pre-registration is committed. Read the committed
@@ -312,6 +346,12 @@ PY
     fi
     if [ "$WORKLOAD" = burst ] && ! grep -qF "Workload burst: pre-registered" <<<"$prereg"; then
         bad "W3 is not pre-registered in the committed runbook (need the line 'Workload burst: pre-registered')"
+    fi
+    if [ "$WORKLOAD" = cold ] && ! grep -qF "Workload cold: pre-registered" <<<"$prereg"; then
+        bad "W4 is not pre-registered in the committed runbook (need the line 'Workload cold: pre-registered')"
+    fi
+    if [ "$WORKLOAD" = cold ] && [ "$PART" != 1 ] && [ -z "$(cold_done_blocks; ls -d "$REPO"/results/cold_session 2>/dev/null)" ]; then
+        bad "--part $PART: no earlier W4 part on disk (results/cold_session) to continue"
     fi
     if [ -n "$ARM" ] && ! grep -qF "Arm $ARM: pre-registered" <<<"$prereg"; then
         bad "arm $ARM is not pre-registered in the committed runbook (need the line 'Arm $ARM: pre-registered')"
@@ -476,6 +516,10 @@ run_one() {
             say "ABORT: power lost before leg $st ($(power_state)); legs so far are kept, nothing more measured"
             exit 8
         fi
+        # ... and during it: a background poll every 5 s. An outage mid-leg would otherwise go
+        # unnoticed until the next leg (the check above runs only before an attempt).
+        ( while :; do echo "$(date -u +%H:%M:%S) $(power_state)"; sleep 5; done ) > "$SESS/power_${st}.log" 2>&1 &
+        local ppoll=$!
         sampler=""
         if [ "$short" = ow ]; then
             python3 "$REPO/tools/jvm_thread_sampler.py" --out "$SESS/jvm_threads_${st}.csv" &
@@ -486,6 +530,12 @@ run_one() {
             >> "$SESS/leg_${st}.log" 2>&1
         rc=$?
         [ -n "$sampler" ] && { kill "$sampler" 2>/dev/null; wait "$sampler" 2>/dev/null; }
+        kill "$ppoll" 2>/dev/null; wait "$ppoll" 2>/dev/null
+        if grep -qE 'ac_online=0|battery=Discharging' "$SESS/power_${st}.log"; then
+            printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$(ts)" "$st" "$long" "$attempt" "power" "False" "NA" "NA" "$t0" "$(pkg_temp)" >> "$CKPT"
+            say "ABORT: power lost DURING leg $st ($(grep -m1 -E 'ac_online=0|battery=Discharging' "$SESS/power_${st}.log")); this leg does not count, nothing more measured"
+            exit 8
+        fi
         t1=$(pkg_temp)
         v=$(leg_verdict "$st" "$long")
         printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$(ts)" "$st" "$long" "$attempt" "$rc" "$v" "$t0" "$t1" \
@@ -499,6 +549,35 @@ run_one() {
     done
     say "    leg $stamp FAILED twice -- recorded, not retried again (24.8.3 stop rule)"
     return 1
+}
+
+# W4 (runbook §32): repeat / discard / warm-up and the environment of one leg.
+cold_leg_args() {   # platform arm -> harness args (without the idle-w args)
+    local p="$1" arm="$2"
+    case "$arm" in
+        cold) if [ "$p" = ow ]; then echo "--concurrency 100 --repeat $OW_REPEAT --discard-warmup $OW_DISCARD --warmup 0 --ow-duration 300"
+              else echo "--concurrency 100 --repeat $LIGHT_REPEAT --warmup 0"; fi ;;
+        b500) echo "--concurrency 500 --repeat $OW_REPEAT --discard-warmup $OW_DISCARD" ;;
+        warm) echo "--concurrency 100 --repeat $OW_REPEAT --discard-warmup $OW_DISCARD$([ "$p" = ow ] && echo " --ow-duration 300")" ;;
+        steady) echo "--concurrency 8 --repeat $LIGHT_REPEAT" ;;
+    esac
+}
+cold_leg_export() { # platform arm: export the leg's environment (cold_leg_unset clears it)
+    local p="$1" arm="$2"
+    export SAQEF_SAMPLER_DEFER_NAMES=1 SAQEF_POOL_CMD="bash $REPO/tools/pool.sh ${LONG[$p]}"
+    case "$arm" in cold|warm) export SAQEF_BURST="100:${BURST_GAP_S}" ;; b500) export SAQEF_BURST="500:${BURST_GAP_S}" ;; esac
+    [ "$arm" = cold ] && export SAQEF_POOL_RESET=1
+    [ "$p" = kn ] && export SAQEF_KN_SCALE_FROM_ZERO=1
+    [ "$p" = ow ] && export SAQEF_OW_LOGSTORE=driver
+    return 0
+}
+cold_leg_unset() {
+    unset SAQEF_SAMPLER_DEFER_NAMES SAQEF_POOL_CMD SAQEF_BURST SAQEF_POOL_RESET SAQEF_KN_SCALE_FROM_ZERO SAQEF_OW_LOGSTORE
+}
+cold_leg_desc() {   # platform arm -> one plan line (environment + harness args)
+    ( cold_leg_export "$1" "$2"
+      env | grep -E '^SAQEF_(SAMPLER_DEFER_NAMES|POOL_CMD|BURST|POOL_RESET|KN_SCALE_FROM_ZERO|OW_LOGSTORE)=' | sort | tr '\n' ' '
+      cold_leg_args "$1" "$2" )
 }
 
 read_calib() {   # calib_dir state -> median
@@ -523,6 +602,14 @@ if [ "$CHECK_ONLY" = 1 ] || [ "$DRY_RUN" = 1 ]; then
             for leg in "${ARM_LEGS[@]}"; do
                 read -r c ls <<< "$leg"
                 echo "  ${PFX}tier1ow${c}_${ls}: SAQEF_OW_LOGSTORE=$ls --concurrency $c --repeat $OW_REPEAT --discard-warmup $OW_DISCARD + JVM thread sampler (arm $ARM)"
+            done
+        elif [ "$WORKLOAD" = cold ]; then
+            done_b=$(cold_done_blocks | tr '\n' ' ')
+            [ "$PART" = 1 ] || echo "  part $PART: blocks already complete in earlier parts: ${done_b:-none}"
+            for leg in "${COLD_LEGS[@]}"; do
+                read -r blk p arm <<< "$leg"
+                case " $done_b " in *" $blk "*) continue ;; esac
+                echo "  ${PFX}${p}_${arm}: $(cold_leg_desc "$p" "$arm")"
             done
         elif [ "$WORKLOAD" = burst ]; then
             for leg in "${BURST_LEGS[@]}"; do
@@ -581,7 +668,7 @@ say "final session start (workload $WORKLOAD), repo $REPO"
 # Safety net 1: whatever happens from here -- normal end, abort, crash, or being
 # killed by the RuntimeMaxSec watchdog go.sh sets -- the desktop comes back.
 restore_handlers() {
-    [ "$WORKLOAD" = cpu ] || [ "$WORKLOAD" = burst ] && return 0
+    [ "$WORKLOAD" = cpu ] || [ "$WORKLOAD" = burst ] || [ "$WORKLOAD" = cold ] && return 0
     # Never rebuild after a failed restore: that bakes the swapped handlers into the images.
     if bash "$REPO/tools/workload.sh" restore; then
         bash "$REPO/tools/workload.sh" build || true
@@ -640,7 +727,6 @@ box_hygiene "before calibration"
 snapshot_box pre
 printf 'ts_utc\tstamp\tplatform\tattempt\trc\tgates_ok\tshare_pct\trps\tpkg_temp_start_C\tpkg_temp_end_C\n' > "$CKPT"
 
-declare -A LONG=([of]=openfaas [fn]=fn [kn]=knative [ow]=openwhisk)
 
 # Calibrate all five stack states in the current (headless) state, with no leg:
 # --platforms none runs check_preconditions + calibrate_all and measures nothing else.
@@ -678,7 +764,25 @@ elif [ -n "$AMEND" ] && [ "$WORKLOAD" = payload ]; then
             || failed=$((failed + 1))
     done
 fi
-if [ "$WORKLOAD" = burst ]; then
+if [ "$WORKLOAD" = cold ]; then
+    done_b=" $(cold_done_blocks | tr '\n' ' ') "
+    say "=== W4 cold start (runbook §32), part $PART: blocks already complete earlier:${done_b}"
+    : > "$SESS/block_done.txt"
+    for leg in "${COLD_LEGS[@]}"; do
+        read -r blk p arm <<< "$leg"
+        case "$done_b" in *" $blk "*) continue ;; esac
+        say "    $blk $arm: $(cold_leg_desc "$p" "$arm")"
+        cold_leg_export "$p" "$arm"
+        # shellcheck disable=SC2046
+        run_one "${PFX}${p}_${arm}" "$p" "${LONG[$p]}" $(cold_leg_args "$p" "$arm") "${IW[@]}" \
+            || failed=$((failed + 1))
+        cold_leg_unset
+        # run_one returns (passed, or failed twice = missing) unless the power guard exits the
+        # session; a block whose last leg has returned is complete.
+        last=$(printf '%s\n' "${COLD_LEGS[@]}" | awk -v b="$blk" '$1 == b' | tail -1)
+        [ "$leg" = "$last" ] && { echo "$blk" >> "$SESS/block_done.txt"; say "    block $blk complete"; }
+    done
+elif [ "$WORKLOAD" = burst ]; then
     [ -n "$AMEND" ] && say "=== amendment $AMEND (runbook §31.13, §31.15): Fn's missing legs only, --repeat $BURST_REPEAT --discard-warmup $BURST_DISCARD, SAQEF_SAMPLER_DEFER_NAMES=$BURST_DEFER"
     say "=== W3 burst: ${#BURST_LEGS[@]} legs, steady / b100 / b500 per platform, gap ${BURST_GAP_S}s, OW with the driver log store"
     for leg in "${BURST_LEGS[@]}"; do

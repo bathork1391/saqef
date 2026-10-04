@@ -187,10 +187,9 @@ class OpenWhiskAdapter(Adapter):
         return False
 
     # -------------------------------------------------------- function deploy
-    def deploy_function(self):
-        # Pre-pull the python runtime so the bench never hits a cold pull inside
-        # an activation (would surface as 202 'not ready' during verify).
-        subprocess.run(["docker", "pull", PY_RUNTIME_IMAGE], text=True)
+    def put_action(self):
+        """PUT the hello web action (overwrite). Returns the new action version. Also W4's cold
+        reset (tools/pool.sh, runbook §32): a new revision means no existing container serves it."""
         code = open(os.path.join(REPO, "OW_FUNCTION", "hello.py")).read()
         body = json.dumps({
             "namespace": "guest", "name": "hello",
@@ -203,10 +202,16 @@ class OpenWhiskAdapter(Adapter):
             headers={"Authorization": _auth_header(), "Content-Type": "application/json"})
         try:
             with urllib.request.urlopen(req, timeout=30) as r:
-                r.read()
+                return json.loads(r.read() or b"{}").get("version")
         except urllib.error.HTTPError as e:
             raise RuntimeError("openwhisk deploy_function: action PUT failed (%d): %s"
                                % (e.code, e.read()[:200]))
+
+    def deploy_function(self):
+        # Pre-pull the python runtime so the bench never hits a cold pull inside
+        # an activation (would surface as 202 'not ready' during verify).
+        subprocess.run(["docker", "pull", PY_RUNTIME_IMAGE], text=True)
+        self.put_action()
         if not self._serving():
             raise RuntimeError("openwhisk deploy_function FAILED: hello web action not "
                                "serving %s" % self.url)

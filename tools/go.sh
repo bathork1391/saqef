@@ -8,6 +8,8 @@
 #   sudo bash tools/go.sh --workload memory --rerun 2   W2 again as mem2_, with docker hygiene (§30.8)
 #   sudo bash tools/go.sh --workload burst    W3 bursty arrivals (runbook §31; docker hygiene always on)
 #   sudo bash tools/go.sh --workload burst --amend 31.15   W3: Fn's two legs again, uncapped (§31.15, ~40 min)
+#   sudo bash tools/go.sh --workload cold     W4 cold start (runbook §32; ~2.5 h)
+#   sudo bash tools/go.sh --workload cold --part 2   W4: only the blocks a power cut left unfinished
 #   sudo bash tools/go.sh --status            how far the latest session got
 #   sudo bash tools/go.sh --stop              stop the session now and bring the desktop back
 #
@@ -33,7 +35,7 @@ export KUBECONFIG="${KUBECONFIG:-/etc/rancher/k3s/k3s.yaml}"
 UNIT=saqef-final
 WANT='{ "log-driver": "json-file", "log-opts": { "max-size": "64k", "max-file": "1" } }'
 
-WORKLOAD=cpu ACTION=run AMEND="" ARM="" RERUN=""
+WORKLOAD=cpu ACTION=run AMEND="" ARM="" RERUN="" PART=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --stop) ACTION=stop ;;
@@ -43,7 +45,8 @@ while [ $# -gt 0 ]; do
         --amend) AMEND="${2:-}"; shift ;;
         --arm) ARM="${2:-}"; shift ;;
         --rerun) RERUN="${2:-}"; shift ;;
-        *) echo "unknown option: $1 (use --workload cpu|payload|memory|burst, --amend ID, --arm ID, --rerun N, --status, --stop)" >&2; exit 2 ;;
+        --part) PART="${2:-}"; shift ;;
+        *) echo "unknown option: $1 (use --workload cpu|payload|memory|burst|cold, --part N, --amend ID, --arm ID, --rerun N, --status, --stop)" >&2; exit 2 ;;
     esac
     shift
 done
@@ -52,16 +55,21 @@ case "$WORKLOAD" in
     payload) MAX_H=6 ;;    # 36 legs instead of 15; expected ~3.5-4 h
     memory) MAX_H=6 ;;     # 24 legs + 8 probe deploys + per-leg swaps; expected ~3.5 h (runbook §30.2)
     burst) MAX_H=4 ;;      # 12 legs; expected ~2 h (runbook §31.2)
-    *) echo "unknown --workload '$WORKLOAD' (cpu|payload|memory|burst)" >&2; exit 2 ;;
+    cold) MAX_H=4 ;;       # 8 legs, ~6 min Knative reset per cold run; expected ~2.5 h (runbook §32)
+    *) echo "unknown --workload '$WORKLOAD' (cpu|payload|memory|burst|cold)" >&2; exit 2 ;;
 esac
 # Amendment (runbook §28.8 style): a few named legs under their own prefix.
-AMEND_ARGS=() SESS_NAME="$(case "$WORKLOAD" in payload) echo payload ;; memory) echo mem ;; burst) echo burst ;; *) echo final ;; esac)"
+AMEND_ARGS=() SESS_NAME="$(case "$WORKLOAD" in payload) echo payload ;; memory) echo mem ;; burst) echo burst ;; cold) echo cold ;; *) echo final ;; esac)"
 if [ -n "$AMEND" ]; then
     AMEND_ARGS=(--amend "$AMEND"); MAX_H=2; SESS_NAME="${SESS_NAME}_amend${AMEND/./_}"
 fi
 # Arm (runbook §29 style): a named comparison under its own prefix; reuses AMEND_ARGS to reach run_final.
 if [ -n "$ARM" ]; then
     AMEND_ARGS=(--arm "$ARM"); MAX_H=2; SESS_NAME="$ARM"
+fi
+# W4 continuation after a power cut (runbook §32): only the blocks without a complete result.
+if [ -n "$PART" ]; then
+    AMEND_ARGS=(--part "$PART"); [ "$PART" = 1 ] || SESS_NAME="cold_p${PART}"
 fi
 # Whole-session rerun (runbook §30.8 style): W2 only, prefix mem<N>_, run_final adds --hygiene.
 if [ -n "$RERUN" ]; then
@@ -76,7 +84,7 @@ if [ "$ACTION" = stop ]; then
     exit 0
 fi
 if [ "$ACTION" = status ]; then
-    S=$(ls -td "$REPO"/results/final_session "$REPO"/results/payload_session "$REPO"/results/payload_amend*_session "$REPO"/results/owlog*_session "$REPO"/results/mem_session "$REPO"/results/mem[2-9]_session "$REPO"/results/burst_session "$REPO"/results/burst_amend*_session 2>/dev/null | head -1)
+    S=$(ls -td "$REPO"/results/final_session "$REPO"/results/payload_session "$REPO"/results/payload_amend*_session "$REPO"/results/owlog*_session "$REPO"/results/mem_session "$REPO"/results/mem[2-9]_session "$REPO"/results/burst_session "$REPO"/results/burst_amend*_session "$REPO"/results/cold_session "$REPO"/results/cold_p*_session 2>/dev/null | head -1)
     echo "== service"; systemctl status "$UNIT" --no-pager 2>/dev/null | sed -n 1,5p || echo "  not running"
     [ -n "$S" ] || { echo "  no session yet"; exit 0; }
     echo "== session: $(basename "$S")"

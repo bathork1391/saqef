@@ -165,8 +165,12 @@ class KnativeAdapter(Adapter):
         Knative's admission webhook rejects the latter. `kubectl annotate`
         only ever targets the object's own metadata, so a merge patch into
         the template is used instead."""
+        # W4 (runbook §32): SAQEF_KN_SCALE_FROM_ZERO=1 lets the revision scale between 0 and
+        # `replicas` (minScale 0), so the pool can be emptied before a cold run. Default off:
+        # every other session keeps 16 static replicas.
+        min_scale = 0 if os.environ.get("SAQEF_KN_SCALE_FROM_ZERO") == "1" else replicas
         patch = json.dumps({"spec": {"template": {"metadata": {"annotations": {
-            "autoscaling.knative.dev/minScale": str(replicas),
+            "autoscaling.knative.dev/minScale": str(min_scale),
             "autoscaling.knative.dev/maxScale": str(replicas),
         }}}}})
         r = k3s("patch", "ksvc", "hello", "-n", "default",

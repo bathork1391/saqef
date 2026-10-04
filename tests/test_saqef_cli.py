@@ -3702,3 +3702,182 @@ class TestPowerGate(unittest.TestCase):
         self.assertIn("exit 8", leg)
         self.assertLess(leg.index("exit 8"), leg.index("run_lock_session.sh"))
         self.assertIn('echo "power: $(power_state) charge_types:', src)
+
+
+class TestW4ColdStart(unittest.TestCase):
+    """§32: W4 cold start -- pool reset between runs, gate, legs, Knative minScale 0, power poll."""
+
+    def _dry(self, *args):
+        env = dict(os.environ, SAQEF_POWER_PROBE_S="0")
+        return subprocess.run(["bash", os.path.join(REPO, "tools", "run_final.sh"), "--dry-run", *args],
+                              capture_output=True, text=True, env=env)
+
+    def _harness(self, env):
+        old = {k: os.environ.get(k) for k in env}
+        os.environ.update(env)
+        try:
+            spec = importlib.util.spec_from_file_location("h_w4", os.path.join(REPO, "saqef_harness.py"))
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            return mod
+        finally:
+            for k, v in old.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+
+    def _fake_pool(self, count="0", reset_rc=0):
+        d = tempfile.mkdtemp()
+        p = os.path.join(d, "pool.sh")
+        with open(p, "w") as f:
+            f.write("case \"$1\" in count) echo %s ;; reset) echo emptied; exit %d ;; logs) echo log > \"$3\" ;; esac\n"
+                    % (count, reset_rc))
+        return "bash " + p
+
+    def test_dry_run_lists_the_eight_legs_in_blocks(self):
+        out = self._dry("--workload", "cold").stdout
+        legs = [l.strip() for l in out.splitlines() if l.strip().startswith("cold_") and "calib" not in l]
+        self.assertEqual([l.split(":")[0] for l in legs],
+                         ["cold_fn_cold", "cold_fn_warm", "cold_fn_b500", "cold_fn_steady",
+                          "cold_ow_warm", "cold_ow_cold", "cold_kn_cold", "cold_kn_warm"])
+        by = {l.split(":")[0]: l for l in legs}
+        for name, l in by.items():
+            self.assertIn("SAQEF_SAMPLER_DEFER_NAMES=1", l)
+            self.assertIn("tools/pool.sh", l)
+            arm = name.rsplit("_", 1)[1]
+            self.assertEqual("SAQEF_POOL_RESET=1" in l, arm == "cold", name)
+            self.assertEqual("--warmup 0" in l, arm == "cold", name)
+            self.assertEqual("SAQEF_BURST=100:1" in l, arm in ("cold", "warm"), name)
+            self.assertEqual("SAQEF_KN_SCALE_FROM_ZERO=1" in l, "_kn_" in name, name)
+            self.assertEqual("SAQEF_OW_LOGSTORE=driver" in l, "_ow_" in name, name)
+        self.assertIn("--repeat 6 --discard-warmup 1", by["cold_fn_warm"])
+        self.assertIn("--repeat 5 --warmup 0", by["cold_fn_cold"])
+        self.assertIn("--concurrency 8 --repeat 5", by["cold_fn_steady"])
+        self.assertIn("SAQEF_BURST=500:1", by["cold_fn_b500"])
+        self.assertIn("--concurrency 500 --repeat 6 --discard-warmup 1", by["cold_fn_b500"])
+        self.assertIn("--repeat 6 --discard-warmup 1 --warmup 0", by["cold_ow_cold"])
+
+    def test_part_rules(self):
+        self.assertEqual(self._dry("--workload", "burst", "--part", "2").returncode, 2)
+        self.assertEqual(self._dry("--workload", "cold", "--part", "x").returncode, 2)
+        if not os.path.isdir(os.path.join(REPO, "results", "cold_session")):
+            self.assertIn("no earlier W4 part on disk", self._dry("--workload", "cold", "--part", "2").stdout)
+
+    def test_other_workloads_carry_no_pool_flags(self):
+        out = self._dry("--workload", "burst").stdout
+        self.assertNotIn("POOL", out)
+        self.assertNotIn("SCALE_FROM_ZERO", out)
+
+    def test_pool_hooks_record_reset_and_counts(self):
+        h = self._harness({"SAQEF_POOL_CMD": self._fake_pool("0"), "SAQEF_POOL_RESET": "1"})
+        p = h.pool_before_run()
+        self.assertTrue(p["reset_requested"])
+        self.assertEqual(p["reset_rc"], 0)
+        self.assertEqual(p["at_start"], 0)
+        self.assertIn("emptied", p["reset_log"])
+        h = self._harness({"SAQEF_POOL_CMD": self._fake_pool("3", reset_rc=1), "SAQEF_POOL_RESET": "1"})
+        p = h.pool_before_run()
+        self.assertEqual((p["reset_rc"], p["at_start"]), (1, 3))
+        h = self._harness({"SAQEF_POOL_CMD": self._fake_pool("4"), "SAQEF_POOL_RESET": ""})
+        p = h.pool_before_run()
+        self.assertNotIn("reset_rc", p)
+        self.assertEqual(p["at_start"], 4)
+
+    def test_pool_off_by_default(self):
+        env = {"SAQEF_POOL_CMD": "", "SAQEF_POOL_RESET": ""}
+        h = self._harness(env)
+        self.assertIsNone(h._POOL_CMD)
+        self.assertFalse(h._POOL_RESET)
+        src = open(os.path.join(REPO, "saqef_harness.py")).read()
+        self.assertIn("pool = pool_before_run() if _POOL_CMD else None", src)
+
+    def test_gate_drops_runs_without_an_empty_pool(self):
+        gate = open(os.path.join(REPO, "tools", "run_lock_session.sh")).read()
+        self.assertIn('if pool.get("reset_requested"):', gate)
+        self.assertIn("POOL RESET FAILED", gate)
+        self.assertIn("POOL NOT EMPTY", gate)
+
+    def test_knative_min_scale_zero_only_with_flag(self):
+        import platforms.knative as kn
+        seen = []
+        orig_k3s, orig_ready = kn.k3s, kn._pod_ready
+        kn.k3s = lambda *a: (seen.append(a), subprocess.CompletedProcess(a, 0, "", ""))[1]
+        kn._pod_ready = lambda *a, **k: True
+        try:
+            for flag, want in (("", "16"), ("1", "0")):
+                seen.clear()
+                os.environ["SAQEF_KN_SCALE_FROM_ZERO"] = flag
+                kn.KnativeAdapter().scale(16)
+                ann = json.loads(seen[0][-1])["spec"]["template"]["metadata"]["annotations"]
+                self.assertEqual(ann["autoscaling.knative.dev/minScale"], want)
+                self.assertEqual(ann["autoscaling.knative.dev/maxScale"], "16")
+        finally:
+            kn.k3s, kn._pod_ready = orig_k3s, orig_ready
+            os.environ.pop("SAQEF_KN_SCALE_FROM_ZERO", None)
+
+    def test_power_polled_during_every_leg(self):
+        src = open(os.path.join(REPO, "tools", "run_final.sh")).read()
+        leg = src[src.index("run_one() {"):src.index("cold_leg_args() {")]
+        self.assertIn('power_${st}.log', leg)
+        self.assertIn("power lost DURING leg", leg)
+        self.assertLess(leg.index("run_lock_session.sh"), leg.index("power lost DURING leg"))
+
+    def test_pool_script_is_measurement_path_and_preregistration_checked(self):
+        rf = open(os.path.join(REPO, "tools", "run_final.sh")).read()
+        self.assertIn("tools/pool.sh workloads", rf)
+        self.assertIn("Workload cold: pre-registered", rf)
+        go = open(os.path.join(REPO, "tools", "go.sh")).read()
+        self.assertIn('"$REPO"/results/cold_session', go)
+
+
+class TestColdAnalysis(unittest.TestCase):
+    """§32 rule 7: tools/cold_analysis.py computes C1-C4 from usable runs as registered."""
+
+    def _leg(self, res, p, arm, first_ok, first_ms, later_ms, cp, created, size=10, bursts=3):
+        long = {"fn": "fn", "kn": "knative", "ow": "openwhisk"}[p]
+        d = os.path.join(res, "%s_cpubound_lock_cold_%s_%s" % (long, p, arm))
+        os.makedirs(os.path.join(d, "run_1"))
+        with open(os.path.join(d, "acceptance.json"), "w") as f:
+            json.dump({"stamp": "cold_%s_%s" % (p, arm), "leg_gates_ok": True, "usable_runs": ["run_1"]}, f)
+        with open(os.path.join(d, "run_1", "summary.json"), "w") as f:
+            json.dump({"env": {"burst_size": size}, "host_window_s": 10.0, "availability": 1.0,
+                       "latency_ms": {"p99": 50}, "throughput_rps": 100, "burst": {"drain_s_median": 0.1},
+                       "cpu_sec": {"control_plane": cp, "function": 1.0}, "host_cpu_sec": 10.0 + 4 * cp,
+                       "instrument_cpu_s": {"harness_self": 0.5, "harness_children": 1.0},
+                       "pool": {"at_start": 0, "at_end": created}}, f)
+        with open(os.path.join(d, "run_1", "hey.csv"), "w") as f:
+            f.write("response-time,status-code,offset,burst\n")
+            for i in range(size):
+                f.write("%f,%s,0,0\n" % (first_ms / 1000.0, "200" if i < first_ok else "500"))
+            for b in range(1, bursts):
+                for i in range(size):
+                    f.write("%f,200,0,%d\n" % (later_ms / 1000.0, b))
+
+    def test_c1_to_c4(self):
+        spec = importlib.util.spec_from_file_location("cold_an", os.path.join(REPO, "tools", "cold_analysis.py"))
+        ca = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(ca)
+        res = tempfile.mkdtemp()
+        self._leg(res, "kn", "cold", 10, 4000, 110, cp=3.0, created=16)
+        self._leg(res, "kn", "warm", 10, 100, 100, cp=1.0, created=0)
+        b = ca.block(res, "cold_", "kn")
+        self.assertTrue(b["evaluable"])
+        self.assertEqual(b["cold_first_avail"], 1.0)
+        self.assertTrue(b["C1"])
+        self.assertAlmostEqual(b["first_p50_ratio"], 40.0)
+        self.assertTrue(b["C2"])
+        self.assertAlmostEqual(b["cp_ms_per_container"], 125.0)   # (3 - 1) s / 16 containers
+        self.assertTrue(b["C3"])
+        self.assertAlmostEqual(b["untracked_ms_per_container"], 375.0)  # untracked 3cp+9: (18-12)/16
+        self.assertAlmostEqual(b["instrument_ms_per_container"], 0.0)
+        self.assertAlmostEqual(b["later_p50_rel"], 0.10)
+        self.assertTrue(b["C4"])
+        self._leg(res, "fn", "cold", 7, 900, 150, cp=2.0, created=70)
+        self._leg(res, "fn", "warm", 10, 100, 100, cp=1.0, created=0)
+        f = ca.block(res, "cold_", "fn")
+        self.assertAlmostEqual(f["cold_first_avail"], 0.7)
+        self.assertTrue(f["C1"])            # Fn predicted < 0.99
+        self.assertIsNone(f["C2"])          # Fn: no latency prediction
+        self.assertFalse(f["C4"])           # +50 % later-burst p50
+        self.assertFalse(ca.block(res, "cold_", "ow")["evaluable"])

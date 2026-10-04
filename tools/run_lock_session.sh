@@ -100,6 +100,8 @@ RAPL_FIT_WARN=0          # 1 (--rapl-fit-warn): a run whose RAPL fit is >15% is
                          # the retired 3.5 W/core model (runbook 25.1, 25.6), so it
                          # makes MODEL-based energy non-citable; RAPL-based energy
                          # (e_rapl_j - idle_w*wall) is unaffected (25.2, 27.5).
+WARMUP=""                # --warmup N: requests fired before each run's window. Empty = the metric's
+                         # default (20). W4's cold arm passes 0 so nothing warms the emptied pool (§32).
 CPU_PROBE_S=0            # >0: after the bench, run one native --idle-probe of CPU_PROBE_S
                          # seconds with the same stack state and save cp/fn CPU rates.
                          # This is the direct per-leg background-rate measurement the
@@ -136,6 +138,7 @@ while [ "$i" -lt "$#" ]; do
         --deploy-only) DEPLOY_ONLY=1 ;;
         --requests-per-run) i=$((i + 1)); [ "$i" -ge "$#" ] && { echo "--requests-per-run needs a value" >&2; exit 2; }; REQUESTS_PER_RUN="${args[$i]}" ;;
         --requests-per-run=*) REQUESTS_PER_RUN="${arg#*=}" ;;
+        --warmup) i=$((i + 1)); [ "$i" -ge "$#" ] && { echo "--warmup needs a value" >&2; exit 2; }; WARMUP="${args[$i]}" ;;
         --ow-duration) i=$((i + 1)); [ "$i" -ge "$#" ] && { echo "--ow-duration needs a value" >&2; exit 2; }; OW_DURATION="${args[$i]}" ;;
         --ow-duration=*) OW_DURATION="${arg#*=}" ;;
         --max-drift-pct) i=$((i + 1)); [ "$i" -ge "$#" ] && { echo "--max-drift-pct needs a value" >&2; exit 2; }; MAX_DRIFT_PCT="${args[$i]}" ;;
@@ -369,7 +372,7 @@ run_leg() {
         esac
         echo "DRY-RUN: verify --platform $platform"
         [ "$SETTLE_AFTER_VERIFY" = 1 ] && echo "DRY-RUN: settle until a ${SETTLE_WINDOW_S}s window reads <= ${SETTLE_MAX_PCT}% busy (${SETTLE_CAP_S} s cap)"
-        echo "DRY-RUN: run --platform $platform --total $TOTAL --concurrency $CONCURRENCY --duration $duration --repeat $REPEAT --idle-w $idle_w --out $out"
+        echo "DRY-RUN: run --platform $platform --total $TOTAL --concurrency $CONCURRENCY --duration $duration --repeat $REPEAT${WARMUP:+ --warmup $WARMUP} --idle-w $idle_w --out $out"
         [ "$CPU_PROBE_S" -gt 0 ] && echo "DRY-RUN: run --platform $platform --idle-probe --duration $CPU_PROBE_S --repeat 1 --idle-w $idle_w --out $REPO/results/idle_probe_${STAMP}/$platform"
         echo "DRY-RUN: gates --out $gate_out ; teardown --platform $platform"
         return 0
@@ -384,6 +387,16 @@ run_leg() {
             echo ">>> scale -> 16 replicas (GIL parity)"
             $SAQEF scale --platform "$platform" --replicas 16 ;;
     esac
+    if [ "$platform" = knative ] && [ "${SAQEF_KN_SCALE_FROM_ZERO:-}" = 1 ]; then
+        # W4 (§32): the minScale-0 patch makes a new revision; the 16 pods of the deployed one
+        # sit in Terminating for the 300 s grace (PID-1 server ignores SIGTERM). Let them go
+        # so no idle leftover pod is in any measured window.
+        local tw=0
+        while [ "$tw" -lt 420 ] && k3s kubectl get pods -n default -l serving.knative.dev/service=hello --no-headers 2>/dev/null | grep -q Terminating; do
+            sleep 5; tw=$((tw + 5))
+        done
+        echo ">>> knative scale-from-zero: old revision's pods gone after ${tw}s"
+    fi
     echo ">>> verify"
     $SAQEF verify --platform "$platform"
     # W2 (runbook §30.6): the DEPLOYED function must serve the arm this leg is for. Both arms
@@ -422,7 +435,7 @@ PY
     [ "$SETTLE_AFTER_VERIFY" = 1 ] && settle_after_verify
     echo ">>> run: total=$TOTAL concurrency=$CONCURRENCY duration=$duration repeat=$REPEAT out=$out"
     $SAQEF run --platform "$platform" --total "$TOTAL" --concurrency "$CONCURRENCY" \
-        --duration "$duration" --repeat "$REPEAT" --idle-w "$idle_w" --out "$out"
+        --duration "$duration" --repeat "$REPEAT" ${WARMUP:+--warmup "$WARMUP"} --idle-w "$idle_w" --out "$out"
     echo ">>> gates"
     $SAQEF gates --out "$gate_out"
     if [ "$CPU_PROBE_S" -gt 0 ]; then
@@ -726,6 +739,15 @@ for plat in [p for p in ("openfaas", "fn", "knative", "openwhisk") if short[p] i
                 problems.append("%s NO SUCCESSES 0/%s (burst mode)" % (nm, want))
         elif r.get("successes") is not None and want and r.get("successes") < 0.99 * want:
             problems.append("%s SUCCESSES %s/%s" % (nm, r.get("successes"), want))
+        # W4 cold start (runbook §32): a run whose pool reset failed, or whose pool was not
+        # empty when the window opened, did not measure a cold start. Runs without a `pool`
+        # record (every other workload) are unaffected.
+        pool = r.get("pool") or {}
+        if pool.get("reset_requested"):
+            if pool.get("reset_rc") != 0:
+                problems.append("%s POOL RESET FAILED rc=%s" % (nm, pool.get("reset_rc")))
+            elif pool.get("at_start") != 0:
+                problems.append("%s POOL NOT EMPTY (%s function containers at window start)" % (nm, pool.get("at_start")))
         run_verdicts.append({"name": nm, "usable": len(problems) == n_before,
                              "problems": problems[n_before:]})
     # MONOTONE DRIFT gate (added 2026-10-01). Every tier1ow* leg degraded
