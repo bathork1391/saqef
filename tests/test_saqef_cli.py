@@ -3645,3 +3645,56 @@ class TestSamplerDeferNames(unittest.TestCase):
     def test_env_records_the_flag(self):
         src = open(os.path.join(REPO, "saqef_harness.py")).read()
         self.assertIn('"sampler_defer_names": os.environ.get("SAQEF_SAMPLER_DEFER_NAMES") == "1"', src)
+
+
+class TestPowerGate(unittest.TestCase):
+    """§31.14: off mains, a draining battery, or a capped clock under load must stop a session."""
+
+    def _dry(self, supplies, probe="0"):
+        import tempfile
+        d = tempfile.mkdtemp()
+        for name, fields in supplies.items():
+            os.makedirs(os.path.join(d, name))
+            for k, v in fields.items():
+                with open(os.path.join(d, name, k), "w") as f:
+                    f.write(v + "\n")
+        env = dict(os.environ, SAQEF_PSU_DIR=d, SAQEF_POWER_PROBE_S=probe)
+        return subprocess.run(["bash", os.path.join(REPO, "tools", "run_final.sh"), "--dry-run"],
+                              capture_output=True, text=True, env=env).stdout
+
+    def test_mains_and_charging_pass(self):
+        out = self._dry({"AC": {"type": "Mains", "online": "1"},
+                         "BAT0": {"type": "Battery", "status": "Charging", "capacity": "80"}})
+        self.assertIn("power: ac_online=1 battery=Charging/80%", out)
+        self.assertNotIn("mains", "\n".join(l for l in out.splitlines() if "PROBLEM" in l))
+        self.assertNotIn("discharging", out)
+
+    def test_not_on_mains_is_a_problem(self):
+        out = self._dry({"AC": {"type": "Mains", "online": "0"},
+                         "BAT0": {"type": "Battery", "status": "Discharging", "capacity": "50"}})
+        self.assertIn("PROBLEM: not on mains power", out)
+        self.assertIn("PROBLEM: battery is discharging", out)
+
+    def test_not_charging_on_mains_is_left_to_the_clock_probe(self):
+        # 31.13 ran in exactly this state (AC online, battery not charging) at 2.5 GHz; only the
+        # clock probe can tell it from a battery held at a charge threshold, which is harmless.
+        out = self._dry({"AC": {"type": "Mains", "online": "1"},
+                         "BAT0": {"type": "Battery", "status": "Not charging", "capacity": "25"}})
+        self.assertNotIn("PROBLEM: not on mains", out)
+        self.assertNotIn("PROBLEM: battery", out)
+        self.assertIn("clock probe skipped", out)
+
+    def test_overrides_refused_outside_dry_run(self):
+        src = open(os.path.join(REPO, "tools", "run_final.sh")).read()
+        self.assertIn('bad "SAQEF_POWER_PROBE_S=0 (clock probe off) is only allowed with --check/--dry-run"', src)
+        self.assertIn('bad "SAQEF_PSU_DIR (fake power-supply tree) is only allowed with --check/--dry-run"', src)
+        self.assertIn("MIN_LOADED_MHZ=3200", src)
+        self.assertIn('[[ "$mhz" =~ ^[0-9]+$ ]] || mhz=0', src)   # a failed probe fails the gate
+
+    def test_power_checked_before_every_leg_and_recorded(self):
+        src = open(os.path.join(REPO, "tools", "run_final.sh")).read()
+        leg = src[src.index("run_one() {"):src.index("read_calib() {")]
+        self.assertIn('say "    power: $(power_state)"', leg)
+        self.assertIn("exit 8", leg)
+        self.assertLess(leg.index("exit 8"), leg.index("run_lock_session.sh"))
+        self.assertIn('echo "power: $(power_state) charge_types:', src)

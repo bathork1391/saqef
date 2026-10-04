@@ -59,6 +59,9 @@ LOG_MAX_SIZE="64k"
 WAIT_HEADLESS_S=1200     # how long to wait for the desktop/agents to go away
 WAIT_KNATIVE_S=900       # how long to wait for knative-serving to be Ready after a docker restart
 RESTORE_GUI=1
+MIN_LOADED_MHZ=3200      # power gate (§31.14): capped = base clock, median 2440-2660 MHz; i5-1145G7 turbo 4400
+POWER_PROBE_S="${SAQEF_POWER_PROBE_S:-3}"   # 0 skips the clock probe; allowed only with --check/--dry-run
+PSU_DIR="${SAQEF_PSU_DIR:-/sys/class/power_supply}"   # tests point this at a fake tree; same restriction
 
 CHECK_ONLY=0 DRY_RUN=0 WORKLOAD=cpu AMEND="" ARM="" RERUN="" HYGIENE=0
 while [ $# -gt 0 ]; do
@@ -178,6 +181,47 @@ knative_ready() {
 epp_values() {
     cat /sys/devices/system/cpu/cpu*/cpufreq/energy_performance_preference 2>/dev/null | sort | uniq -c | tr '\n' ' '
 }
+# Power supply (runbook §31.14): on battery, or on a charger that does not charge a low battery,
+# the laptop's firmware holds every core near 2.5 GHz (turbo 4.4). The OS settings above stay
+# "performance", so only the clock under load shows it. Control-plane CPU per invocation then
+# rises 20-32 % while the wall-time-spin handler's does not (31.13, and mem_ at 32-35 % battery).
+ac_online() {   # 1 if any Mains supply is online
+    local p
+    for p in "$PSU_DIR"/*; do
+        [ "$(cat "$p/type" 2>/dev/null)" = Mains ] && [ "$(cat "$p/online" 2>/dev/null)" = 1 ] && { echo 1; return; }
+    done
+    echo 0
+}
+battery_status() {   # "<status> <capacity>%" of the first battery, or "none"
+    local p
+    for p in "$PSU_DIR"/*; do
+        [ "$(cat "$p/type" 2>/dev/null)" = Battery ] && { echo "$(cat "$p/status" 2>/dev/null) $(cat "$p/capacity" 2>/dev/null)%"; return; }
+    done
+    echo none
+}
+power_state() {
+    echo "ac_online=$(ac_online) battery=$(battery_status | tr ' ' '/')"
+}
+loaded_clock_mhz() {   # median core clock while 4 cores spin for POWER_PROBE_S seconds
+    python3 - "$POWER_PROBE_S" <<'PY'
+import glob, multiprocessing as mp, sys, time
+dur = float(sys.argv[1])
+def spin(t):
+    end = time.time() + t
+    while time.time() < end:
+        pass
+ctx = mp.get_context("fork")   # the script comes from stdin, so spawn/forkserver cannot import it
+ps = [ctx.Process(target=spin, args=(dur,)) for _ in range(4)]
+for p in ps:
+    p.start()
+time.sleep(dur * 2 / 3)
+f = [int(open(x).read()) // 1000 for x in glob.glob("/sys/devices/system/cpu/cpu[0-9]*/cpufreq/scaling_cur_freq")]
+for p in ps:
+    p.join()
+f.sort()
+print(f[len(f) // 2] if f else 0)
+PY
+}
 
 preflight() {
     problems=()
@@ -270,6 +314,23 @@ PY
         bad "arm $ARM is not pre-registered in the committed runbook (need the line 'Arm $ARM: pre-registered')"
     fi
 
+    # 8. power: on mains, battery not draining, and the cores reach full clock under load (§31.14)
+    [ "$(ac_online)" = 1 ] || bad "not on mains power ($(power_state)) -- plug in the charger"
+    case "$(battery_status)" in
+        Discharging*) bad "battery is discharging ($(power_state)) -- the charger is not powering the box" ;;
+    esac
+    if [ -n "${SAQEF_PSU_DIR:-}" ] && [ "$CHECK_ONLY" != 1 ] && [ "$DRY_RUN" != 1 ]; then
+        bad "SAQEF_PSU_DIR (fake power-supply tree) is only allowed with --check/--dry-run"
+    fi
+    if [ "$POWER_PROBE_S" = 0 ]; then
+        [ "$CHECK_ONLY" = 1 ] || [ "$DRY_RUN" = 1 ] || bad "SAQEF_POWER_PROBE_S=0 (clock probe off) is only allowed with --check/--dry-run"
+        echo "  power: $(power_state), clock probe skipped (SAQEF_POWER_PROBE_S=0)"
+    else
+        local mhz; mhz=$(loaded_clock_mhz 2>/dev/null); [[ "$mhz" =~ ^[0-9]+$ ]] || mhz=0   # probe failure fails the gate
+        echo "  power: $(power_state), clock under 4-core load ${mhz} MHz (need >= $MIN_LOADED_MHZ)"
+        [ "$mhz" -ge "$MIN_LOADED_MHZ" ] || bad "CPU held at ${mhz} MHz under load (need >= $MIN_LOADED_MHZ): firmware power cap -- use the full-power charger, let the battery charge (§31.14)"
+    fi
+
     # 6. headless + no agents
     local g ag
     g=$(graphical_sessions); ag=$(agents_running)
@@ -305,6 +366,7 @@ snapshot_box() {   # pre|post -- two files, so the post snapshot cannot overwrit
         echo "epp: $(epp_values)"
         echo "governor: $(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor)"
         echo "no_turbo: $(cat /sys/devices/system/cpu/intel_pstate/no_turbo 2>/dev/null)"
+        echo "power: $(power_state) charge_types: $(cat /sys/class/power_supply/BAT*/charge_types 2>/dev/null | head -1)"
         echo "default_target: $(systemctl get-default) active_graphical: $(systemctl is-active graphical.target)"
         echo "daemon.json: $(tr -d '\n' < /etc/docker/daemon.json)"
         echo "docker_started: $(systemctl show docker -p ActiveEnterTimestamp --value)"
@@ -404,6 +466,13 @@ run_one() {
         t0=$(pkg_temp)
         box_hygiene "$st"
         say ">>> leg $st ($long) attempt $attempt"
+        # Power can change mid-session (burst_: unplugged at 12:59 UTC, two OW legs on battery).
+        # Off mains or draining: stop before measuring anything more (§31.14).
+        say "    power: $(power_state)"
+        if [ "$(ac_online)" != 1 ] || [ "$(battery_status | cut -d' ' -f1)" = Discharging ]; then
+            say "ABORT: power lost before leg $st ($(power_state)); legs so far are kept, nothing more measured"
+            exit 8
+        fi
         sampler=""
         if [ "$short" = ow ]; then
             python3 "$REPO/tools/jvm_thread_sampler.py" --out "$SESS/jvm_threads_${st}.csv" &

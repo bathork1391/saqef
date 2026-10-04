@@ -64,7 +64,7 @@ whenever a new section records a bug, a gotcha or a "do not repeat".
 | OW (driver store) flat at ~305 rps from c = 4 to c = 8 | §29.2 D (only 2 action containers: user-memory 1024 MB; light platforms run 16) |
 | `git_dirty: true` in every W1/W2 run JSON | §30.10 E (the arm swap into tracked handler paths; check box_state handler hashes, not the flag) |
 | Idle probe 0.7–1.5 W above the session calibration on every light-platform leg (‡) | §30.10 E (both arms alike; probe basis is the rule; within-session ratios unaffected) |
-| Did docker leftovers bias earlier sessions? (idle floor per session) | §30.11 B (Part A and W1 no; `mem_` yes, cp +34–78 %; OW cli +15 % residual and §28.8 bridge: candidate cause) |
+| Did docker leftovers bias earlier sessions? (idle floor per session) | §30.11 B (Part A and W1 no; `mem_` yes, cp +34–78 % (confounded with a capped clock, §31.14 D); OW cli +15 % residual and §28.8 bridge: candidate cause) |
 | Why does dram inflate cp on Fn and Knative but not OpenFaaS or OpenWhisk? | §30.11 A (post hoc; start-up, CPU saturation and pinning ruled out; cache/bus interference inferred, not measured) |
 | hey drops timed-out / refused requests from its CSV; availability = 2xx / rows overstates success | §31.6 (closed loop: the INCOMPLETE gate already voided such runs, 8 of 680; W3 counts attempted − rows as failures; audit §31.8: nothing masked, no re-run) |
 | "Log store does not cap OW throughput" (smoke test) | §29.2 C (wrong; corrected by §29.1 Q4) |
@@ -78,6 +78,10 @@ whenever a new section records a bug, a gotcha or a "do not repeat".
 | Fn pool at window start is not cold / differs between burst and steady legs | §31.11 (`--verify` fires min(c, 100) calls: ~20 containers in burst legs) |
 | Fn HTTP 500s: rejection or timeout? | §31.11 (fast rejections in container-creating bursts; no logs kept, W4 harvests them) |
 | Re-running only failed legs of a closed session | §31.13 (amendment: missing legs only; B2/B4 need in-session steady, so not evaluable) |
+| cp ms/inv up 20–35 % with function CPU flat; `freq_mhz_after` stuck at 2400–2600; idle-w ~1.5 W low | §31.14 C (laptop firmware caps the CPU at base clock at low battery / charger not charging; OS shows `performance`; pre-flight check 8 now blocks it) |
+| Pre-flight: `CPU held at N MHz under load` / `not on mains power` / `battery is discharging` | §31.14 F (power gate; use the full-power charger, let the battery charge) |
+| Session stopped with exit 8 `power lost before leg` | §31.14 F (charger unplugged mid-session; legs already done are kept) |
+| `mem_` cp +34–78 % vs `mem2_`: leftovers? | §31.14 D (corrects §30.11 B.1: confounded with a capped clock at 32–35 % battery; not separable) |
 
 ## 1. Noisy-neighbor contamination from background processes (incl. this agent)
 
@@ -3105,7 +3109,9 @@ platforms (OF / Fn / Kn; OW):
 | mem_ (failed night) | 0.97 | | 1.36 | 0.93 |
 | mem2_ (after prune) | 0.22 | 0.22 | 0.39 | 0.24 |
 
-1. *Dirty vs clean, same protocol and handlers (`mem_` vs `mem2_`, the 8 cells both nights passed):*
+1. **Corrected by §31.14 D:** `mem_` also ran with the CPU capped (32–35 % battery), so the cp gap
+   below is not separable from the leftovers. Text kept as written.
+   *Dirty vs clean, same protocol and handlers (`mem_` vs `mem2_`, the 8 cells both nights passed):*
    cp ms/inv 34–78 % higher on the dirty night in every cell (OF c1 cache 0.473 vs 0.273; OF gateway
    alone 0.453 vs 0.261; OW c4 dram 4.38 vs 2.95), function CPU 3–14 % higher, throughput 2–14 % lower.
    Cross-session (CLAUDE.md rule 6), but the effect is large and one-signed in all 8 cells. The
@@ -3501,3 +3507,103 @@ energy RAPL probe basis, no prediction. (5) Outcome as §31.14, analysis JSON
 
 **Do not repeat:** re-running Fn steady or any passed leg; reading R1 or S1 as B1; comparing
 F-T4's drain/p99 to `burst_` steady as a verdict.
+
+### 31.14 Session 2026-10-04 (`burst_amend31_13_`): outcome, and a CPU clock cap from the power supply
+Adjudicated 2026-10-04 against §31.13. **B1 is answered. cp, drain, latency and energy from this
+session are not citable: the CPU was held at its base clock (~2.5 GHz, turbo 4.4) by the laptop's
+power state.** That cap also confounds §30.11 B.1 (correction below).
+
+**Legs.** Calibration + 2 legs, 14:30–15:05 UTC, commit `0c4da2b` (`git_dirty = false`), `--hygiene`
+on, idle-w in session (`lock_burst_amend31_13_calib`: bare 3.84, of 4.01, fn 3.97, kn 4.72, ow 5.01 W).
+**Both legs passed on attempt 1**, no `_r2`. Every run records `env.sampler_defer_names = true`,
+`burst_size` 500/100, gap 1.0 s. Usable runs = run_2..run_6 (run_1 discarded as registered).
+
+**A. Verdicts (§31.13; Fn only).**
+| | b100 | b500 |
+|---|---|---|
+| **B1** availability ≥ 0.999 (median; worst run) | **holds** 1.0; worst 1.0 | **holds** 1.0; worst 1.0 |
+| B2, B4 | not evaluable (fixed in §31.13) | not evaluable |
+| B3 | no prediction | no prediction |
+| R1 (descriptive) run_1 errors, all HTTP 500, per burst | 20: 8 / 12 in bursts 1–2 | 98: 53 / 28 / 14 / 2 / 1 in bursts 1–5 |
+| S1 (descriptive) run_1 max sampling gap | **0.25 s** (`burst_` 1.77 / 2.21) | **0.64 s** (`burst_` 3.05 / 3.28) |
+| Fn function containers (leg-gate count; all 6 runs) | 68 | 99 |
+
+- **B1: Fn absorbs bursts into a grown pool.** 30,000 attempted requests over the 10 usable runs,
+  0 HTTP and 0 transport errors. The pool run_1 grows is the same size as `burst_`'s (68 / 99), and
+  bursts into it lose nothing. So §31.9 B's 0.4–2.3 % loss is a **pool-growth cost, not a
+  burst-queueing cost**; it belongs to W4 (cold / small pool). A slower CPU makes B1 harder, not
+  easier, so the cap below does not weaken this verdict.
+- **R1 replicates the pattern:** every error is a 500, the count decays to zero as the pool
+  fills, none in usable runs. b100 20 / 20 and b500 76 / 98 errors faster than the run's median
+  success (§31.11's fast-rejection signature). As registered ("first 4 bursts") b500 exceeds the
+  boundary by **1 of 98** requests (burst 5). The boundary came from where errors stopped in
+  `burst_`, not from a mechanism; report the per-burst counts, not a pass/fail.
+- **S1:** below 1 s in both legs. The sampler's own serial `docker inspect` was most of `burst_`'s
+  gaps (§31.11, fixed in §31.12). The CPU was slower here, which if anything favours larger gaps.
+- b500 run_1 (discarded) was `host_saturated` (94 %); usable runs 53–56 %. The b500 cp CV (10.95 %)
+  is over the **usable** runs (1.13, 0.92, 1.19, 0.98, 0.98 ms/inv), not caused by run_1.
+
+**B. Descriptive (not citable; CPU capped, see C).** b100 / b500: drain 0.216 / 0.522 s, p50
+114.6 / 385.8 ms, p99 227.4 / 752.2 ms, throughput 83.3 / 344.6 rps, cp idle-subtracted
+1.476 / 0.947 ms/inv (raw 1.570 / 0.980; ± 0.120 / 0.029 per 0.01 core of idle-probe error),
+fn 4.99 / 4.04 ms/inv. Energy: idle probe ‡ on both legs (5.38 / 6.51 W vs calib 3.97 W), RAPL FIT
+> 15 % on all b100 usable runs and b500 runs 5–6. Next to `burst_`'s usable Fn runs (F-T3, on mains,
+also not citable): cp +32 % (b100) and +20 % (b500), drain +27 % / +12 %, function CPU only +5 % / +3 %.
+
+**C. Finding: the box ran with its CPU capped near base clock.**
+- `env.freq_mhz_after` is **2400–2600 MHz in 12 / 12 runs** (max 2587). A scan of every committed run:
+  no other session shows that pinned pattern; `burst_`'s Fn legs read 3.0–3.6 GHz.
+- Calibration idle power is **~1.5 W lower in every state** than `burst_` that morning (fn 5.51 → 3.97 W).
+- Battery history (`/var/lib/upower/history-*-DELL_*.dat`, kept since 2026-09-28): on battery from
+  18:47 to 19:41 PKT (calibration began 19:30), then AC connected but the battery stayed at 50 %
+  in `pending-charge` (rate 0.015 W) through the end of the legs at 20:05.
+- **Reproduced live (2026-10-04 ~20:45 PKT):** with 4 cores spinning, all 8 cores read 2.37–2.49 GHz
+  on battery (39 %), and 2.40–2.50 GHz (1 core busy: 2.46 GHz) **with the charger plugged in**, AC
+  `online = 1`, battery 25 % `Not charging`. OS settings were unchanged throughout: `scaling_max_freq`
+  4.4 GHz, power profile and EPP `performance`, `no_turbo = 0`; the thermal-throttle counters did not
+  move. So the limit is the laptop firmware's, and the OS checks of pre-flight 3 cannot see it.
+- **Why the charger does not charge is not known.** Battery health is 63 % of design (2.29 of
+  3.6 Ah), `charge_types` = Adaptive. Every cap episode on disk is at low battery (31.13 at 50 %, `mem_`
+  at 32–35 %); the battery-powered legs at 86–100 % (`burst_ow_b100`, `burst_ow_steady`,
+  `payload_64kow8`, `payload_512kc1_{of,fn,kn}`, part of `payload_512kc4_of`) read up to 3.1–4.0 GHz, no
+  sign of the cap. Inference, not established: the firmware caps when the battery is low and the
+  adapter does not charge it.
+- **Why cp rises but the function does not:** the handler spins 5 ms of *wall* time
+  (`hello/func.py`, `perf_counter`), so its CPU per invocation does not depend on the clock. The
+  control plane executes a fixed amount of work per request, so its CPU-seconds scale with 1/clock
+  (3.4 → 2.5 GHz predicts up to +36 %; seen +20–32 %). Energy per invocation went **down**.
+
+**D. Correction to §30.11 B.1 (post hoc).** The 8 `mem_` cells compared with `mem2_` ran at
+**32–35 % battery, `pending-charge`**; in their 43 runs the clock reading never exceeded 3.12 GHz
+(12 runs at 2.4–2.6 GHz). The `mem2_` cells ran charging or full (59–100 %) and reached 2.8–4.0 GHz.
+The +34–78 % cp on the "dirty night" therefore has **two** differences behind it, docker leftovers
+and a capped clock, and this data cannot separate them. The mem handlers also run for 5 ms of wall
+time, so a clock cap alone predicts flat function CPU; the +3–14 % there is not explained by the
+clock and may be the leftovers' share. Unchanged: the leftovers' effect on the idle floor
+and the quiet gate (§30.7 D–E, measured within session: containerd + dockerd 1.3 → 0.2 core after
+prune), and `--hygiene`. No cited number changes: the `mem_` numbers were never cited or pooled.
+
+**E. Comments from a second reviewer (checked on disk).** Agreed: B1, S1, the pool-growth reading,
+the container-count trap (68 / 99, not 90 / 121 with fnserver and `k8s_`), energy not citable.
+Refuted: (1) "run_1 causes the b500 cp CV" (the CV is over runs 2–6); (2) "31.13 reset Fn before each
+leg, `burst_` did not" (both sessions' leg logs show the fresh-session reset before each leg);
+(3) "same box, difference unexplained" (C).
+
+**F. Tooling: power gate (`tools/run_final.sh`, tests `TestPowerGate`).**
+- Pre-flight check 8: AC online; battery not `Discharging`; median core clock while 4 cores spin
+  for 3 s ≥ **3200 MHz** (capped: 2440–2660 measured; i5-1145G7 base 2.6, turbo 4.4). A failed
+  probe counts as 0 MHz. Blocks `go.sh` like any other pre-flight problem.
+- Before every leg attempt: the power state is logged; off mains or discharging → the session stops
+  (exit 8) before measuring anything more, legs already done are kept.
+- Box snapshot records `power:` (AC, battery status/level) and `charge_types`.
+- `SAQEF_POWER_PROBE_S=0` and `SAQEF_PSU_DIR` (test fixtures) are refused outside `--check`/`--dry-run`.
+- This is a pre-flight/session guard; no run gate changes, so closed sessions are unaffected.
+- Dry-run 2026-10-04 on this charger: `PROBLEM: CPU held at 2653 MHz under load (need >= 3200)`.
+
+**Decision.** B1 for Fn is recorded (Part F, F-T4). Fn's burst cp, drain, latency and energy remain
+without a citable value. Recommended next: a §31.15 pre-registration that re-runs the same two legs
+once the power gate passes (a box fault found by an objective check, not a failed prediction), then W4.
+Fix the charging first: try the original adapter, set `charge_types` / BIOS charging to Standard.
+
+**Do not repeat:** comparing 31.13's cp, drain, latency or energy with `burst_`; citing §30.11 B.1's
++34–78 % as a leftovers effect; reading R1 or S1 as B1; running a session without the power gate.
