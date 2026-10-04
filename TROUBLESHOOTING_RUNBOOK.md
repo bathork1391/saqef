@@ -66,7 +66,7 @@ whenever a new section records a bug, a gotcha or a "do not repeat".
 | Idle probe 0.7–1.5 W above the session calibration on every light-platform leg (‡) | §30.10 E (both arms alike; probe basis is the rule; within-session ratios unaffected) |
 | Did docker leftovers bias earlier sessions? (idle floor per session) | §30.11 B (Part A and W1 no; `mem_` yes, cp +34–78 %; OW cli +15 % residual and §28.8 bridge: candidate cause) |
 | Why does dram inflate cp on Fn and Knative but not OpenFaaS or OpenWhisk? | §30.11 A (post hoc; start-up, CPU saturation and pinning ruled out; cache/bus interference inferred, not measured) |
-| hey drops timed-out / refused requests from its CSV; availability = 2xx / rows overstates success | §31.6 (closed loop: the INCOMPLETE gate already voided such runs, 8 of 680; W3 counts attempted − rows as failures) |
+| hey drops timed-out / refused requests from its CSV; availability = 2xx / rows overstates success | §31.6 (closed loop: the INCOMPLETE gate already voided such runs, 8 of 680; W3 counts attempted − rows as failures; audit §31.8: nothing masked, no re-run) |
 | "Log store does not cap OW throughput" (smoke test) | §29.2 C (wrong; corrected by §29.1 Q4) |
 | Pre-flight says "not pre-registered" though the line is committed | §30.9 (`git show | grep -q` SIGPIPE race under pipefail; fixed) |
 
@@ -3257,5 +3257,10 @@ Checked every run with request counts in `../saqef-paper/results/` (765 runs), b
   99 % rule, cp/fn per successful invocation). 18 other full-count runs with non-2xx are in gated-out
   legs and 4 in uncited quick legs.
 
-**Decision: no re-run.** The bug could hide failures only in runs the INCOMPLETE gate already rejects.
+- **`mem2_` (Part E), raw files (expert review, 2026-10-04):** all 120 usable runs in all 24 legs have
+  exactly 3000 data rows in `hey.csv`, all 3000 with a 2xx status, matching `requests` and `successes`
+  in `summary.json`. No transport failure was masked; M0–M3 verdicts unchanged.
+
+**Decision: no re-run** (agreed by the expert review). The bug could hide failures only in runs the
+INCOMPLETE gate already rejects.
 It matters only for W3, where failed requests are the measurement (§31.6 fix).
