@@ -94,7 +94,7 @@ whenever a new section records a bug, a gotcha or a "do not repeat".
 | W4 session stopped by a power cut: what now? | §32 rule 3 (`go.sh --workload cold --part 2` runs only incomplete blocks) |
 | Revisiting a missing cell in a later session | §33 (pre-registered amendment, same table with a footnote, bridge rule for pooling) |
 | Same cell, CPU reproduced across sessions, energy per inv differs 20–40 % | §33.1 / §33.2 post hoc (energy is within-session only; never bridge mJ/inv) |
-| Battery "Not charging" at 90 %+ with AC online | §33.2 (charge threshold, not the §31.14 cap; the clock check decides) |
+| Battery "Not charging" at 90 %+ with AC online | §33.2 (upower: `fully-charged`, ~0 W battery flow; not the §31.14 cap; the clock check decides) |
 | When does Fn create containers in a burst / are the 500s before them? | §34.1 (first birth 0.24–0.61 s; 48 per first wave; burst-0 500s precede the first birth) |
 | Is power linear in busy cores? Within-run check of §25.6? | §34.2 (sublinear within each light platform, α 0.56–0.79; within-run not possible before W4: no host CPU per trace row) |
 | "Untracked host ms/inv" read as orchestration cost | §31.18 A (mostly hey, sampler, dockerd, kernel; not a platform metric) |
@@ -4132,8 +4132,9 @@ probes are flagged (+1.2 W above a calibration of 5.83 W, spread 0.03): use the 
 ### 33.2 outcome (2026-10-04, `owlog29_amend33_2_`): OpenWhisk log stores at c=8
 
 Same launch, 23:04–23:38 UTC, commit `cad29a4`, rc = 0, DONE written. Power gate passed (AC,
-3400 MHz under load); battery reads "Not charging" at 90–94 % with AC online throughout, which is the
-charge threshold, not the low-battery cap of §31.14 (the clock check passed and cp is not raised).
+3400 MHz under load); the power poll reads "Not charging" at 90–94 % with AC online throughout, and
+upower's history logs the battery as `fully-charged` with ~0 W flow (neither feeding nor charging).
+Not the low-battery cap of §31.14: the clock check passed and cp is not raised.
 Leg logs confirm `activation log store = cli` and `= driver`. Tables: `VERIFIED_RESULTS.md` D-T4;
 analysis JSON `../saqef-paper/results/owlog29_amend33_2_analysis/`.
 
