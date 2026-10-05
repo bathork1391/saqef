@@ -1,4 +1,4 @@
-# Next steps (kept current; last updated 2026-10-05)
+# Next steps (kept current; last updated 2026-10-05, after W4)
 
 The one place that says what is still to run or do. Details live in `TROUBLESHOOTING_RUNBOOK.md`
 (section numbers below). Results go to `../saqef-paper/VERIFIED_RESULTS.md`.
@@ -10,21 +10,20 @@ The one place that says what is still to run or do. Details live in `TROUBLESHOO
 - Progress at any time: `sudo bash tools/go.sh --status`
 
 ## To run, in this order (each one command, all pre-registered, code committed)
-| # | command | what it answers | time | section |
-|---|---|---|---|---|
-| 1 | `sudo bash tools/go.sh --workload cold` | W4: cost of a burst into an empty pool (Fn, OpenWhisk, Knative), plus Fn's W3 B2/B4 | ~2.3 h | §32 |
-| 1b | `sudo bash tools/go.sh --workload cold --part 2` | only if a power cut stopped #1: runs the unfinished platform blocks | ≤ 2 h | §32 rule 3 |
+Nothing is queued. Every pre-registered workload (Part A, W1, W2, W3, W4) and amendment has run.
+A new session needs a pre-registration first (preregister-experiment skill).
 
-**Done:** 33.1 and 33.2 ran 2026-10-04 (`go.sh --revisit 33`), both finished, all legs passed on
-attempt 1; outcomes §33.1 / §33.2, tables W1-T12 and D-T4. A finished amendment cannot be rerun.
+**Done:** W4 cold start ran 2026-10-05 (`cold_`), 8 of 8 legs passed on attempt 1; outcome §32.1,
+VERIFIED_RESULTS Part G (G-T0–G-T2) and F-T6. 33.1 and 33.2 ran 2026-10-04; outcomes §33.1 / §33.2.
 
 ## After each run (done by Claude with the adjudicate-session skill: "check the last run")
-- W4: `tools/cold_analysis.py`, outcome §32.1, VERIFIED_RESULTS Part G.
+- Outcome in the runbook, tables in VERIFIED_RESULTS, both repos backed up and pushed.
 
 ## Offline work still open (no machine time)
 - A test that checks key numbers in the runbook against `results/*_analysis/*.json` (§31.18 D).
 - W4: the within-run power-vs-load check (§25.6), now possible because `energy_trace.csv` records
-  `host_busy_ticks` (§34.2).
+  `host_busy_ticks` (§34.2); the `cold_` legs are the first data with it.
+- W4 Knative C4 (cold later bursts 17 % faster than warm at equal pods): cause not examined (§32.1).
 
 ## Git housekeeping (done 2026-10-05)
 - GitHub: `saqef` has only `main` (+ tags v9.14-remeasure, v9.14.1-remeasure); `saqef-paper` only `master`.
@@ -36,6 +35,7 @@ attempt 1; outcomes §33.1 / §33.2, tables W1-T12 and D-T4. A finished amendmen
   ref with `git fetch <bundle> <ref>:<ref>`. The local stash was kept.
 
 ## Possible later sessions (not pre-registered)
+- Knative cold vs warm with the warm pool pre-grown to 16 pods (W4's warm arm was 9–16, §32.1).
 - Burst-size ladder at a fixed total and fixed pool: separates per-request from per-burst cost.
 - OpenFaaS CE on Kubernetes (W4b): only after written licence confirmation from OpenFaaS.
 - RAPL against a wall-plug meter: needs the meter.

@@ -92,6 +92,8 @@ whenever a new section records a bug, a gotcha or a "do not repeat".
 | Knative pods stay `Terminating` ~300 s after scale-down / teardown | §32 design (PID-1 python server ignores SIGTERM; grace = revision timeout 300 s; W4 waits it out) |
 | OpenWhisk action update leaves the old action containers running | §32 design (they serve nothing; the invoker replaces them at the next request; W4 removes them before a cold run) |
 | W4 session stopped by a power cut: what now? | §32 rule 3 (`go.sh --workload cold --part 2` runs only incomplete blocks) |
+| W4 Knative warm pool smaller than the cold arm's (9–16 pods; warm runs create pods) | §32.1 post hoc (from a small pool the autoscaler grows over ~4 runs; cold goes 0 → 16 at once) |
+| W4 OpenWhisk cp per cold start 436 ms / C3b "OW highest" | §32.1 (not supported: C3 fails, 2 containers per run, run_2/3 high in both arms) |
 | Revisiting a missing cell in a later session | §33 (pre-registered amendment, same table with a footnote, bridge rule for pooling) |
 | Same cell, CPU reproduced across sessions, energy per inv differs 20–40 % | §33.1 / §33.2 post hoc (energy is within-session only; never bridge mJ/inv) |
 | Battery "Not charging" at 90 %+ with AC online | §33.2 (upower: `fully-charged`, ~0 W battery flow; not the §31.14 cap; the clock check decides) |
@@ -4042,6 +4044,75 @@ analysis JSON `results/cold_analysis/`, VERIFIED_RESULTS Part G.
 
 **Do not repeat:** OpenFaaS in W4 on the 0.8.3 stack; comparing W4 Knative numbers with Parts A–F
 (different scaling config); using a cold run whose pool was not empty; judging B2/B4 at b100.
+
+### 32.1 outcome (2026-10-05, `cold_`): W4 cold start
+
+**Run.** One launch, 04:25–06:28 UTC (2 h 03 min, watchdog 4 h): calibration (idle-w of 5.95, fn 5.66,
+kn 7.09, ow 7.05, bare 5.64 W), then Fn, OpenWhisk, Knative blocks. 8 of 8 legs passed on the first
+attempt (no `_r2`); every cold run started with 0 function containers (W4 gate); 5 usable runs per
+leg. OpenWhisk legs log `activation log store = driver`. Numbers: `tools/cold_analysis.py --prefix
+cold_` (committed before the data, 8fe8234), `cp_anatomy.py`, `idle_crosscheck.py`; JSON in
+`../saqef-paper/results/cold_analysis/`; tables VERIFIED_RESULTS Part G (G-T0–G-T2, F-T6).
+
+**P0 holds on every block.** Pre-flight check 8: 3500 MHz under load, AC online, Charging 96 %;
+1,145 power polls during the legs, all on mains, battery `Full`; no leg has every run's
+`freq_mhz_after` in 2350–2700 MHz. cp, latency and energy are citable.
+
+**Verdicts (medians over usable runs; cold − median warm, per created container).**
+
+| | Fn | OpenWhisk standalone | Knative minScale 0 |
+|---|---|---|---|
+| containers created per cold run | 71 (68–72) | 2 | 16 |
+| C1 first-burst availability, cold | 0.68 (every run) — holds (< 0.99) | 1.00 — holds | 1.00 — holds |
+| C2 first-burst p50 cold / warm | 1286 / 99 ms, 13× (no prediction) | 607 / 174 ms, 3.5× — holds | 2066 / 73 ms, 28× — holds |
+| C3 cp per container; separation | 5.5 ms; holds | 436 ms; **fails** | 10.9 ms; **fails** |
+| C3u (untracked − instrument) per container; separation | 234 ms; holds | −961 ms; **fails** | 724 ms; holds |
+| C4 later-burst p50 cold vs warm | +6.3 % — holds | −0.3 % — holds | **−17.5 % — fails** |
+| C5 function CPU per container | 0.131 s (anchor 0.14) | 0.165 s | 0.224 s |
+
+- **C3b** (OpenWhisk highest): holds on the reported median (436 vs 10.9 vs 5.5 ms) but is not a
+  supported finding, because OpenWhisk's own C3 fails: per-run cp cold 16.44, 11.38, 8.77, 7.88, 7.82 s
+  vs warm 13.16, 7.98, 7.81, 7.75, 7.90 s. Runs 4–6 of both arms are equal within 0.15 s; the median
+  is carried by each arm's run_2/run_3, which are high in both arms (cause not examined). Two
+  containers per cold run cannot resolve a per-container cost against that noise.
+- **Fn.** C3 and C3u hold with full separation (cp 3.55–3.78 vs 3.31–3.40 s; untracked − instrument
+  38.2–46.3 vs 26.5–28.7 s). Per the pre-registered interpretation, a cold start's CPU on Fn is
+  mostly outside the platform's containers: 234 ms host vs 5.5 ms cp per container (function CPU
+  0.13 s, matching the W3 anchor). The 32 % first-burst loss is identical in every cold run (32 of
+  100: fast HTTP 500s, as §31.11/§34.1); later bursts lose nothing.
+- **Knative.** C3 fails, C3u holds: recorded, as fixed before data, as "C3 fails: container
+  creation is done outside the platform's own containers on this platform" (kubelet/k3s,
+  containerd on the host). Per-run cp cold 2.34–2.48 s vs warm 2.00–2.61 s; the overlap is warm
+  run_4 (2.61 s), which created 5 pods inside its window (next point).
+- **Knative C4 fails in the opposite direction:** cold runs' later bursts are 17.5 % *faster* than
+  warm (79.0 vs 95.8 ms). A failed prediction, recorded as a finding; cause not examined.
+
+**Post hoc (not pre-registered): the Knative warm arm was not a full pool.** Pods at window start,
+warm runs 2–6: 9, 9, 11, 16, 16; at end 9, 11, 16, 16, 18. Every cold run went 0 → 16 at once (the
+activator path from zero), but from a small pool (4 after verify + warm-up) the autoscaler added
+pods over ~4 runs. So warm runs 3, 4 and 6 contained pod creation. Checked on disk: (a) runs are
+~37 s apart, so this is growth, not scale-down; (b) restricted to the warm runs that created no
+pod (run_2 2.00 s, run_5 2.01 s), every cold run's cp exceeds them (post hoc; C3 stays failed);
+(c) the pool does **not** explain C4: warm runs that started at 16 pods (run_5, run_6) have later
+p50 98.9 and 95.8 ms, still > 15 % above cold's 79.0 ms. `at_end` 18 > maxScale 16 in run_6 is most
+likely terminating pods counted by `pool.sh`; not examined. Fn's and OpenWhisk's warm pools were
+steady (68 and 2 at every warm start).
+
+**Fn W3 within one session (F-T6, rule 4).** B0 1.000; B1 1.000 (worst run 1.000); B2 drain 0.474 s
+vs 500 / 1033 rps = 0.484 s (0.98×) — holds; B4 p99 502.6 vs 14.2 ms (35×) — holds. Fn steady
+1033 rps, p99 14.2 ms (W3 anchor 1063 rps, 13.7 ms). F-T3–F-T5 stay as recorded.
+
+**Other.** OpenWhisk cp 3.1–3.4 ms/inv (driver store; §29.1 ~3); docker CLI children 1.7–2.2 % of
+the JVM. Idle cross-check: probe above calibration on all light-platform legs (‡, §30.10 E; Fn
+b500 +4.5 W, likely its ~100-container pool idling inside the probe, not checked); no energy prediction.
+
+**Corrections / tooling.** No code changed. New in the paper repo: `figures/make_cold_tables.py`
+(Part G); `cold_analysis.py` unchanged and its output reproduces byte-for-byte from the backup.
+
+**Do not repeat:** reading Knative "warm" in W4 as the cold arm's final pool (it was 9–16 pods);
+quoting OpenWhisk's 436 ms cp per cold start or C3b as a finding; reading C3's failure on Knative as
+"no cp cost" (§32 interpretation rule). Any later Knative cold-vs-warm comparison should pre-grow
+the warm pool to the cold arm's final size before the first usable run.
 
 ## 33. Revisiting two missing cells — pre-registration (written 2026-10-05, before any data)
 Amendment 33.1: pre-registered
