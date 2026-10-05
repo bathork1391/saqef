@@ -14,16 +14,12 @@ The one place that says what is still to run or do. Details live in `TROUBLESHOO
 |---|---|---|---|---|
 | 1 | `sudo bash tools/go.sh --workload cold` | W4: cost of a burst into an empty pool (Fn, OpenWhisk, Knative), plus Fn's W3 B2/B4 | ~2.3 h | §32 |
 | 1b | `sudo bash tools/go.sh --workload cold --part 2` | only if a power cut stopped #1: runs the unfinished platform blocks | ≤ 2 h | §32 rule 3 |
-| 2 | `sudo bash tools/go.sh --workload payload --amend 33.1` | W1's missing Knative 64k c=8 cell (+ bridge) | ~1 h | §33 |
-| 3 | `sudo bash tools/go.sh --arm owlog29 --amend 33.2` | OpenWhisk log-store comparison at c=8 | ~50 min | §33 |
 
-**#2 and #3 together, one launch (~2 h):** `sudo bash tools/go.sh --revisit 33` (33.1 then 33.2).
-#2 and #3 may run before #1. If a power cut stops #2 or #3, just run the same command again on mains:
-the stopped attempt is moved to `results/aborted_<UTC>/` automatically and never used (§33 rule 5).
+**Done:** 33.1 and 33.2 ran 2026-10-04 (`go.sh --revisit 33`), both finished, all legs passed on
+attempt 1; outcomes §33.1 / §33.2, tables W1-T12 and D-T4. A finished amendment cannot be rerun.
 
 ## After each run (done by Claude with the adjudicate-session skill: "check the last run")
 - W4: `tools/cold_analysis.py`, outcome §32.1, VERIFIED_RESULTS Part G.
-- 33.1 / 33.2: outcome in §33, same tables as the original cells with a footnote.
 
 ## Offline work still open (no machine time)
 - A test that checks key numbers in the runbook against `results/*_analysis/*.json` (§31.18 D).

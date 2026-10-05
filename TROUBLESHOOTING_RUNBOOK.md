@@ -93,6 +93,8 @@ whenever a new section records a bug, a gotcha or a "do not repeat".
 | OpenWhisk action update leaves the old action containers running | §32 design (they serve nothing; the invoker replaces them at the next request; W4 removes them before a cold run) |
 | W4 session stopped by a power cut: what now? | §32 rule 3 (`go.sh --workload cold --part 2` runs only incomplete blocks) |
 | Revisiting a missing cell in a later session | §33 (pre-registered amendment, same table with a footnote, bridge rule for pooling) |
+| Same cell, CPU reproduced across sessions, energy per inv differs 20–40 % | §33.1 / §33.2 post hoc (energy is within-session only; never bridge mJ/inv) |
+| Battery "Not charging" at 90 %+ with AC online | §33.2 (charge threshold, not the §31.14 cap; the clock check decides) |
 | When does Fn create containers in a burst / are the 500s before them? | §34.1 (first birth 0.24–0.61 s; 48 per first wave; burst-0 500s precede the first birth) |
 | Is power linear in busy cores? Within-run check of §25.6? | §34.2 (sublinear within each light platform, α 0.56–0.79; within-run not possible before W4: no host CPU per trace row) |
 | "Untracked host ms/inv" read as orchestration cost | §31.18 A (mostly hey, sampler, dockerd, kernel; not a platform metric) |
@@ -4096,6 +4098,74 @@ attempt(s) (rule 5) and runs both again.
 
 **Do not repeat:** revisiting W1 OpenWhisk 512k; merging these cells into the original columns
 without the footnote; a third attempt at either cell.
+
+### 33.1 outcome (2026-10-04, `payload_amend33_1_`): Knative 64k c=8 filled, pooled
+
+Launched with 33.2 by `go.sh --revisit 33`, headless, 22:11–23:04 UTC, commit `cad29a4`, rc = 0,
+DONE written. Power gate passed (AC, battery full, 3478 MHz under 4-core load); the in-leg power poll
+shows AC throughout. Tables: `VERIFIED_RESULTS.md` W1-T12 and the ¹ cells of W1-T1…T4; analysis JSON
+`../saqef-paper/results/payload_amend33_1_analysis/`.
+
+**Legs.** Both passed every gate on attempt 1, n = 5 usable runs each, 3000/3000 successes per run.
+64k c=8 drift +4.5 %, 512k c=8 bridge drift −4.3 %. The quiet gate that failed this cell four times
+(§28.9 A) passed first time with the 20 s settle windows and `--hygiene`.
+
+**Pooling rule (28.8 rule 1): pooled.** Bridge cp 2.237 vs 2.220 ms/inv (+0.8 %), fn 2.773 vs 2.627
+(+5.6 %), both within ±10 %. So the 64k c=8 cell is shown in Part C's grid with footnote ¹ ("measured in
+a later session (amendment 33.1, 2026-10-04)"): cp **0.91**, fn **1.77**, activator + kourier 0.91
+ms/inv (activator 0.42, kourier 0.48), untracked host idle-subtracted 0.38 ±0.07. The bridge's run 5
+is high (cp 2.61, +17 % over its leg's median); runs 1–4 are within 4 % of the main median. The median
+absorbs it; the drift gate (one-sided, last vs first) passed.
+
+**Verdicts: none change.** No W1-T6 prediction uses this cell (P2/P4/P5 need the 1k c=8 cell, which
+has no Part C value; P3 is 1k → 512k). Descriptive, across sessions only: Knative's request-path
+component at c=8 rises 1k 0.58 (28.8) < 64k 0.91 (33.1) < 512k 2.19 (main), the P2 ordering.
+The main session's DRIFT-failed 64k c=8 attempt had cp 0.893 / fn 1.770, within 2 % of today's.
+
+**Post hoc (not pre-registered).** Energy does not bridge across sessions even when CPU does: the
+512k c=8 bridge is 22.4 mJ/inv (probe) vs 28.0 in the main session with cp within 1 %. Both 33.1
+probes are flagged (+1.2 W above a calibration of 5.83 W, spread 0.03): use the calib basis
+(15.4 / 24.3 mJ/inv). Energy stays a within-session quantity (see 33.2).
+
+**Do not repeat:** comparing W1 energy across sessions; citing the 64k c=8 cell without ¹.
+
+### 33.2 outcome (2026-10-04, `owlog29_amend33_2_`): OpenWhisk log stores at c=8
+
+Same launch, 23:04–23:38 UTC, commit `cad29a4`, rc = 0, DONE written. Power gate passed (AC,
+3400 MHz under load); battery reads "Not charging" at 90–94 % with AC online throughout, which is the
+charge threshold, not the low-battery cap of §31.14 (the clock check passed and cp is not raised).
+Leg logs confirm `activation log store = cli` and `= driver`. Tables: `VERIFIED_RESULTS.md` D-T4;
+analysis JSON `../saqef-paper/results/owlog29_amend33_2_analysis/`.
+
+**Legs.** Both passed every gate on attempt 1 (the cli leg failed the quiet gate twice in `owlog29_`),
+n = 5 usable runs after the discarded warm-up, 3000/3000 successes per run.
+
+**Data (medians over usable runs, cli → driver).** cp 18.99 → 2.87 ms/inv; child row 12.64 → 0.016;
+actor system 3.90 → 2.12; fn 5.56 → 5.61; share 77.3 → 33.9 %; 108 → 310 rps; p50/p99 72.5/113.0 →
+25.1/30.0 ms; untracked host idle-subtracted 3.68 → 1.01 ms/inv; energy 96.2 → 37.0 mJ/inv (probe,
+neither flagged).
+
+**Verdicts at c = 8 (§29 thresholds).** Q1 **holds** (0.016 ≤ 1.0). Q2 **holds** (18.99 − 2.87 =
+16.12 ≥ 9.0). Q3a **fails** (33.9 %, below [40, 60]). Q3b **fails** (2.87 vs 5 × 0.72 = 3.60;
+cross-session ratio, cite as "a few times"). Q4 **fails** (+187 %: the collector caps cli at ~108 rps,
+the driver sits at the ~305 rps plateau of §29.2 D). Q5 **holds** (3.68 → 1.01). Exactly the c = 1 and
+c = 4 pattern, so §29.1's findings now hold at every c.
+
+**Bridge to `owlog29_tier1ow8_driver` (side by side, not pooled).** cp 2.87 vs 3.03, share 33.9 vs
+34.9 %, 310 vs 306 rps, p50 25.1 vs 25.4 ms: reproduced. cli vs Part A (descriptive): cp 18.99 vs
+17.85, child row 12.64 vs 11.94, share 77.3 vs 76.3 %, 108 vs 111 rps.
+
+**Per run.** cp ms/inv cli 22.58, 19.46, 18.88, 18.77, 18.99 (first usable run high, as §29.1 post hoc
+2); driver 3.39, 4.21, 2.84, 2.77, 2.87 (CV 19 %, run 3 highest). Medians are robust to both.
+
+**Post hoc (not pre-registered).** Energy again does not bridge: driver 37.0 mJ/inv here vs 26.4 in
+`owlog29_` with cp, rps and latency within 5 %. The idle baseline differs (probe 6.17 vs 6.72 W), but
+that explains ~5 J of the ~31 J/run gap; the package simply drew more under the same load. Together
+with 33.1 (−20 % on Knative), cross-session energy for the same cell moves −20 % to +40 %. Cause not
+measured. Within-session ratios stand (cli/driver 2.6× here, 2.7× at c = 4 in `owlog29_`).
+
+**Do not repeat:** a third c = 8 cli attempt (done, passed); comparing per-invocation energy across
+sessions, even for a reproduced CPU bridge.
 
 ## 34. Two post hoc analyses on data already on disk (2026-10-05; no machine time; descriptive)
 Both are post hoc. Neither changes a verdict. JSON in `../saqef-paper/results/*_analysis/`.
