@@ -4114,6 +4114,24 @@ quoting OpenWhisk's 436 ms cp per cold start or C3b as a finding; reading C3's f
 "no cp cost" (§32 interpretation rule). Any later Knative cold-vs-warm comparison should pre-grow
 the warm pool to the cold arm's final size before the first usable run.
 
+**Review of §32.1 (2026-10-05, after commit; checked on disk). Open: wording fixes to make later.**
+The reviewer reproduced every verdict and number of §32.1 from the raw run files; no data defect.
+1. *Overstatement, B3.* Commit 75702f4's message and the chat summary say "Fn B0–B4 hold". B3 has
+   no prediction (§32, as §31.5), so it cannot hold. Correct: **B0, B1, B2, B4 hold; B3 not predicted.**
+   The body of §32.1, F-T6 and the Part G index bullet already say this. The pushed commit message
+   stays (no history rewrite); this note is the correction.
+2. *OpenWhisk C3u failure unlabelled.* OpenWhisk is the only platform where C3 and C3u both fail, so
+   §32's pre-registered clause applies: **"no cold-start CPU cost is resolvable above run-to-run noise
+   with this instrument"** (OpenWhisk standalone; 2 containers per cold run). Raw untracked CPU-s:
+   cold 13.60–14.75, warm 12.77–15.34 (cold not higher). To do: add this sentence to §32.1's verdict
+   list and to G-T1 / the Part G index bullet (`../saqef-paper/figures/make_cold_tables.py`,
+   `tools/emit_verified_results.py`); re-emit, additions only.
+3. *Slip in the review itself (no action).* Its C3 example "OW warm run4 2.99 s raw overlaps cold
+   2.82–2.98" quotes Knative's raw cp (`runs.json`: kn warm run_4 2.99; kn cold 2.82–2.98).
+   OpenWhisk's overlap is raw cold 9.30–17.93 vs warm 9.12–14.55 s. Verdicts unchanged.
+4. *Not an issue:* "RAPL FIT 44–45 % NOT citable" in every acceptance.json is the standing convention
+   (CLAUDE.md rule 7, §25.1); energy is cited on probe basis with the ‡ caveat (§30.10 E).
+
 ## 33. Revisiting two missing cells — pre-registration (written 2026-10-05, before any data)
 Amendment 33.1: pre-registered
 Amendment 33.2: pre-registered

@@ -11,6 +11,9 @@ The one place that says what is still to run or do. Details live in `TROUBLESHOO
 
 ## Resume here (paused 2026-10-05, after W4 was adjudicated; both repos pushed, nothing running)
 Recommended order, all offline (no machine time):
+0. Two wording fixes from the review of §32.1 (runbook, "Review of §32.1", items 1–2): B3 is not
+   predicted ("B0, B1, B2, B4 hold"); label OpenWhisk's C3 + C3u failure with §32's "not resolvable
+   above noise" clause in §32.1 and Part G. Minutes.
 1. Test that key runbook numbers match `results/*_analysis/*.json` (§31.18 D). Short.
 2. Final paper draft from V5, now that every workload is in (VERIFIED_RESULTS Parts A–H).
 3. Within-run power-vs-load check (§25.6) on the `cold_` legs (first data with `host_busy_ticks`).
