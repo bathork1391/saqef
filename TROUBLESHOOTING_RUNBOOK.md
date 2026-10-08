@@ -3902,6 +3902,10 @@ disagree, the generated table is right (31.16: 43.65 rounds to 43.6 in the table
 fixed). Candidate later sessions from these reviews, not pre-registered: a fixed-N burst-size ladder
 at a fixed pool size (identifies per-request vs per-burst), and energy validation against a
 wall-plug meter (needs the meter).
+**Test added 2026-10-08:** `tests/test_runbook_numbers.py` checks key quoted claims (§29.2 cli → driver
+table, §33.2 c = 8 pair, §32.1 verdict table and F-T6) against `../saqef-paper/results/*_analysis/*.json`:
+the quote must still be in the runbook and each JSON value, formatted as printed, must appear in it.
+Add a claim there when an outcome section quotes a new key number.
 
 ## 32. W4 cold start — pre-registration (written 2026-10-05, before any W4 data)
 Workload cold: pre-registered
@@ -4075,6 +4079,10 @@ cold_` (committed before the data, 8fe8234), `cp_anatomy.py`, `idle_crosscheck.p
   vs warm 13.16, 7.98, 7.81, 7.75, 7.90 s. Runs 4–6 of both arms are equal within 0.15 s; the median
   is carried by each arm's run_2/run_3, which are high in both arms (cause not examined). Two
   containers per cold run cannot resolve a per-container cost against that noise.
+- **OpenWhisk: C3 and C3u both fail** (the only platform where both do), so §32's pre-registered
+  clause applies: no cold-start CPU cost is resolvable above run-to-run noise with this instrument
+  (OpenWhisk standalone; 2 containers per cold run). Raw untracked CPU-s: cold 13.60–14.75, warm
+  12.77–15.34 (cold not higher). Added 2026-10-08 from the review below (item 2).
 - **Fn.** C3 and C3u hold with full separation (cp 3.55–3.78 vs 3.31–3.40 s; untracked − instrument
   38.2–46.3 vs 26.5–28.7 s). Per the pre-registered interpretation, a cold start's CPU on Fn is
   mostly outside the platform's containers: 234 ms host vs 5.5 ms cp per container (function CPU
@@ -4114,7 +4122,7 @@ quoting OpenWhisk's 436 ms cp per cold start or C3b as a finding; reading C3's f
 "no cp cost" (§32 interpretation rule). Any later Knative cold-vs-warm comparison should pre-grow
 the warm pool to the cold arm's final size before the first usable run.
 
-**Review of §32.1 (2026-10-05, after commit; checked on disk). Open: wording fixes to make later.**
+**Review of §32.1 (2026-10-05, after commit; checked on disk). Items 1–2 closed 2026-10-08** (item 1 needed no text change; item 2 added to §32.1, G-T1 and the Part G index bullet).
 The reviewer reproduced every verdict and number of §32.1 from the raw run files; no data defect.
 1. *Overstatement, B3.* Commit 75702f4's message and the chat summary say "Fn B0–B4 hold". B3 has
    no prediction (§32, as §31.5), so it cannot hold. Correct: **B0, B1, B2, B4 hold; B3 not predicted.**
