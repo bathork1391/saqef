@@ -1,4 +1,4 @@
-# Next steps (kept current; last updated 2026-10-08, items 0–1 done)
+# Next steps (kept current; last updated 2026-10-08, items 0–2 done)
 
 The one place that says what is still to run or do. Details live in `TROUBLESHOOTING_RUNBOOK.md`
 (section numbers below). Results go to `../saqef-paper/VERIFIED_RESULTS.md`.
@@ -13,7 +13,9 @@ The one place that says what is still to run or do. Details live in `TROUBLESHOO
 Recommended order, all offline (no machine time):
 - Done 2026-10-08: (0) §32.1 review wording (OpenWhisk C3 + C3u "not resolvable above noise" in §32.1,
   G-T1 and the Part G bullet; B3 needed no text change); (1) `tests/test_runbook_numbers.py` (§31.18 D).
-2. Final paper draft from V5, now that every workload is in (VERIFIED_RESULTS Parts A–H).
+2. Final paper draft: first full draft written 2026-10-08, `../saqef-paper/papers/final/SAQEF_final_draft.md`
+   (+ .pdf/.docx via `convert_final.py`; what changed vs V5 in `CHANGES_FROM_V5.md`). A fresh paper on
+   Parts A, C–H only (user decision: no V5/Part B results). Next: user review, then revise.
 3. Within-run power-vs-load check (§25.6) on the `cold_` legs (first data with `host_busy_ticks`).
 Optional loose ends: Knative C4 (cold later bursts 17 % faster than warm at equal pods) and
 OpenWhisk run_2/run_3 high cp in both W4 arms (§32.1); both causes not examined.
