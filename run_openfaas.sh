@@ -1,0 +1,161 @@
+#!/usr/bin/env bash
+# run_openfaas.sh - one-command SAQEF runner for OpenFaaS (Docker Swarm), the
+# OpenFaaS counterpart of run_saqef.sh (Fn). Mirrors its conventions exactly so
+# both platforms are driven the same way (protocol parity is a gate condition).
+# Usage: ./run_openfaas.sh [stack|scale|check|verify|bench|gates|all]
+#   stack  -> (re)deploy the swarm stack from OPENFAAS_DEPLOY/ (idempotent) + wait for gateway
+#   scale  -> static replica scale of the hello function service (concurrency parity, §6 Step 1.5)
+#   check  -> environment sanity (docker, RAPL, cgroup map, hey)
+#   verify -> confirm the deployed function really burns ~5 ms CPU/invocation
+#   bench  -> gold-standard run (cgroup sampler + delta-check + hey; count-bound:
+#             exactly $TOTAL requests, --duration is a SAFETY cap, not a hard stop)
+#   gates  -> print the accept/reject table for the runs (incl. CP cgroup mapping)
+#   all    -> stack, scale, check, verify, bench, gates
+#
+# Env overrides for faster iteration:
+#   SAQEF_TOTAL SAQEF_CONCURRENCY SAQEF_DURATION SAQEF_WARMUP SAQEF_REPEAT
+#   SAQEF_FN_IMAGES SAQEF_REPLICAS SAQEF_OUT
+#   SAQEF_IDLE_W (machine-measured idle package watts for the energy model; default = 30)
+#   SAQEF_CPU_COUNT_OVERRIDE (use instead of /proc/cpuinfo's count for saturation ceilings;
+#     required if the platform is cpuset/taskset-pinned to fewer cores than this machine has)
+#   e.g.  SAQEF_TOTAL=600 SAQEF_REPEAT=1 ./run_openfaas.sh bench
+#   If SAQEF_REPEAT < 5, results go to <SAQEF_OUT>_quick (never the final
+#   outdir), so a 1-run pass cannot be mistaken for the 5-run publication set.
+set -uo pipefail
+
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$REPO"
+
+URL="http://127.0.0.1:8080/function/hello"
+PLATFORM="openfaas"
+# Prefixed with the swarm stack name: a bare "gateway" substring collides with
+# Knative's "kourier-gateway" pod containers (k3s/Knative stays resident on
+# this box across platforms) and silently folds its CPU into cp_cpu_s. Swarm
+# always names tasks "openfaas_<service>.<slot>.<id>" (stack name is
+# hardcoded below in setup_stack), so this prefix is exact, not a guess.
+CP="openfaas_gateway,openfaas_faas-swarm,openfaas_prometheus,openfaas_nats,openfaas_queue-worker,openfaas_alertmanager"
+FN_IMAGES="${SAQEF_FN_IMAGES:-hello}"
+FN_IMAGES_ARG=""
+[ -n "$FN_IMAGES" ] && FN_IMAGES_ARG="--fn-images $FN_IMAGES"
+OUT="${SAQEF_OUT:-results/openfaas_cpubound}"
+IDLE_W="${SAQEF_IDLE_W:-}"
+IDLE_W_ARG=""
+[ -n "$IDLE_W" ] && IDLE_W_ARG="--idle-w $IDLE_W"
+CPU_COUNT_OVERRIDE="${SAQEF_CPU_COUNT_OVERRIDE:-}"
+CPU_COUNT_OVERRIDE_ARG=""
+[ -n "$CPU_COUNT_OVERRIDE" ] && CPU_COUNT_OVERRIDE_ARG="--cpu-count-override $CPU_COUNT_OVERRIDE"
+HOST_CPU_LIST="${SAQEF_HOST_CPU_LIST:-}"
+HOST_CPU_LIST_ARG=""
+[ -n "$HOST_CPU_LIST" ] && HOST_CPU_LIST_ARG="--host-cpu-list $HOST_CPU_LIST"
+# Protocol default is 16 static replicas (GIL concurrency parity -- static
+# replicas, never single-replica; see the V5 project log). Set SAQEF_REPLICAS explicitly
+# for anything else.
+REPLICAS="${SAQEF_REPLICAS:-16}"
+VERIFY_N=100
+VERIFY_BUDGET_MS=5
+TOTAL="${SAQEF_TOTAL:-3000}"
+CONCURRENCY="${SAQEF_CONCURRENCY:-20}"
+DURATION="${SAQEF_DURATION:-60}"
+WARMUP="${SAQEF_WARMUP:-20}"
+REPEAT="${SAQEF_REPEAT:-5}"
+FULL_REPEAT=5
+
+setup_stack() {
+  echo "=== [stack] (re)deploy OpenFaaS swarm stack from OPENFAAS_DEPLOY/ ==="
+  # advertise-addr 127.0.0.1: single-node swarm; wifi/multi-homed hosts otherwise
+  # fail to auto-pick an address ("could not choose an IP address to advertise")
+  docker swarm init --advertise-addr 127.0.0.1 >/dev/null 2>&1 || true
+  (cd OPENFAAS_DEPLOY && docker stack deploy openfaas -c docker-compose.yml) || exit 1
+  echo "waiting for gateway (0.8.3, no auth) at $URL ..."
+  for i in $(seq 1 45); do
+    curl -sf http://127.0.0.1:8080/version >/dev/null 2>&1 && break
+    sleep 2
+  done
+  docker service ls
+}
+
+setup_scale() {
+  echo "=== [scale] hello function replicas -> $REPLICAS (concurrency parity: GIL-bound single process is ~1-way) ==="
+  if ! docker service ls --format '{{.Name}}' | grep -qx hello; then
+    echo "ERROR: no 'hello' swarm service - deploy the function first (docs/OPENFAAS_SETUP.md §4)"; exit 1
+  fi
+  docker service scale hello="$REPLICAS"
+  for i in $(seq 1 30); do
+    docker service ls --format '{{.Name}} {{.Replicas}}' | awk '$1=="hello" {print $2}' | grep -qx "$REPLICAS/$REPLICAS" && break
+    sleep 2
+  done
+  docker ps --format '{{.Names}}' | grep hello || echo "WARNING: no hello containers visible"
+}
+
+run_check() {
+  python3 saqef_harness.py --check
+}
+
+run_verify() {
+  python3 saqef_harness.py --verify --sampler cgroup \
+    --url "$URL" --platform "$PLATFORM" --cp-containers "$CP" \
+    $FN_IMAGES_ARG \
+    --verify-n "$VERIFY_N" --verify-budget-ms "$VERIFY_BUDGET_MS"
+}
+
+run_bench() {
+  if [ "$REPEAT" -lt "$FULL_REPEAT" ]; then
+    echo ""
+    echo "#######################################################################"
+    echo "# QUICK/ITERATION RUN: SAQEF_REPEAT=$REPEAT < $FULL_REPEAT             #"
+    echo "# Results written to ${OUT}_quick - NOT for publication.              #"
+    echo "# Run 'SAQEF_REPEAT=$FULL_REPEAT ./run_openfaas.sh bench' for finals. #"
+    echo "#######################################################################"
+    echo ""
+    python3 saqef_harness.py --url "$URL" --platform "$PLATFORM" --cp-containers "$CP" \
+      $FN_IMAGES_ARG $IDLE_W_ARG $CPU_COUNT_OVERRIDE_ARG $HOST_CPU_LIST_ARG \
+      --total "$TOTAL" --concurrency "$CONCURRENCY" --duration "$DURATION" \
+      --warmup "$WARMUP" --repeat "$REPEAT" \
+      --sampler cgroup --delta-check --loadgen hey --outdir "${OUT}_quick"
+  else
+    python3 saqef_harness.py --url "$URL" --platform "$PLATFORM" --cp-containers "$CP" \
+      $FN_IMAGES_ARG $IDLE_W_ARG $CPU_COUNT_OVERRIDE_ARG $HOST_CPU_LIST_ARG \
+      --total "$TOTAL" --concurrency "$CONCURRENCY" --duration "$DURATION" \
+      --warmup "$WARMUP" --repeat "$REPEAT" \
+      --sampler cgroup --delta-check --loadgen hey --outdir "$OUT"
+  fi
+}
+
+run_gates() {
+  GATES_OUT="$OUT"
+  [ "$REPEAT" -lt "$FULL_REPEAT" ] && GATES_OUT="${OUT}_quick"
+  python3 - "$GATES_OUT" <<'PY'
+import json, glob, sys
+out = sys.argv[1]
+print("per-run gate table (pass: delta% ~ 0, CPmapped=6/6, host_plausible=true, host_sat%% <= 105, 95 <= coverage%% <= 100):")
+for p in sorted(glob.glob(out + "/run_*")):
+    s = json.load(open(p + "/summary.json"))
+    cov = round(100 * s["sampling_covered_s"] / s["wall_s"], 1) if s["wall_s"] else 0.0
+    m = s.get("delta_check_map") or {}
+    okmap = sum(1 for v in m.values() if v == "ok")
+    nfn = sum(1 for n in s.get("container_inventory", []) if n.startswith("hello"))
+    hcw = s.get("host_cpu_sec"); hsat = s.get("host_saturation_pct"); hpl = s.get("host_plausible")
+    satflag = "  <-- QoS CONTENTION-CONTAMINATED (>=85%): do not cite latency" if s.get("host_saturated") else ""
+    covflag = "  <-- COVERAGE INVARIANT BROKEN (>100%): do not cite" if cov > 100 else ""
+    hostflag = "  <-- HOST IMPLAUSIBLE (host_cpu_s > cpu_count*host_window*1.05): do not cite host metrics" if hpl is False else ""
+    print("  %-7s delta%%: %-7s delta_s: %-6s cp_cpu_s: %-6s fn_cpu_s: %-6s CPmapped: %s/%s fn_replicas: %s unclass: %s host_cpu_s: %-7s host_sat%%: %-6s host_plausible: %-5s coverage%%: %s%s%s%s"
+          % (p.split("/")[-1], s.get("cp_sampler_vs_delta_pct"),
+             s.get("cp_delta_sec"), s["cpu_sec"]["control_plane"], s["cpu_sec"]["function"],
+             okmap, len(m), nfn, s["unclassified_cpu_s"], hcw, hsat, hpl, cov,
+             satflag, covflag, hostflag))
+med = json.load(open(out + "/summary.json"))
+print("median: cp_dynamic_share_pct=%s  slo_compliance=%s  throughput_rps=%s"
+      % (med.get("cp_dynamic_share_pct"), med.get("slo_compliance"), med.get("throughput_rps")))
+PY
+}
+
+case "${1:-all}" in
+  stack)  setup_stack ;;
+  scale)  setup_scale ;;
+  check)  run_check ;;
+  verify) run_verify ;;
+  bench)  run_bench ;;
+  gates)  run_gates ;;
+  all)    setup_stack && setup_scale && run_check && run_verify && run_bench && run_gates ;;
+  *) echo "usage: $0 [stack|scale|check|verify|bench|gates|all]"; exit 1 ;;
+esac

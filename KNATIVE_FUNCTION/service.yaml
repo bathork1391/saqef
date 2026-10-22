@@ -1,0 +1,15 @@
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: hello
+  namespace: default
+spec:
+  template:
+    metadata:
+      annotations:
+        autoscaling.knative.dev/minScale: "16"
+        autoscaling.knative.dev/maxScale: "16"
+    spec:
+      containerConcurrency: 4
+      containers:
+        - image: localhost:5000/saqef/kn-hello:0.0.1

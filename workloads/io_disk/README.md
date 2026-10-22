@@ -1,0 +1,3 @@
+# W5 I/O handlers, disk arm (runbook §36)
+
+SAQEF_IO = "disk": each call overwrites the same 4 KiB at offset 0 of one file per process under the container's `/var/tmp` (its writable layer; OpenWhisk action containers take no volume; Fn mounts `/tmp` as tmpfs and its root read-only, so Fn runs this arm with `FN_DISABLE_READONLY_ROOTFS=1`) and fsyncs it. Fixed operation, not tuned to 5 ms. Identical to the other three W5 arms except that one line (tests/test_saqef_cli.py checks it). `tools/workload.sh swap io_disk` copies the four files over the CPU-bound handlers; `restore` puts those back. Requests are bare GETs. Unmeasured check: `tools/workload.sh probe-io disk`.

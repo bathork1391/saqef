@@ -1,0 +1,5167 @@
+# SAQEF troubleshooting & runbook
+
+Everything that bit us during the 2026-08-07 overnight session, the root cause,
+and the fix — so the same problem is a five-minute check next time instead of a
+night. **Read this before any measurement session.**
+
+**This file is also the canonical bug ledger for the whole project** (retrofitted
+2026-08-14): every distinct bug found across this project's review history belongs here,
+in one place, ordered roughly by discovery — not scattered across the V5 project log's dated
+session narratives, and not duplicated into a separate ledger file, which would just be a
+second thing to keep in sync with this one. Items 1–11 predate this convention and stayed
+scoped to measurement-session operational gotchas; items 12 onward cover the full range
+(carbon math, container-matching logic, isolation policy, tooling), each with an explicit
+**Verification** note distinguishing *re-derived directly from the current source or diff*
+from *reported by a prior review pass and not independently re-checked here* — the
+discipline every future entry should follow. A description of a fix is not the fix; when
+in doubt, trace to the file, not to a summary of the file.
+
+## Index: symptom → section (check here first)
+
+Added 2026-10-03. One line per known problem, so a repeat is a lookup, not a night. Append a row
+whenever a new section records a bug, a gotcha or a "do not repeat".
+
+| Symptom / question | Section |
+|---|---|
+| Shares drift ~0.5–1 pp; interactive applications or desktop running during a session | §1, §2, Quiet-box runbook |
+| `FATAL: box not quiet` on Knative c=8 (15–18 %) | §28.9 A (settle after verify) |
+| Judging current CPU load from `ps %CPU` (it is a lifetime average) | §28.9 corrections |
+| OW HTTP 429 at bench speeds | §4 |
+| OW cannot spawn action containers (docker API 1.38 rejected) | §5 |
+| OW runs truncated by the 60 s duration cap; loadgen falls back to Python | §6, §11 |
+| OW throughput decays run over run; dockerd CPU climbs | §24.8 table (`owhead1`, log cap), §28.9 D |
+| OW "invoker child processes" ≈ 12–13 ms/inv: what are they? | §28.9 D (`docker logs` per activation, standalone only; `SAQEF_OW_LOGSTORE=driver` removes it) |
+| OW JVM dies in run 3 at 512 KiB (in-memory activation store) | §28.7 |
+| OW headline share includes the discarded warm-up | §27.11 |
+| k3s stuck "activating" after reboot | §10 |
+| `docker stack rm openfaas` leaves the `hello` service | §7 |
+| Container-name collisions (`gateway`, `kn-hello`) misattribute CPU | §13, §14 |
+| Carbon 1000× too large | §12 |
+| RAPL counter wraparound mis-corrected | §15 |
+| "RAPL FIT > 15 %, NOT citable" warnings | §25.1 (retired 3.5 W/core model; warn only) |
+| Probe and calibration idle W disagree; which energy basis to cite | §27.8 (probe basis), §28.9 E |
+| CPU attributed outside the load window / pre-first-sample CPU lost | §19, §20, §22 |
+| A total read as a rate (60×); analyses over the wrong runs | §23 (always read `acceptance.json`) |
+| Drift gate passed a leg whose throughput rose 40 % | §28.9 C (one-sided; two-sided is not the fix) |
+| Is the run-to-run noise caused by short runs? Should TOTAL go down? | §28.9 B (no, and no) |
+| Bridge outside ±10 %: is that a day-to-day shift? | §28.9 (not quantifiable from n = 5 short runs) |
+| `cp_anatomy.py --prefix payload_ --legs '*'` picks up amendment legs | §28.9 tooling 2 |
+| git "dubious ownership" as root; handlers not restored | §28.7 bug 1 |
+| `execsnoop-bpfcc` fails on kernel 7.0 | §28.7 bug 5 (bpftrace; argv via `join`, §28.9) |
+| Gate step crashes on `median(None)` (0-success run) | §28.7 bug 4 |
+| `_r2` retry fails the quiet gate right after a Knative teardown | §28.7 bug 3, §28.9 A |
+| OW throughput capped ~100–110 rps at every c: why? | §29.1 Q4 (the per-activation `docker logs` collector; driver store reaches ~305 rps) |
+| OW first usable run's cp 10–24 % above the rest | §29.1 post hoc 2 (median absorbs it; no action) |
+| Untracked host ms/inv differs between legs with the same config | §29.4 item 1 (idle floor × wall; use `tools/untracked_dyn.py`) |
+| `git_rev: unknown` / `git_dirty: false` in run JSON | §29.4 item 4 (sudo + dubious ownership; fixed) |
+| verify prints function CPU of seconds per invocation | §29.4 item 5 (no allowlist/window; fixed) |
+| `workload.sh swap` returned 0 although `cp` failed (root-owned handlers) | §30.6 (swap now dies and verifies the copy) |
+| OW web action returns HTTP 204 with an empty body | §30.6 (dict result without `body`; W2 handler returns `body`) |
+| Fn reply is `str(dict)` with single quotes; a `"`-only regex misses it | §30.6 |
+| `FATAL: box not quiet` after settle passed (any platform) | §29.2 A (7–8 % idle floor of the stacks; settle now uses 20 s windows) |
+| Quiet gate fails on most legs; containerd + dockerd ≈ 1–1.9 cores with no traffic and no docker events | §30.7 B, D (docker leftovers: unused anonymous volumes + dangling images; confirmed by prune; `--hygiene`) |
+| Quiet-gate "top CPU processes" blames java/containerd | §29.2 B (old list was lifetime `ps %CPU`; now window `/proc` deltas) |
+| OW (driver store) flat at ~305 rps from c = 4 to c = 8 | §29.2 D (only 2 action containers: user-memory 1024 MB; light platforms run 16) |
+| `git_dirty: true` in every W1/W2 run JSON | §30.10 E (the arm swap into tracked handler paths; check box_state handler hashes, not the flag) |
+| Idle probe 0.7–1.5 W above the session calibration on every light-platform leg (‡) | §30.10 E (both arms alike; probe basis is the rule; within-session ratios unaffected) |
+| Did docker leftovers bias earlier sessions? (idle floor per session) | §30.11 B (Part A and W1 no; `mem_` yes, cp +34–78 % (confounded with a capped clock, §31.14 D); OW cli +15 % residual and §28.8 bridge: candidate cause) |
+| Why does dram inflate cp on Fn and Knative but not OpenFaaS or OpenWhisk? | §30.11 A (post hoc; start-up, CPU saturation and pinning ruled out; cache/bus interference inferred, not measured) |
+| hey drops timed-out / refused requests from its CSV; availability = 2xx / rows overstates success | §31.6 (closed loop: the INCOMPLETE gate already voided such runs, 8 of 680; W3 counts attempted − rows as failures; audit §31.8: nothing masked, no re-run) |
+| "Log store does not cap OW throughput" (smoke test) | §29.2 C (wrong; corrected by §29.1 Q4) |
+| Pre-flight says "not pre-registered" though the line is committed | §30.9 (`git show | grep -q` SIGPIPE race under pipefail; fixed) |
+| Fn burst legs (W3) FAIL `run_1 SAMPLING GAP` 1.8–3.3 s, runs 2–5 clean | §31.9 (hot pool grows 10 → 68–99 containers in run_1; legs missing under rule 2; not a box problem) |
+| Fn returns HTTP 500 during the first bursts of a run | §31.9 B (post hoc, 0.4–2.3 % while the pool grows, 0 after; W4 candidate) |
+| OpenFaaS drains a 500-burst at ~360 rps although steady does 981, host idle | §31.9 A (B2 fails; gateway/watchdog queueing, cause not examined) |
+| `idle_crosscheck.py` FileNotFoundError for `lock_session_<prefix>calib` | §31.9 C (calibration lives in `idle_w_calibration/lock_<prefix>calib`) |
+| Sampling gap when many containers start at once (Fn bursts) | §31.11 (sampler ran one `docker inspect` per new container on its own thread; fix §31.12 `SAQEF_SAMPLER_DEFER_NAMES=1`) |
+| "Sampling gap = CPU totals wrong"? | §31.11 (no: cumulative counters; gap costs time resolution; cp cross-check unchanged) |
+| Fn pool at window start is not cold / differs between burst and steady legs | §31.11 (`--verify` fires min(c, 100) calls: ~20 containers in burst legs) |
+| Fn HTTP 500s: rejection or timeout? | §31.11 (fast rejections in container-creating bursts; no logs kept, W4 harvests them) |
+| Re-running only failed legs of a closed session | §31.13 (amendment: missing legs only; B2/B4 need in-session steady, so not evaluable) |
+| cp ms/inv up 20–35 % with function CPU flat; `freq_mhz_after` stuck at 2400–2600; idle-w ~1.5 W low | §31.14 C (laptop firmware caps the CPU at base clock at low battery / charger not charging; OS shows `performance`; pre-flight check 8 now blocks it) |
+| Pre-flight: `CPU held at N MHz under load` / `not on mains power` / `battery is discharging` | §31.14 F (power gate; use the full-power charger, let the battery charge) |
+| Session stopped with exit 8 `power lost before leg` | §31.14 F (charger unplugged mid-session; legs already done are kept) |
+| `freq_mhz_after` low (400–2600) in an uncapped leg | §31.15 anchors (idle reading after the run; only all runs pinned at 2400–2600 marks a cap) |
+| Re-running a leg whose data was spoiled by a box fault | §31.15 (same design, only the fault removed; P0 citability check; last session for those legs) |
+| `mem_` cp +34–78 % vs `mem2_`: leftovers? | §31.14 D (corrects §30.11 B.1: confounded with a capped clock at 32–35 % battery; not separable) |
+| `git_dirty: true` in a session whose pre-flight passed (31.15) | §31.16 C (an untracked file outside the measurement path, `drafts/`; the harness flag counts any `git status` line, pre-flight only the measurement path) |
+| "OpenFaaS 0.8.3 has no scale API" / why OF is not in W4 | §31.17 B (it has `/system/scale-function`; no scale-from-zero path; the alert fires on `code="200"` only) |
+| Which sessions ran on battery / capped? Does anything need a re-run? | §31.17 C (upower history per session; only `mem_` and 31.13; no) |
+| Can AC and battery give the same performance? | §31.17 D (firmware cap; only a fixed low clock equalises, breaks comparability; stop on battery) |
+| What are the missing W1 / owlog cells, would a retry work? | §31.17 E |
+| Knative pods stay `Terminating` ~300 s after scale-down / teardown | §32 design (PID-1 python server ignores SIGTERM; grace = revision timeout 300 s; W4 waits it out) |
+| OpenWhisk action update leaves the old action containers running | §32 design (they serve nothing; the invoker replaces them at the next request; W4 removes them before a cold run) |
+| W4 session stopped by a power cut: what now? | §32 rule 3 (`go.sh --workload cold --part 2` runs only incomplete blocks) |
+| W5 slot stopped by a power cut (`io_b_` 2026-10-20): resume or fill? | §36.7 (no: the slot is void and repeated whole as `--block B2`, prefix `io_b2_`, §36.8) |
+| W4 Knative warm pool smaller than the cold arm's (9–16 pods; warm runs create pods) | §32.1 post hoc (from a small pool the autoscaler grows over ~4 runs; cold goes 0 → 16 at once) |
+| W4 OpenWhisk cp per cold start 436 ms / C3b "OW highest" | §32.1 (not supported: C3 fails, 2 containers per run, run_2/3 high in both arms) |
+| Revisiting a missing cell in a later session | §33 (pre-registered amendment, same table with a footnote, bridge rule for pooling) |
+| Same cell, CPU reproduced across sessions, energy per inv differs 20–40 % | §33.1 / §33.2 post hoc (energy is within-session only; never bridge mJ/inv) |
+| Battery "Not charging" at 90 %+ with AC online | §33.2 (upower: `fully-charged`, ~0 W battery flow; not the §31.14 cap; the clock check decides) |
+| When does Fn create containers in a burst / are the 500s before them? | §34.1 (first birth 0.24–0.61 s; 48 per first wave; burst-0 500s precede the first birth) |
+| Is power linear in busy cores? Within-run check of §25.6? | §34.2 (sublinear within each light platform; with the idle floor out of the busy cores too (§34.2 B) α 0.45–0.64, 6.6–8.6 → 3.4–3.6 W per busy core; within-run not possible before W4: no host CPU per trace row) |
+| Does the platform's fee look the same as latency as it does as CPU? | §34.3 (light platforms: Knative largest both ways, OF/Fn swap at 0.1 ms resolution; OW log collector 18 ms CPU but 2.7 ms latency: off the critical path) |
+| Fn: disk write + fsync takes ~6 µs (never reaches the device) | §35.1 (Fn function containers: read-only root, `/tmp` on tmpfs; W5 disk arm writes `/var/tmp` with `FN_DISABLE_READONLY_ROOTFS=1`) |
+| Probe deploy fails on OpenFaaS/OpenWhisk right after a failed Fn deploy | §35.1 (failed deploy left fnserver on :8080; `probe-io` now tears down on deploy failure) |
+| W5 design, predictions and decision rules (I/O and mixed functions, plain-Docker target) | §36 |
+| A count of cells "within ±15 %" differs from a hand count by one (ratio 0.850 on the boundary) | §36.10 (count on unrounded values; W5 P1 disk is 8 of 12) |
+| W6 design, predictions, success floors (`SAQEF_MIN_SUCCESS_FRAC`), half-load rate (`SAQEF_QPS`), OpenWhisk 16 vs 2 | §38 |
+| `INCOMPLETE 2944/3000` on a c = 64 leg (hey sends TOTAL // c × c requests) | §38.6, §38.7 (over legs use 3008) |
+| W6 probe FAILS on Knative fail20 (16 % at c = 1, 24 % at c = 8, want 20 ± 3); slot B stops, nothing measured | §38.9 (per-pod counters over 16 pods round off; probe now 2000 GETs per phase on Knative) |
+| Can OpenWhisk standalone run more than 2 action containers? Does it change its numbers? | §38.10 (measured: 10 containers at c = 4/8, cp 0.95 / 1.153 ×, rps 1.64 / 2.36 ×; why 10, not 16); §37 is the earlier unmeasured smoke test |
+| "Untracked host ms/inv" read as orchestration cost | §31.18 A (mostly hey, sampler, dockerd, kernel; not a platform metric) |
+| Sub-100 ms timing claims from samples.csv | §31.18 B (sampler ~19 Hz: not resolvable; CPU totals unaffected) |
+| acceptance.json says "RAPL FIT ... NOT citable" on a citable leg | §31.18 A (model fit, warn only; RAPL energy unaffected) |
+| idle-w "bare" state read as a bare host | It is the k3s + Knative Serving + Kourier substrate with no function (`run_lock_session.sh` calibrate_all); the substrate stays up in every leg. Knative's +2.2 W is its 16 pods over the substrate, not substrate + pods (VERIFIED_RESULTS T11; paper §5.3, fixed 2026-10-12) |
+| `run_tier1_conc.sh --stamp-prefix=PFX` writes to a literal "--stamp-prefix=..." stamp | parameter-expansion typo, fixed 2026-10-12; no cited session used the `=` form |
+| session.log: "run_final.sh: line 472: agents_running: command not found" | §36.6 (stale name in `wait_for_box`; pre-flight check 6 still enforced; fixed 2026-10-20) |
+
+## 1. Noisy-neighbor contamination from background processes (incl. this interactive session)
+
+**Symptom:** `host_saturation_pct` reads much higher than expected for the same
+protocol on the same box (e.g. 91.5% on one run vs 83% on the identical run an
+hour earlier), and Fn's `cp_dynamic_share_pct` drifts up ~0.3–1 pp between days
+with no code change.
+
+**Root cause:** cgroup CPU-time is *wall-time-on-core*, and that is sensitive to
+host contention through three second-order channels:
+1. **Cache pollution** — a big background process (one was at ~276% CPU,
+   1.1 GB RSS, 532 min CPU) evicts the platform's working set, so the control
+   plane refetches data → more real CPU cycles per request → higher `cp_cpu_s`.
+2. **Context switches / scheduling** — same work, more CPU-time on-core.
+3. **DVFS** — powersave governor on a busier host keeps cores at lower clocks;
+   a request that needs N cycles then consumes more CPU-*time*, inflating the
+   share even though the cgroup counter is nominally "frequency-invariant".
+
+**Which metrics are affected:**
+- `host_saturation_pct`, `host_plausible`, latency/QoS percentiles: **directly
+  corrupted** (background CPU is part of the host busy ticks).
+- `cp_dynamic_share_pct`: **robust but not bit-exact** — a ratio of the
+  platform's own cgroup CPU-times, so a background spinner cannot move it
+  wildly (it cannot turn 12 into 25), but the second-order channels can move it
+  ~0.5–1 pp.
+- Energy/carbon + idle-w calibration: need a quiet box.
+
+**Fix / protocol:**
+- **Automated (added 2026-08-09):** the harness now runs an **ambient-load quiet
+  gate** before every bench — it samples whole-host busy CPU over a 20 s window
+  (`--ambient-window-s`) and **refuses to start** above `--max-ambient-cpu-pct`
+  (default 15%, ~1.2 cores on 8 — a 2.8-core interactive application reads ~35%). The reading and a
+  top-CPU `ps` snapshot are written into `summary.json` → `ambient`, so "quiet box"
+  is a *measured, self-certifying precondition*, not a manual assertion. Override
+  with `--no-quiet-gate` only for exploratory runs and the contamination A/B tool
+  (a citable run must never need it). Manual fallback for a bare-shell eyeball:
+  `uptime` load < ~0.5 and `ps aux --sort=-%cpu | head` shows nothing > 5% CPU.
+- **Measure the contamination bound (not just assume it):**
+  `python3 tools/contamination_ab.py --platform fn` runs the same bench with the
+  quiet gate active (clean leg) vs an emulated 3-core + 1.1 GB interactive application signature
+  (dirty leg, gate disabled) and reports the measured delta on
+  `cp_dynamic_share_pct`, `host_saturation_pct`, p50/p99, throughput → the honest
+  "how much does an interactive-application load actually move our numbers on THIS box"
+  figure for §7. Run it from a bare shell with interactive applications quit; REPEAT=3 default is a
+  `_quick` outdir (bump `--repeat 5` if it becomes a citable methodology figure).
+- Treat `host_saturation_pct` from any interactively attended session as unreliable.
+- When day-over-day Fn drift is observed, run a **same-day A/B** against the old
+  runner (`run_saqef.sh all`) before trusting any reference or gate verdict.
+
+## 2. Fn share drifts day-to-day (10.46 → 11.60 → 12.27)
+
+**Symptom:** same protocol, same box, `cp_dynamic_share_pct` rises across days.
+
+**Root cause (verified, not cached values):** `fnserver` per-request CPU cost
+measured 0.61 ms (08-05) → 0.75 ms (08-06) → 0.79 ms (08-07) while `fn_cpu_s`
+stayed flat at ~56 s every day. Not result-caching (every session deploys a
+fresh fnserver) and not saturation from stored results (JSON files are inert).
+It is host-state + noisy-neighbor drift (see #1): fnserver does the same work
+but the host around it is more contended each day.
+
+**Fix:** the regression gate's fixed 0.5 pp tolerance is tighter than Fn's
+day-to-day envelope on this box. The gate still catches refactor-scale breaks
+(0%/100% success bugs, argv drift); it cannot adjudicate ~0.5 pp box noise.
+Recalibrate the Fn reference with a **same-day old-runner A/B** on a quiet box
+(the established 2026-08-06 procedure), never by loosening the tolerance.
+
+## 3. Regression gate FAIL on Fn after the refactor
+
+**Symptom:** `saqef regression` reports Fn dev 0.67 pp > 0.5 pp tolerance.
+
+**Diagnosis:** check the per-run gate table first — if delta% ~0, CPmapped 1/1,
+host_plausible true, coverage 100%, and the 5 runs are flat, the run itself is
+clean and the deviation is the reference/box, not the refactor. Then run the
+old-runner A/B (`SAQEF_OUT=results/fn_cpubound_crosscheck2 ... run_saqef.sh all`):
+today old = 12.92 vs refactored = 12.27, same noise envelope as 2026-08-06
+(11.60 vs 11.96). A refactor that changes the harness argv cannot produce this
+(the tests pin byte-identical argv; the measurement is the same harness as a
+subprocess).
+
+**Fix:** recalibrate the Fn reference from the quiet-box old-runner value with
+full provenance in `metrics/cpubound.json` → `regression.reference_notes`, then
+re-run `saqef regression`. OpenFaaS's reference (7.67) is stable and has never
+required this.
+
+## 4. OpenWhisk 60/min throttle (the 429 wall)
+
+**Symptom:** ~40% HTTP 429 "Too many requests" at bench speeds; verify and bench
+availability silently corrupt.
+
+**Root cause:** Apache OpenWhisk standalone default is
+`limits-actions-invokes-perMinute = 60` per action. The key is enforced by
+WhiskConfig from the **`whisk-config.`-prefixed dotted path**
+(`whisk-config.limits.actions.invokes.perMinute`); the kebab-case keys in
+`standalone.conf` under `whisk.config` are a separate, unread path. `JVM_EXTRA_ARGS`
+flows through `/init` into `java`, so raise the limits via system properties
+(both spellings, for safety): per-minute 1e9, concurrent 1000, trigger-fire 1e9.
+
+**Fix:** already in `platforms/openwhisk.py` (`OW_JVM_ARGS`). Verify 300/300 →
+204 after the fix.
+
+## 5. OpenWhisk standalone's obsolete docker client
+
+**Symptom:** the standalone JVM's embedded 2018 docker client (API 1.38) is
+rejected by host dockerd ≥ 29 → invoker can't spawn action containers.
+
+**Root cause:** API version mismatch kills the pull/run path.
+
+**Fix:** `deploy()` shadow-mounts a modern STATIC docker CLI at `/usr/bin/docker`
+in the container (`vendor/docker`, fetched from download.docker.com; gitignored).
+Stale extract-leftover directories must not satisfy the existence check.
+
+## 6. OpenWhisk is slow → the 60 s duration cap truncates runs
+
+**Symptom (anticipated):** OW does ~65 rps at c=4, so 10000 requests ≈ 154 s/run.
+The default `--duration 60` safety cap makes the loadgen subprocess kill-switch
+`deadline_s + 120 = 180 s` — margin of only ~26 s over the expected run length.
+
+**Fix:** run OW with `--duration 300` (or larger). Runs stay count-bound
+(`-n total`, exactly N requests); `--duration` is only the kill-switch + the
+`wall > duration*1.1` warning threshold.
+
+## 7. `docker stack rm openfaas` leaves the `hello` function service
+
+**Symptom:** OpenFaaS's `hello` service (deployed outside the stack) survives
+`docker stack rm openfaas`; its replicas fold into a later Fn run's `fn_cpu`
+via the shared `hello` image name and silently taint the headline number.
+
+**Root cause:** `hello` is a `docker service create`, not part of the stack.
+
+**Fix:** always `docker service rm hello` before Fn. Enforced automatically by
+the data-driven isolation guard (`--forbidden-services *` for Fn/OpenWhisk) at
+the top of every bench run.
+
+## 8. `results/verify.json` clobbering
+
+**Symptom:** an OpenWhisk verify overwrote the tracked `results/verify.json`
+working artifact.
+
+**Root cause:** `cmd_verify` passed `--out` to `harness_argv`, but the verify
+branch never emits `--outdir`, so writes went to the harness's default.
+
+**Fix:** `cmd_verify` now pins `--outdir` explicitly, defaulting to
+`results/<platform>_verify`. Cross-platform verifies can no longer collide.
+
+## 9. Replica defaults
+
+- `run_openfaas.sh` default was 4; protocol is 16 static replicas (GIL
+  concurrency parity). Fixed → 16; set `SAQEF_REPLICAS` explicitly otherwise.
+- The reviewer's "10" was Fn's *dynamic* ephemeral function-container count
+  (`fn_replicas: 10,10,10,10,8`), not an OpenFaaS under-replication.
+
+## 10. k3s stuck "activating" forever after a reboot — TLS cert issued with a future notBefore
+
+**Symptom:** `sudo systemctl status k3s` shows `Active: activating (start)` indefinitely (never
+reaches `active (running)`); `kubectl`/`k3s kubectl` fails with `x509: certificate has expired or
+is not yet valid: current time ... is before <some time a few hours in the future>`;
+`platforms/knative.py deploy()` fails at the `k3s get node` precondition check.
+
+**Root cause:** `k3s`/`docker` are systemd services with `Restart=always`, so they restart on every
+reboot of this box. k3s's dynamiclistener auto-rotates its short-lived apiserver serving cert
+(`serving-kube-apiserver.crt` + `dynamic-cert.json`) on certain restarts. If the reboot's RTC/system
+clock is briefly wrong (ahead of real time) before NTP finishes syncing, the newly-issued cert gets
+stamped with a `notBefore` in that wrong future window. Once NTP corrects the clock backward, the
+apiserver's own TLS handshake to itself rejects the cert as "not yet valid" and the server process
+never completes startup — a self-inflicted deadlock. The root CA (`server-ca.crt`, long-lived, only
+generated at cluster init) is unaffected; only the short-lived leaf cert is bad. Confirm with:
+```bash
+sudo openssl x509 -in /var/lib/rancher/k3s/server/tls/serving-kube-apiserver.crt -noout -dates
+timedatectl   # confirm System clock synchronized: yes, i.e. current time is now trustworthy
+```
+
+**Fix (~15s, no cluster data lost):**
+```bash
+sudo systemctl stop k3s
+sudo mkdir -p /var/lib/rancher/k3s/server/tls/_badcert_backup
+sudo mv /var/lib/rancher/k3s/server/tls/{serving-kube-apiserver.crt,serving-kube-apiserver.key,dynamic-cert.json} \
+  /var/lib/rancher/k3s/server/tls/_badcert_backup/
+sudo systemctl start k3s
+sleep 15 && sudo systemctl status k3s --no-pager   # expect: active (running)
+```
+k3s regenerates the deleted files from the (now-correct) clock on next start.
+
+**Downstream gotcha:** after this fix, if a Knative `hello` ksvc predates the outage, kubelet may
+be stuck retrying `KillContainer` on stale pods with `DeadlineExceeded` (dockerd itself was also
+mid-restart) — `kubectl get pods` shows nothing but `docker ps` still shows the containers Up.
+These are orphaned (API objects already deleted); safe to force-remove directly:
+```bash
+docker ps -a --format '{{.Names}}' | grep 'hello-[0-9]*-deployment' | xargs -r -n1 -P8 docker rm -f
+```
+Then `python3 saqef teardown --platform knative && python3 saqef deploy --platform knative` for a
+clean redeploy. Note the redeploy lands on a FRESH revision number (`hello-00001-...`, not
+`-00002`) since deleting+recreating the ksvc resets Knative's revision counter — this is normal,
+not a bug (fixed 2026-08-08: `deploy()` no longer hardcodes the old revision number).
+
+## 11. `run_lock_session.sh` regression: item #6's `--duration 300` fix for OpenWhisk didn't
+   survive the move to the one-file four-platform driver
+
+**Symptom (hit 2026-08-13, lock session stamp `lock2`):** every one of OpenWhisk's 5 bench runs
+printed `hey: subprocess failed (... timed out after 180 seconds); falling back` and
+`WARNING: hey unavailable/failed -> python load generator`. Downstream: `requests: 1993` against a
+`--total 10000` target (protocol never completed the count-bound run); `env.loadgen: "py"` /
+`env.loadgen_requested: "hey"` / `env.loadgen_fallback: true` on all 5 runs; median throughput
+collapsed to **8.3 rps** against this platform's established ~65–70 rps baseline; wall time per
+run stretched to ~240 s; `container_inventory` showed 4 `wsk0_*_prewarm_nodejs20` containers and 3
+`guest_hello` action containers (documented normal steady-state is exactly 2 prewarm containers,
+see item 4's adapter note) — consistent with the invoker being repeatedly re-provisioned across
+five timeout/retry cycles; every run also logged `WARNING: N.N CPU-s fell outside both cp and fn
+containers (stray container?)` (3.4–4.3 CPU-s/run — two orders of magnitude above the ~0.1–0.3
+CPU-s `unclassified_cpu_s` seen on clean runs of any other platform in the same session).
+`saqef gates`' coded checks (delta%, CPmapped, host_plausible, coverage%) all still passed and
+printed `OK` — none of them look at `requests` vs `total` or `loadgen` vs `loadgen_requested`, so
+the degraded run was not flagged automatically.
+
+**Root cause:** item 6 (above) already diagnosed and fixed this exact failure mode for the
+standalone per-platform protocol — `saqef`'s loadgen subprocess kill-switch is
+`deadline_s + 120`, so with the CLI's default `--duration 60` OpenWhisk's kill-switch sits at
+180 s while its own low throughput needs ~150 s to clear 10000 requests at c=4, leaving only ~26 s
+margin; the runbook's own reproduction commands (Quiet-box runbook section below) have used
+`--duration 300` for OpenWhisk since that fix. `tools/run_lock_session.sh` — a newer, one-file
+driver that runs all four platforms back-to-back for the same-day/same-box/quiet-gate discipline
+(review issue #2) — consolidates each platform's `deploy`/`verify`/`run`/`gates`/`teardown`
+calls into one `run_leg()` function, but that function's `$SAQEF run ...` invocation never passes
+`--duration` at all, for any platform, so every leg silently falls back to the CLI's hardcoded 60 s
+default. The platform-specific override that existed in the pre-consolidation manual protocol was
+not carried forward. (This is the second bug found in this script since it was introduced — see
+commit `bcf32ac`, a gate/summary outdir-and-platform-key bug — the script is still shaking out.)
+
+**What is and isn't tainted by this:** `env.ambient` (the quiet gate) and the freshly-calibrated
+`idle_w` for the OpenWhisk leg are both unaffected — those complete before the loadgen phase and
+were fine (`ambient.load_pct: 11.7` < 15% threshold, `idle_w: 3.960` from a clean N=5×60s
+calibration). Only the loadgen-dependent numbers are corrupted: throughput, latency percentiles,
+`requests`/`successes`, and the RAPL-derived energy/carbon figures (already separately flagged
+structurally non-citable for OpenWhisk regardless, per item 6's neighbor notes and
+the V5 project log's confidence tiering). `cp_dynamic_share_pct` (82.36% this run) is a pure cgroup
+CPU-time ratio and is plausible/consistent with prior citable OpenWhisk sessions (82.36–82.54%
+historically) — but given how much else about this leg is anomalous, treat it as an unconfirmed
+data point, not a clean fourth reproduction, until it's reproduced on a rerun that completes
+10000/10000 on `hey`.
+
+**Fix (applied 2026-08-14):**
+1. `run_leg()` now sets `local duration=60; [ "$platform" = "openwhisk" ] && duration=300` and
+   passes `--duration "$duration"` to both the `--dry-run` preview line and the real `$SAQEF run`
+   invocation — 60 s remains fine for OF/Fn/Kn given their throughput.
+2. `saqef`'s `gates_for()` now prints two more per-run flags, computed from fields that already
+   existed in every run's `summary.json` (no new instrumentation needed): `INCOMPLETE RUN` when
+   `requests != total_requested` (the harness now also records `total_requested` — it wasn't
+   captured anywhere before this fix), and `LOADGEN FALLBACK` when `env.loadgen_fallback` is true.
+   Either would have caught this run automatically instead of requiring a manual read of the log.
+   Covered by `tests.test_saqef_cli.TestGatesFlagsIncompleteAndFallback` (also asserts a legacy
+   summary missing `total_requested` degrades to "no flag", not a crash).
+3. `tests.test_saqef_cli.TestLockSessionDurationOverride` statically asserts `run_leg()`'s
+   OpenWhisk branch sets `duration >= 300` and that `--duration` reaches both the dry-run echo and
+   the real invocation — zero-cost, no docker/k3s dependency — so a future refactor of this script
+   cannot silently drop the override a third time without failing the test suite.
+4. **Still open:** rerun the OpenWhisk leg (fresh teardown/redeploy, not the churned deployment
+   from the failed session) under the same day/box/quiet-gate discipline as the other three legs
+   already captured — no need to rerun OpenFaaS/Fn/Knative, which completed cleanly. This is the
+   one step the fix above doesn't do for you; `python3 -m unittest tests.test_saqef_cli` (55/55
+   passing after this fix) proves the *code* is right, not that OpenWhisk's numbers are refreshed.
+
+## 12. Carbon computation — 1000× unit inflation (fixed 2026-08-06)
+
+**Symptom:** every `carbon_gCO2` figure (op_total, idle_band, per-invocation KPIs) was exactly
+1000× too large — a 9-second, 600-request session reported ~18 grams of CO2, roughly what a car
+emits driving 100–150 meters, for nine seconds of laptop-class compute.
+
+**Root cause:** the carbon formula converted Joules to watt-hours correctly (`e_total / 3600.0`)
+but then multiplied that Wh figure directly by a **per-kilowatt-hour** carbon-intensity constant,
+without dividing by 1000 to go from Wh to kWh first.
+
+**Fix:** every carbon call-site now divides by `3.6e6` (J → kWh directly) instead of `3600.0`
+(J → Wh) — `op_gco2`, `cp_gco2`, `kpi_dynamic`, `idle_band`, `op_carbon_gCO2_by_busy_w`, and the
+per-invocation KPI figures.
+
+**Follow-on bug this fix exposed:** `kpi_gco2_per_slo_compliant_inv` was rounded to 4 decimal
+places. Post-fix, the true magnitude is ~1e-5–1e-4 g, which rounds to `0.0` — the field went
+silently useless at the corrected scale. Fixed by widening to `round(kpi, 8)`.
+
+**Does NOT affect:** `energy_J.*` (plain Joules), `cp_dynamic_share_pct` (a CPU-time ratio,
+carbon-formula-independent), `rapl_validation_err_pct` (Joules-only comparison).
+
+**Verification:** the current `saqef_harness.py` carbon block still carries the comment recording
+this exactly: *"J -> kWh is J / 3.6e6 (NOT the old Wh conversion -- divide by 3600 then multiply
+by a per-kWh intensity leaves a spurious 1000x in every gCO2 figure, the historical unit bug,
+fixed 2026-08-06)."* Re-derived independently rather than taken on the comment's word — recomputed
+both formulas by hand with the model's own constants (ci=150 gCO2/kWh, PUE=1.15) at
+e_total=382.2 J: correct = `382.2/3.6e6 * 150 * 1.15` = **0.0183 gCO2**; buggy =
+`382.2/3600 * 150 * 1.15` = **18.314 gCO2** — a clean 1000× ratio.
+
+## 13. OpenFaaS/Knative container-name collision — `"gateway"` substring (fixed 2026-08-08)
+
+**Symptom:** OpenFaaS's control-plane CPU was silently inflated by Knative's `kourier-gateway`
+pod whenever both platforms' substrates were resident on the box — the normal state, since
+k3s/Knative stays up as shared infrastructure across every platform's session (see items 16/17).
+
+**Root cause:** OpenFaaS's `cp_containers` matcher used a bare substring, `"gateway"`, which also
+matches `kourier-gateway` / `3scale-kourier-gateway`.
+
+**Fix:** matcher tightened to the swarm-stack-prefixed names Docker Swarm actually assigns
+(`openfaas_gateway`, `openfaas_faas-swarm`, `openfaas_prometheus`, `openfaas_nats`,
+`openfaas_queue-worker`, `openfaas_alertmanager`) — exact stack-prefixed names, not a substring
+guess, since `docker stack deploy` deterministically prefixes every task name with the stack name.
+
+**Verification:** confirmed directly — `tests/test_saqef_cli.py`'s `OF_CP` constant carries this
+exact comment today: *"Prefixed with the swarm stack name (fixed 2026-08-08): a bare 'gateway'
+substring collided with Knative's 'kourier-gateway' pod containers, since k3s/Knative stays
+resident on this box across every platform's session."* Every OpenFaaS leg in the 2026-08-13
+`lock2` session showed `CPmapped: 6/6` with the six real `openfaas_*` containers and zero Kourier
+entries.
+
+## 14. Fn/OpenFaaS `fn_images` collision with Knative's `kn-hello`
+
+**Symptom:** none observed in production data — caught and fixed proactively.
+
+**Root cause:** Fn and OpenFaaS both matched `fn_images=("hello",)` by substring containment.
+Knative's function image is `kn-hello`, which also contains the substring `hello`. The only
+reason this hadn't fired in practice was an incidental docker/containerd quirk on this box
+(k3s-managed containers showing a bare image digest rather than a resolved tag) — not a real
+guarantee.
+
+**Fix:** `_image_repo_basename()` strips a digest suffix, registry/path, and tag, then requires
+**exact** basename equality instead of substring containment. Every `Adapter` subclass also
+hard-requires a non-empty `fn_images` allowlist at construction time now.
+
+**Verification:** read the full function directly (`saqef_harness.py:394`), not just a
+description of it. It does exactly what's claimed: `image.split("@",1)[0]` (drop digest) →
+`.rsplit("/",1)[-1]` (drop registry/path) → `.split(":",1)[0]` (drop tag) → `.lower()`. Its own
+docstring example (`'localhost:5000/saqef/kn-hello:0.0.1' -> 'kn-hello'`) confirms the
+port-in-registry-host case doesn't get mistaken for a tag. `platforms/base.py`'s `Adapter.__init__`
+confirms the allowlist requirement: *"fn_images allowlist must be non-empty (manifest #1:
+hello-image overlap taint)."*
+
+## 15. RAPL `energy_uj` wraparound — false single-wrap correction
+
+**Symptom:** none observed in practice on this box (RAPL's counter range vastly exceeds what a
+17–320 s run at realistic power draw could consume) — caught by review before it could bite.
+
+**Root cause:** the original wraparound handling added one counter range (`rapl_max_range_j()`)
+to any negative raw delta and reported the result as corrected, with no check that the correction
+actually landed in valid (non-negative) territory. A double-wrap (or worse) would silently produce
+a plausible-looking but wrong number.
+
+**Fix:** `rapl_correct_wrap()` now checks whether the corrected value is still negative after a
+single-wrap correction; if so, it returns `(None, "uncertain_double")` instead of a fabricated
+value. Four distinguishable states — `"none"` / `"corrected_single"` / `"uncertain_double"` /
+`"uncertain_no_range"` — so a discarded reading is now distinguishable from "RAPL unavailable" (a
+separate `rapl_available` field), which the original version conflated.
+
+**Residual, honestly-documented limitation (not fixed, physically unreachable on this box):** from
+a single before/after sample there is no way to determine the true wrap count in general — a
+genuine double-or-more wrap whose raw delta happens to land ≥0 after adding one range is silently
+mislabeled `"corrected_single"` rather than caught. The function's own docstring says so directly:
+*"This is a mathematical limitation of two-point sampling, not a bug... It is inconsequential on
+the machine this study runs on -- max_energy_range_uj is ~262 kJ, several orders of magnitude
+above what a 17-320s run consumes at realistic power draw."*
+
+**Verification:** read the full docstring and the `corrected < 0` branch directly in
+`saqef_harness.py`'s `rapl_correct_wrap()` — confirmed the check is real, not a blind correction.
+Covered by five dedicated unit tests in `tests/test_saqef_cli.py` (`TestHarnessAggregation`):
+`test_rapl_correct_wrap_single`, `test_rapl_correct_wrap_double_is_uncertain`,
+`test_rapl_correct_wrap_no_range_is_uncertain`,
+`test_rapl_correct_wrap_double_can_be_mislabeled_single` (exercises the residual limitation above
+directly), `test_rapl_correct_wrap_none_passthrough`.
+
+## 16. Isolation guard hardcoded to two platforms
+
+**Symptom:** the harness's own internal `assert_platform_isolation()` — a second, independent
+check beyond the adapter-level `check_isolation()` — only recognized `"fn"` and `"openfaas"`; for
+any other platform (Knative, OpenWhisk) it silently returned `(True, "")`, providing zero
+protection.
+
+**Root cause:** a hardcoded `if/elif` chain that was never updated when the Knative and OpenWhisk
+adapters were added.
+
+**Fix:** ported to a data-driven check — every adapter now owns an `IsolationPolicy`
+(`platforms/base.py`), and the CLI passes it through as `--forbidden-services` /
+`--forbidden-containers` to `assert_platform_isolation()`, so every platform (OpenWhisk included)
+gets the same defense-in-depth check at measurement time. The old hardcoded chain is kept only as
+a fallback for legacy shell runners that don't yet pass those flags.
+
+**Live-caught follow-on bug (2026-08-08):** the first version of this fix forbade any
+`k8s_`-prefixed container — which correctly blocked Fn/OpenFaaS/OpenWhisk while Knative's `hello`
+was deployed, but also *permanently* blocked them afterward, because k3s/Knative's own control
+plane (activator, kourier-gateway, coredns, ...) is designed to stay resident on this box as
+shared substrate across every platform's session. Fixed by narrowing the legacy fallback's
+leftover-check to the two containers that only exist when Knative's `hello` is actually deployed
+(`user-container`, `queue-proxy`), not the substrate itself. The current
+`assert_platform_isolation()` docstring records this precisely: *"checking for ANY 'k8s_'-prefixed
+container would permanently block Fn/OpenFaaS even with 'hello' properly torn down (confirmed live
+2026-08-08)."*
+
+**Verification:** read `IsolationPolicy`, `Adapter.check_isolation()`, and
+`assert_platform_isolation()` directly (`platforms/base.py`, `saqef_harness.py:904`) — the
+data-driven path, the legacy fallback, and the k8s_-prefix-was-too-broad fix are all present in
+the current source exactly as described. Every leg of the 2026-08-13 `lock2` session's
+precondition check reported `"k3s/Knative substrate: resident"` without falsely blocking any of
+the four platforms.
+
+## 17. Isolation-failure advice hardcoded regardless of the actual offender
+
+**Symptom:** any isolation failure — regardless of which container/service actually tripped it —
+printed the same fixed remediation advice (`docker rm -f fnserver`), which was actively wrong for
+a Knative-leftover or OpenWhisk-leftover failure.
+
+**Fix:** `Adapter._CONTAINER_ADVICE` — a lookup table matched by substring against the offending
+container name — plus `_advice_for_container()` / `_advice_for_service()` resolve advice from the
+specific matched offender, with a generic fallback (`docker rm -f <name>`) for anything
+unrecognized.
+
+**Verification:** read the table directly (`platforms/base.py`, `_CONTAINER_ADVICE`) — five
+entries, each keyed to a specific remediation (`fnserver` → *"docker rm -f fnserver"*;
+`user-container`/`queue-proxy` → *"saqef teardown --platform knative"*; `openwhisk` →
+*"saqef teardown --platform openwhisk"*; `openfaas` → *"saqef teardown --platform openfaas"*). The
+class's own comment states the motivation exactly: *"Fn/OpenFaaS/OpenWhisk all forbid Knative's
+per-replica pod containers now... so a single hardcoded message was wrong for 3 of 4 adapters --
+it told the operator to remove fnserver when the actual offender was a leftover Knative ksvc,
+sending them down the wrong troubleshooting path."*
+
+## 18. Contamination A/B tool — profile-mismatch enforcement
+
+**Not a bug fix — a methodology upgrade worth recording**, since it replaced a guess with a real
+measurement, and its own history is a good example of a doc going briefly stale (see the
+verification note below).
+
+Earlier sessions *inferred* that interactive-application background load might move `cp_dynamic_share_pct` by
+"0.3 to 1 percentage point" (item 1, above). A dedicated tool, `tools/contamination_ab.py`,
+actually measures it: a clean leg under the enforced quiet gate vs. a dirty leg reproducing the
+documented incident profile (N busy cores + emulated interactive application RSS), N=5 each.
+
+**Result (2026-08-07/08 measurement):** Fn +2.16 pp, OpenFaaS +0.34 pp under the documented
+incident profile — a ~6× asymmetry, consistent with a central-orchestrator-vs-per-replica-proxy
+design difference. The dirty-leg gap (4.92 pp) sits only 0.08 pp under the 5 pp discrimination
+threshold used elsewhere in this study — thin enough to state explicitly as a live risk, not a
+comfortable margin.
+
+**Fixed (commit `66f8517`, 2026-08-13):** the tool used to measure the achieved background-CPU
+profile and print it without checking it matched the target — a dirty leg that undershot or
+overshot the documented incident profile would silently be reported as if it were that profile.
+It now **aborts** (`raise SystemExit`) if achieved host-busy% deviates from target by more than
+`--profile-tolerance-pct` (default 10 pp), unless `--allow-profile-mismatch` is explicitly passed
+for exploratory (non-bound) runs. The achieved/target profile is saved into
+`contamination_ab.json`'s `"achieved_profile"` key for every run either way.
+
+**Verification:** read `tools/contamination_ab.py` directly, twice — once via targeted grep, once
+as a full un-grepped read of the relevant section — and confirmed the `raise SystemExit` abort
+path is live in the current working tree. Then went one step further and read the actual
+historical diff (`git show 66f8517 -- tools/contamination_ab.py`), not just the commit message,
+confirming this exact abort block was what that commit added (36 insertions). This item briefly
+existed in a stale intermediate summary claiming it was "not yet fixed" despite `66f8517` already
+being merged — recorded here as a caution: even a description of a fix, freshly written, can
+already be out of date by the time it's read. Trace to the file.
+
+## Quiet-box runbook (final citable numbers)
+
+From a bare bash shell, **with interactive applications stopped and desktop apps idle**:
+
+**Before step 1 or 2, also confirm no leftover Knative deployment is up**
+(`docker ps --format '{{.Names}}' | grep k8s_` should be empty, or run
+`python3 saqef teardown --platform knative` first) — k3s itself stays
+resident as the substrate, but a leftover `hello` ksvc's pods can silently
+misclassify into another platform's CPU accounting (fixed 2026-08-08: OpenFaaS's
+`cp_containers` no longer collides with `kourier-gateway`, and Fn/OpenFaaS/
+OpenWhisk's isolation policies now forbid any `k8s_`-prefixed container; but
+an empty box is still the point of a "quiet-box" run, not just a passing gate).
+
+```bash
+# sanity: box quiet
+uptime                                  # load < ~0.5
+ps aux --sort=-%cpu | head              # nothing > 5% CPU
+docker ps --format '{{.Names}}'         # empty (incl. no leftover k8s_* / Knative pods)
+```
+
+Every `saqef run` below additionally enforces the **ambient-load quiet gate**
+(20 s window / 15% ceiling, runbook §1) and records the reading + top-CPU snapshot
+in the result dir's `summary.json` → `ambient` — so each citable result
+self-certifies that it was measured on a quiet box.
+
+# 1) regression gate (OF first, then Fn; calibrates nothing, uses idle_w=4.3)
+python3 saqef regression
+
+# 2) OpenWhisk full run: calibrate idle-w WITH the OW stack up, zero traffic
+python3 saqef deploy --platform openwhisk
+python3 saqef verify --platform openwhisk     # expect 100/100, ~5.3 ms/inv
+python3 -c "import time;p='/sys/class/powercap/intel-rapl:0/energy_uj';\
+ e0=int(open(p).read())/1e6;time.sleep(60);e1=int(open(p).read())/1e6;\
+ print('idle_w=%.3f'%((e1-e0)/60.0))"
+# ^ USE THE PRINTED VALUE, do not copy a number from this file: idle watts are
+# box-state, not a constant (this run measured 5.294 on 2026-08-07, 3.889 on
+# the 2026-08-08 quiet rerun -- same box, different day). Pasting an old
+# number here defeats the calibration step and silently reproduces a stale
+# baseline (this bug existed in this exact runbook until 2026-08-08 -- the
+# example below had literally hardcoded 5.294 right after telling you to
+# recalibrate it). Substitute <IDLE_W> with whatever just printed.
+python3 saqef run --platform openwhisk --metric cpubound \
+  --total 10000 --concurrency 4 --duration 300 --warmup 20 --repeat 5 \
+  --idle-w <IDLE_W> --out results/openwhisk_cpubound_baremetal
+python3 saqef gates --out results/openwhisk_cpubound_baremetal
+
+# 3) Knative full run: calibrate idle-w WITH the knative+kourier+k3s stack up,
+# zero traffic (this stack's idle draw is a bit above the bare/OW-standalone
+# baseline -- 16 warm replicas + 32 proxies + knative-serving + kourier -- so do
+# NOT reuse the OpenWhisk idle-w above). Use the N>=3 repeated-read protocol,
+# not a single 60 s read: single-sample Knative idle-w reads spanned 11.14 /
+# 7.01 / 4.91 W across three sessions (>2x) with no repeats -- that N=1
+# fragility is finding #13, closed 2026-08-09 by the N=5 protocol in
+# tools/reanchor_and_kn_idle.sh (c): bare substrate 3.871 W, with hello @ 16
+# replicas 4.561 W (medians), premium 0.690 W. Run the (c) section for the
+# fresh pair, or at minimum repeat the single-read calibration N>=3 and take
+# the median. This section was entirely missing from the runbook until
+# 2026-08-08 despite a cited result depending on it -- re-deriving it from
+# scratch was the only way to reproduce Knative's cp_dynamic_share_pct=11.40 /
+# energy citability verdict.
+python3 saqef deploy --platform knative
+python3 saqef verify --platform knative       # expect 100/100, ~5 ms/inv
+python3 -c "import time;p='/sys/class/powercap/intel-rapl:0/energy_uj';\
+ e0=int(open(p).read())/1e6;time.sleep(60);e1=int(open(p).read())/1e6;\
+ print('idle_w=%.3f'%((e1-e0)/60.0))"
+# ^ repeat 3+ times with the stack in the state you will bench (hello deployed
+# at 16 replicas), take the median, use THAT as <IDLE_W> below.
+python3 saqef run --platform knative --metric cpubound \
+  --total 10000 --concurrency 4 --duration 60 --warmup 20 --repeat 5 \
+  --idle-w <IDLE_W> --out results/knative_cpubound_baremetal
+python3 saqef gates --out results/knative_cpubound_baremetal
+```
+
+Gates must show: delta% ~0, CPmapped 1/1 (OW) / 6/6 (OF) / 15+/15+ (Kn),
+coverage 100%, `host_plausible=true`, `host_saturated=false` (else latency is
+not citable; the share still is — it is contention-robust).
+
+## 19. CPU was attributed over the sampler's whole span, not over the load (fixed 2026-10-01)
+
+**Symptoms.** `cp_cpu_s` / `fn_cpu_s` / `cp_dynamic_share_pct` read high, and the error
+scales with how far the sampler's span sticks out past the load. Worst on the
+scale-to-zero platforms, where the CP container is running before the first request
+and after the last one.
+
+**Cause.** `sample_totals()` accumulated cumulative counter deltas across the whole
+sampled span and only checked coverage. The sampler deliberately starts *before* the
+load and stops *after* it (so the load is bracketed by real observations), which means
+the first interval straddles `t0` and the last straddles `t1`. Those overhang slices
+were credited to the load in full. A second, smaller defect sat next to it: for a
+cumulative counter the delta `cum[i] - cum[i-1]` accrued over `(t_prev, t]`, but the
+per-container overlap factor was computed from the *forward* span `(t, t_next]`.
+Applying a forward-span factor to a backward-span delta shifts every delta one sample
+later, which is what dragged the entire pre-load stretch into the first in-window
+interval.
+
+**Fix (`c22dff9`).** `sample_totals()` takes an optional `window` (the runner passes
+the real load window). Each interval is prorated against *its own* span, and coverage
+and the sampling-gap metric are only claimed for intervals that overlap the window —
+a gap lying wholly outside the load says nothing about coverage of the load. Backward
+compatible: `window=None` keeps the old whole-span behaviour, and old `samples.csv`
+replays still work.
+
+**Consequences to carry forward.**
+- Every dataset measured before `c22dff9` is non-citable for CPU attribution. Protocol,
+  gates, classification and the per-invocation framing survive; the CPU numbers do not.
+- Because the bias inflates CP time, it biased `cp_dynamic_share_pct` **upward**, and
+  by a leg-dependent amount — i.e. it moved exactly the quantity the concurrency sweep
+  exists to compare. Do not "correct for it" post hoc: the overhang is not recoverable
+  from a `summary.json`, so those legs must be re-measured.
+
+## 20. A container's CPU burned before its first sample was discarded (fixed 2026-10-01)
+
+**Symptoms.** `fn_cpu_s` too low, so `cp_dynamic_share_pct` biased **upward**. The error
+is largest for the container that appears last in the run.
+
+**Cause.** A container discovered mid-run arrives with a `cpu.stat` counter that already
+contains everything it has burned since creation. `sample_totals()` took the first
+sighting of any container as delta 0 (`prev is None`), throwing that slice away. On a
+platform that creates function containers seconds into the run, the last one to appear
+can be carrying seconds of real CPU. The sampler rescans cgroup directories every
+`--rescan-s` (0.25 s), so this is not a rare edge case — it is the common case for a
+short run.
+
+**Fix (`34b4f26`).** `container_name()` returns `(name, birth_epoch_s)` from the **same
+single inspect** it already performed (`{{.Name}}|{{.Created}}`), so this costs no
+extra subprocess spawn and the sampler's zero-spawn steady state is preserved. Snapshots
+carry the birth time as an optional third element and `sample_totals()` credits the
+counter over `(born, t]`, keeping only the part inside the window.
+
+Two traps worth knowing before touching this code again:
+- The birth slice needs its **own** overlap factor. The existing per-sample factor
+  describes a different interval; applying both prorates the slice twice. There is a
+  mutation test for this specific double-proration.
+- Unknown birth times must keep the old drop-the-slice behaviour. A guessed
+  attribution is worse than an honest undercount.
+
+**Blind spot that remains (not fixed, by design).** A container that is born *and*
+fully removed between two cgroup rescans is never observed and its CPU is
+unrecoverable. Closing that would need event-driven sampling, which costs the
+sub-millisecond cadence the whole design rests on. State it as a limitation; do not
+paper over it.
+
+## 21. Tier-1 session logs overwrote each other (fixed 2026-10-01)
+
+**Symptoms.** The provenance of an earlier session's numbers cannot be read back — the
+console log that produced them no longer exists anywhere.
+
+**Cause.** `tier1_go.sh` and `run_tier1_quiet.sh` both teed to the fixed path
+`results/tier1_session.log`, so the second session silently destroyed the first one's
+record. This already happened: the OpenWhisk `tier1ow8` leg overwrote the log of the
+session that produced the earlier concurrency data.
+
+**Fix (`d1fb198`).** `tools/tier1_log.sh` gives each session a UTC-stamped log
+(`tier1_session_<stamp>.log`). The well-known `tier1_session.log` path is kept as a
+symlink to the newest session so existing references still resolve, and anything
+regular already sitting at that path is dated and moved aside rather than
+overwritten. No measurement semantics change.
+
+## 22. Two different clocks in the attribution window (fixed 2026-10-01)
+
+**Symptoms.** `cp_cpu_s` = 0, `fn_cpu_s` = 0, `covered_s` = 0 — from a run that
+clearly produced samples and clearly served requests. The lock session's sampling-gap
+gate **passes anyway**, because it only inspects gaps *inside* a window and an empty
+window contains no gaps. So the one gate that was supposed to catch a broken sampler
+is structurally incapable of catching this particular breakage.
+
+**Cause.** The sampler stamps every sample with `time.time()` — epoch seconds
+(`saqef_harness.py:962`, and `:771` for the pct-mode sampler). `run_once()` built the
+attribution window from `time.perf_counter()` — seconds since boot. The two differ by
+~1.76e9 on this box, so `window=(t0, t0 + wall)` shared no number with any sample
+timestamp and every interval tested as "entirely outside the load".
+
+**Fix (`908bece`).** Keep both clocks and give each the job it is good at:
+
+```python
+t0       = time.perf_counter()   # wall only -- monotonic, so a mid-run NTP
+                                  # step cannot corrupt the duration
+t0_epoch = time.time()           # the window -- same base as the samples
+...
+window=(t0_epoch, t0_epoch + wall)
+```
+
+Both are read together before the load starts, so the window begins at or before the
+first sample and the pre-load overhang remains clippable.
+
+**Why the test suite could not see it — the general lesson.** Every window test
+constructed its window in the same numeric space as the timestamps it handed to
+`sample_totals()`. Nothing exercised the real `run_once()` → `sample_totals()` path
+with raw clocks. A test that supplies both sides of an interface cannot detect a
+mismatch between them; only a test that takes its values from the *producers* can.
+Two tests now pin this: one asserts `run_once()` pairs the epoch base with
+`time.time()`, and one drives `sample_totals()` with raw `time.time()` and
+`time.perf_counter()` values to show that a boot-based window attributes exactly
+nothing.
+
+**Scope of the damage.** Introduced with the window clip (`c22dff9`), so the clip
+itself had never run against real data — it could only ever have returned zero. No
+measurement was taken while the bug was live.
+
+## 23. Two silent analysis errors that nearly cost a full re-measurement campaign (2026-10-01)
+
+Both errors were mine, made while triaging §21/§22, and both produced a confident
+wrong answer. They are recorded because the failure mode is general, not because
+the numbers mattered.
+
+### 23.1 A field that is a total was read as a rate — 60× error
+
+`idle_probe_*/*/summary.json` → `cpu_sec` is a **total over the probe's `wall_s`
+(60 s)**, not a per-second rate. It was read as cpu-s/s.
+
+```
+Knative fn : read "0.40 cpu-s/s"  ->  actually 0.40/60 = 0.0067 cores
+OpenWhisk  : read "2.37 cpu-s/s"  ->  actually 2.18/60 = 0.036 cores
+```
+
+Every bias estimate that multiplied an overhang duration by this number was
+inflated ~60×. The tell was internal: the analysis produced "a 12.3 pp bias on a
+12.10 % share", which requires a 2 s overhang to have burned more CPU than the
+entire 3.8 s load on an 8-core box. **A bias larger than the signal it corrects
+is a units bug, not a finding.**
+
+Related trap in the same field family: `orchestration_cpu_sec` is
+`host_cpu_sec − fn_cpu_s` (harness:1403) and includes kernel, dockerd and the
+sampler — it is *not* `cp + fn`. The correct denominator for a dynamic share is
+`cpu_sec.control_plane + cpu_sec.function`. Using the wrong one put the
+reconstruction ratio at 1.75× and made a working method look broken.
+
+**Rule adopted:** before trusting any derived quantity, print the field next to
+the run's own `wall_s` and ask whether the magnitude is physically possible. A
+total and a rate in the same JSON are the most common source of this.
+
+### 23.2 A salvage triage was decided by a 3-sample MAD
+
+Biases were compared against the median absolute deviation of n=3 runs. n=3 MAD
+is dominated by sampling noise; judging a systematic bias against it is
+noise-on-noise and produced a verdict ("247× noise", "redo everything") that the
+re-attribution later disproved.
+
+**Rule adopted:** compare the bias to **the contrast the claim actually rests
+on** — e.g. a c=1→c=16 share difference of ~2 pp — not to a noise estimate. If the
+bias is small against the contrast, the claim survives.
+
+### 23.3 The re-attribution that settled it (`tools/legacy_reattribute.py`)
+
+No re-measurement campaign was needed. `samples.csv` retains, per sample instant
+and per container, the interval CPU rate the old code computed
+(`pct = Δcum/(t[i+1]−t[i]) × 100`), which integrates back to the stored totals:
+264 of 269 committed legs rebuild to a median error of **0.018 %** (max 0.42 %).
+The tool refuses to report a number it cannot reproduce (`--verify` exits
+non-zero) and solves the fn allowlist against each run's own stored total rather
+than assuming one.
+
+Result: **the window clip moves the numbers by essentially nothing.** Median
+**0.003 pp**, max **0.074 pp**, and only 4 of 264 legs exceed 0.05 pp. Every stored
+headline figure is unchanged to within 0.02 pp, and per table cell the clip is
+≤0.014 pp.
+
+#### 23.3.1 The bug that produced the opposite conclusion (commit `05d07f5`)
+
+An earlier version of this runbook reported the clip shifting the share upward on
+222/257 legs at median **+0.36 pp / max +1.85 pp**, varying with concurrency, and
+drew four conclusions from it (OpenFaaS c=1→c=16 collapsing 0.75 → 0.11 pp, Fn's
+minimum moving c=2 → c=8, OF c=2 "explained", and per-platform ranges of
+1.67/2.42/3.68 pp). **All four were artifacts of a bug in the tool, not
+properties of the platforms.**
+
+`_integrate()` classified into two buckets — `if name in fn_set: fn else: cp` —
+so every container that was neither function nor control plane landed in the CP
+**numerator**, while the caller subtracted `unclassified_cpu_s` from the
+**denominator** only. OpenFaaS c=1 run_1 stored 6.93 % and reported 8.03 %:
+(1.41 + 0.23)/(1.41 + 18.96) = 8.05 %. Because the unclassified bucket is a
+roughly *constant* absolute quantity while the share's denominator varies with
+concurrency, the leak produced a shift that grew as concurrency fell — precisely
+the pattern the old text read as a real bias.
+
+**The `--verify` gate could not detect it.** It checked `cp + fn` against the
+stored `cp + fn`, and that sum is correct under a mis-assigned bucket. So the
+gate passed, 160 tests passed, and every reported share was inflated. *A gate on
+the total cannot detect a wrong split.* The gate now checks each bucket
+independently: cp and fn at 1 % (corpus maxima 0.59 % / 0.44 %), and unclassified
+on **absolute** error at 0.01 cpu-s — never on its ratio, which reaches 46.9 % on
+a rounding-sized absolute difference.
+
+Two further defects surfaced while fixing it, both worth keeping:
+
+- **The clip was being gated.** Comparing a clipped figure against the
+  *unclipped* stored total reported 9 correct legs as `verify_failed` at 1.0–2.3 %
+  error — purely because clipping worked. A deliberate correction must not be
+  gated against the uncorrected value. The gate now always judges the unclipped
+  integration; the clip is reported separately.
+- **A hand-kept allowlist drifts.** `CP_CONTAINER_HINTS` had already fallen out
+  of sync with the adapters' own `cp_containers` (missing
+  `openfaas_nats`/`openfaas_queue-worker`/`openfaas_alertmanager` and Knative's
+  `kourier-gateway`) — the same class of bug as the OpenFaaS "gateway" substring
+  incident. It is now test-locked to `platforms/*.py`.
+- **Terminal escapes in container names.** The 5 pre-`container_labels` legs
+  recorded one container under two names, `\x1b[H01KZ…` and `\x1b[J\x1b[H01KZ…`,
+  because an escape-laden `docker ps` header bled into the field. Its CPU was
+  counted twice (+5.2 % on run_1's fn total).
+
+**The 5 remaining legs.** `fn_cpubound` predates `container_labels`, so fn is
+inferred name-only as "everything that is not the adapter's cp container". That
+cannot be checked independently, so it is held to a **tighter** 1 % bound rather
+than a looser one — and it fails, at 3.1–16.6 %, because `samples.csv` retains
+8.48 s where `wall_s` is 14.24 s. The stored totals came from a span the samples
+no longer cover; recovering them needs cgroup files that do not exist. Final
+state: **264 ok, 5 `verify_failed`, 0 `unclassifiable`.**
+
+#### 23.3.2 What survives
+
+- **Paper §5.3's "flat within ~1–2 pp on every platform" is false as written** —
+  but because of the **stored** spread, not the clip: 1.48 / 2.13 / 2.74 pp across
+  c=1/2/8/16 (OF / Kn / Fn) and 1.52 / 2.85 / 3.41 pp across tier-1 c=1/2/4/8.
+  Restate per platform.
+- **The sweep minimum is per platform, and only OpenFaaS's is at c=2.** Recomputed
+  from the per-run summaries (medians; ranges are max−min of medians — the quick
+  sweep is `REPEAT=3`, tier-1 is `REPEAT=5`):
+
+  | platform | quick c=1/2/8/16 | range | tier-1 c=1/2/4/8 | range | min |
+  |---|---|---|---|---|---|
+  | OpenFaaS | 7.00 / 5.82 / 6.51 / 7.75 | 1.93 | 7.78 / 6.26 / 7.16 / 7.15 | 1.52 | **c=2** |
+  | Fn | 12.66 / 11.06 / 9.92 / 11.01 | 2.74 | 13.97 / 12.03 / 10.57 / 10.56 | 3.41 | **c=8** quick; **c=4≈c=8** tier-1 |
+  | Knative | 14.08 / 11.97 / 12.10 / 12.08 | 2.11 | 14.49 / 12.23 / 11.64 / 12.68 | 2.85 | **c=4** tier-1 |
+
+  Knative's quick-sweep c=2/8/16 sit within **0.13 pp** of each other, so there is
+  effectively no minimum there. OpenFaaS c=2 remains **unexplained** — it is *not*
+  explained by the correction, which moves it by −0.004 pp.
+
+  **How the wrong version got written.** Two edits were made from memory instead of
+  from the per-run files, and both failed silently: the OF range came out as
+  1.48 (matching neither the median nor the mean range) and Knative as 2.13 (2.11
+  by median, 2.16 by mean). And the "c=2 minimum on all three" sentence was
+  written *with its own numbers beside it* — "Fn 12.03 → 10.57 at c=4" states that
+  c=4 is below c=2, so the sentence refuted itself one clause earlier. Nobody
+  checked it against the table it was derived from.
+
+  **Two rules from this, and both are the §23 lesson again:**
+  1. **A derived figure must be recomputed from the committed per-run files in the
+     same edit that introduces it** — never carried in a summary, never written
+     from a remembered table. `python3 -c` over `results/*/run_*/summary.json`
+     takes seconds and is the only thing that catches this.
+  2. **No sentence may state a superlative (min/max) that its own adjacent numbers
+     contradict.** The self-contradicting clause survived review because both the
+     table and the prose read as plausible in isolation; only placing them side by
+     side exposes it.
+
+  One cell genuinely needs the statistic named: **Fn c=16** has runs
+  17.43 / 10.66 / 11.01 — one warm-up-contaminated leg pulling the mean to 13.03
+  while the median holds at 11.01 (CV 23.9 %). Under the mean, Fn's quick-sweep
+  range reads 3.15 rather than 2.74. The median is the quoted statistic and the
+  text now says so.
+- **The cross-platform ordering OF < Fn < Knative holds at every concurrency**,
+  which is the paper's central claim and is untouched — the correction is ≤0.02 pp
+  on every platform, and a bias that moved platforms *differently* is the only
+  thing that could have threatened it.
+
+**Rule adopted from this:** a total-summed verification gate cannot certify a
+per-bucket claim, and a per-platform conclusion drawn from a correction whose
+magnitude is smaller than the reporting precision is a finding about the tool,
+not the system. Re-derive any figure that moves when the attribution code moves.
+
+### 23.4 A third class of the same bug: 21 tests that had never run
+
+The §23.3 bug and this one share a shape — **a check that cannot fail was cited
+as evidence that something was verified.**
+
+`TestTier1StatsHygiene` has been in the suite since it was written, and its 21
+tests had **never executed**. Its `setUpClass` extracts the aggregation heredoc
+from `tools/run_tier1_conc.sh` and `exec`s the head of it, and that head begins:
+
+```python
+import json, math, os, statistics, sys
+repo = sys.argv[1]
+```
+
+Under `python3 tests/test_saqef_cli.py` there is no `argv[1]`, so `setUpClass`
+raised `IndexError` — **on the first day it ran.** unittest reports a
+`setUpClass` failure as a single error and skips every test in the class, so
+the suite showed `FAILED (errors=1)` with 147 passing and the whole thing was
+easy to skim past.
+
+What was silently not being checked:
+
+- Tukey df must be `k(n-1)`, not the Bonferroni `2n-2`
+- `statistics.stdev`, never `statistics.pstdev`, for a sample of runs
+- a missing `wall_s` must fail closed, never become `1.0`
+- the flatness threshold must be `studentized_range_q`, not `(tcrit+tpow)*sqrt(2)`
+- the TOST margin must be pre-specified, and `se == 0` must not pass
+
+Those are exactly the fixes §22 and §23 cite as "test-locked". They were locked
+to nothing. This is the same failure mode as the `cp + fn` sum-only verify gate:
+the aggregate was right, so the check passed, and the per-bucket claim it was
+supposed to certify was never examined. The Tukey table itself is in the
+heredoc and is correct — but *nothing was verifying it.*
+
+**Fixed** by swapping `sys.argv` around the `exec` (a stub module in the exec
+namespace does **not** work: the heredoc's own `import sys` on line 1 rebinds
+the name to the real module). Suite now reports **180 passing, 0 errors**.
+
+**New guard, because "the suite is green" is not the same as "the suite ran":**
+`TestNoSilentlySkippedTestClasses` re-executes every `setUpClass` in the module
+and fails if any raises, and fails on any `TestCase` with no `test_` methods.
+Verified it fires by deliberately re-breaking the `sys.argv` fix — it reports
+`TestTier1StatsHygiene.setUpClass: IndexError` and exits non-zero.
+
+**Lesson, and it is the general one:** *a test that cannot run is worse than no
+test, because it gets cited.* Both this and §23.3 were invisible to review,
+because a green run and a hidden skip look identical in the output. When
+verifying that something is checked, confirm the check **executes** — count the
+tests, don't read the pass line.
+
+### 23.5 New runs were strictly LESS re-analysable than the corpus they replace (2026-10-01)
+
+The salvage worked because of an accident of history. The 2026-08-14/15 harness
+wrote **full-span, unclipped** percent-rate rows, and `pct = Δcum/dt` integrates
+back to the stored CPU-s totals — which is the entire reason `legacy_reattribute.py`
+can reconstruct 264/269 legs. The current harness **breaks that property**:
+
+- `sample_totals()` drops samples lying entirely outside the window (line ~1063)
+  and scales partial intervals by their overlap fraction (line ~1114)
+- `samples.csv` is written **downstream** of that clip, so the discarded CPU is
+  gone from disk
+- `summary.json` recorded **no** `t0_epoch`, no window, no git revision (49 keys,
+  none of them any of those)
+
+So new runs could not have been re-attributed at all. The clip itself is correct
+and the measured effect is ≤0.074 pp — but correctness of the *number* was never
+the issue. **If a window or birth bug appeared tomorrow, those runs would have
+been unrecoverable exactly as the pre-2026-08-08 data is**, and box time would
+have bought nothing. That is the worst outcome available: a run that passes every
+gate and cannot be audited.
+
+Fixed (1a):
+
+- **`samples_raw.csv`** — the sampler's unclipped output, raw cumulative `cpu.stat`
+  counters (`cum` mode, exact and cadence-independent) or instantaneous rates
+  (`pct` mode, docker fallback), plus `mem_mb` and **`born_epoch`**. Written
+  unconditionally alongside `samples.csv`, never instead of it: `samples.csv`
+  stays the citable read that the figures and emitter consume.
+- **`born_epoch` matters more than it looks.** At first sight the sampler sees a
+  counter that already contains everything since creation; difference it away and
+  that slice is gone. Knative creates fn containers seconds into a run, so this is
+  not a rounding detail there — it is the same class of loss as the overhang.
+- **`summary.json.attribution`** — `t0_epoch`, `window_start_epoch`,
+  `window_end_epoch`, sampler and cadences, the resolved `cp_members`/`fn_members`,
+  every allowlist, and the full `container_inventory`. The allowlists go in
+  because `CP_CONTAINER_HINTS` had already drifted out of sync with the adapters'
+  own `cp_containers` (§23.3) — a hand-kept list cannot be trusted alone.
+- **`summary.json.harness`** — `git_rev` and `git_dirty`. A result is reproducible
+  only if you know which code produced it; the 2026-08 corpus predates `c22dff9`
+  and `34b4f26` and says nothing about it in its own JSON. `git_dirty` is there
+  because an uncommitted edit is precisely the case where the commit hash
+  misrepresents the code that ran.
+
+The round trip is test-locked: `samples_raw.csv` is parsed back into the structure
+`sample_totals()` consumes and must reproduce the in-memory `cp_cpu_s`/`fn_cpu_s`
+to 1e-6, with the unclipped totals asserted strictly larger so the test cannot pass
+if the clip were removed. That is the property the old corpus had and new runs
+would have lost.
+
+## 24. Bridge experiment — pre-registered decision rule (written 2026-10-02, before any bridge data)
+
+**Why this exists.** Every committed share predates `c05a9df`. The old sampler forked
+`docker ps` plus two `docker inspect` per container per scan (~3 cores, ~40 % of the box) and
+stamped `t` *before* each multi-second scan. Offline re-attribution (§23) settles the window clip
+(≤0.074 pp) but **cannot** bound how much that sampler disturbed the system under test. The bridge
+measures that disturbance. The rule is written down and committed **before** the first leg so it
+cannot be tuned to the outcome. Do not edit this section after bridge data exists. If the rule
+turns out to be wrong, add a §24.x amendment that says what changed and why, and report results
+under both versions.
+
+### 24.1 Design
+
+- **Harness:** **`v9.13.1-bridge-prereg`** — the tag under which the bridge legs run. Every leg will
+  record `git_rev` = whatever `HEAD` is when the bridge starts, so this section must name that
+  revision or it reads as a protocol deviation. The only change from `cec0bd9` (`v9.12-reanalysable`)
+  is the driver's `--stamp-prefix` flag and this section itself: **no measurement code is touched**,
+  so the two reference values and the bridge values are computed by identical `saqef_harness.py`.
+  Confirm at run time:
+  ```bash
+  git rev-parse --short HEAD && git describe --tags --exact-match 2>/dev/null
+  git status --porcelain      # must be empty
+  ```
+  The two known runtime review items (**transient-inspect fallback**, **RAPL gate semantics**) were
+  **NOT** fixed before this section was written and are **not** fixed as of `cec0bd9` or
+  `v9.13.1-bridge-prereg`. Neither
+  changes attribution: the fallback only fires on a docker-inspect failure (it would abandon a leg
+  rather than mis-measure it) and the RAPL gate governs energy, not the CP/fn share this bridge
+  compares. Both therefore belong *after* the bridge, where changing them cannot move a
+  reference value. If either is fixed first anyway, re-tag and record the new tag here, and say
+  which.
+- **Protocol:** identical to the existing tier-1 data, via `tools/run_tier1_conc.sh`: TOTAL=3000,
+  REPEAT=5, OF/Fn/Kn at c = 1, 2, 4, 8, OW at c = 1, 4, 8, same `idle_w`, per-leg idle probe.
+  **c = 16 is excluded** for the same reason the driver gives (oversubscribed 8-core box, different
+  regime); the quick-tier c=16 cells stay trend-only.
+- **Conditions matched to the reference:** governor `powersave` (all 169 old lock legs), same
+  pinning, same function images, bare shell with interactive applications quit, ambient quiet gate on.
+- **Fresh stamps are required.** `run_lock_session.sh` refuses to clobber, and the 2026-10-01
+  reference datasets occupy the bare `tier1c$c` / `tier1ow$c` names, so the bridge must run with
+  the prefix flag added for this purpose (2026-10-02):
+
+  ```bash
+  bash tools/run_tier1_conc.sh --stamp-prefix bridge_        # ~2.5-3 h, all four platforms
+  bash tools/run_tier1_conc.sh --stamp-prefix bridge_ --skip-ow   # ~1.5 h, lightweight only
+  ```
+
+  This writes `results/<plat>_cpubound_lock_bridge_tier1c<N>/` and
+  `results/idle_probe_bridge_tier1c<N>/`, and the driver prints a `CARE` line if the flag is
+  omitted. A prefix containing `/`, `tier1c` or `tier1ow` is rejected. Do not move or rename the
+  reference datasets. **Verify before the first leg that the printed stamps carry the prefix** —
+  the driver aborts mid-session if a stamp collides, which would waste the quiet window.
+- **Reference:** the tier-1 datasets below were taken on 2026-10-01 **before** `c05a9df` (their
+  summaries have no `sampling_max_gap_s`), with the same protocol. So reference vs bridge isolates
+  the sampler change, confounded only by day-to-day drift (see 24.3 step 4).
+
+### 24.2 Reference values (frozen)
+
+Median and MAD of `cp_dynamic_share_pct` over the reference runs. Tolerance = max(2 × MAD, 0.50 pp).
+The 0.50 pp floor exists because a 5-run MAD can be implausibly small (Fn c=4: 0.02 pp), and §23.2
+records what happens when a bias is judged against noise-on-noise.
+
+| platform | c | reference dataset | n | median | MAD | tolerance |
+|---|---|---|---|---|---|---|
+| openfaas | 1 | `openfaas_cpubound_lock_tier1c1` | 5 | 7.78 | 0.13 | ±0.50 |
+| openfaas | 2 | `openfaas_cpubound_lock_tier1c2` | 5 | 6.26 | 0.21 | ±0.50 |
+| openfaas | 4 | `openfaas_cpubound_lock_tier1c4` | 5 | 7.16 | 0.12 | ±0.50 |
+| openfaas | 8 | `openfaas_cpubound_lock_tier1c8` | 5 | 7.15 | 0.15 | ±0.50 |
+| fn | 1 | `fn_cpubound_lock_tier1c1` | 5 | 13.97 | 0.15 | ±0.50 |
+| fn | 2 | `fn_cpubound_lock_tier1c2` | 5 | 12.03 | 0.22 | ±0.50 |
+| fn | 4 | `fn_cpubound_lock_tier1c4` | 5 | 10.57 | 0.02 | ±0.50 |
+| fn | 8 | `fn_cpubound_lock_tier1c8` | 5 | 10.56 | 0.11 | ±0.50 |
+| knative | 1 | `knative_cpubound_lock_tier1c1` | 5 | 14.49 | 0.15 | ±0.50 |
+| knative | 2 | `knative_cpubound_lock_tier1c2` | 5 | 12.23 | 0.28 | ±0.56 |
+| knative | 4 | `knative_cpubound_lock_tier1c4` | 5 | 11.64 | 0.38 | ±0.76 |
+| knative | 8 | `knative_cpubound_lock_tier1c8` | 5 | 12.68 | 0.15 | ±0.50 |
+| openwhisk | 1 | `openwhisk_cpubound_lock_tier1ow1` | 5 | 81.14 | 0.22 | ±0.50 |
+| openwhisk | 4 | `openwhisk_cpubound_lock_tier1ow4` | 5 | 83.41 | 0.64 | ±1.28 |
+| openwhisk | 8 | `openwhisk_cpubound_lock_tier1ow8` | 5 | 84.18 | 0.70 | ±1.40 |
+
+**The three OW reference rows are not committed — CORRECTED 2026-10-02, this was 2/3 out of date.**
+They live in `saqef/results/`, which `.gitignore` excludes in that repo — unlike
+`saqef-paper/results/`, which is fully tracked (1435 files, 316 of them tier-1). On re-checking:
+`tier1ow1` and `tier1ow4` (all 5 runs each) and `idle_probe_tier1ow{1,4}` were **already** tracked in
+`saqef-paper/results/`. What was genuinely unbacked was the **c=8 pair** —
+`openwhisk_cpubound_lock_tier1ow8/` and `idle_probe_tier1ow8/` — now copied and byte-verified with
+`diff -r`, committed as `8349eb9` in `saqef-paper`. All three OW cells are now recoverable from git.
+The OF/Fn/Kn rows never had this problem.
+
+**Remaining risk, and it is not about these six directories.** `saqef-paper` has **no git remote** —
+1435 tracked result files live on this one disk. Tracking is not durability. Until a private remote
+exists, a disk failure loses the entire paper-side corpus, not just the OW legs. The medians in the
+table above are reproducible from git as of `8349eb9`; that is the only durability they now have.
+
+**Resolved 2026-10-02:** `saqef-paper` now has a private remote (`github.com/bathork1391/saqef-paper`,
+branch `master`). Every `saqef/results/` directory up to that date was copied in and pushed (`2bc7f26`).
+After each measurement night, copy the new `results/` directories across, commit and push.
+
+**Read the OW rows before quoting them.** Each of the three OW cells has a first leg at
+89.7–90.8 % and four later legs within ~1 pp of each other — the known OW post-deploy transient
+already recorded in the 2026-08-15 sweep. The medians above are unaffected (that is what a median
+is for) and the tolerances are computed from the MAD of all five legs, but **any per-leg
+comparison against these rows will fail**, so rule 1 must be applied to medians only. The reference
+medians also sit above the lock4 OW anchor (81.14 / 83.41 / 84.18 here vs 81.78 at lock4 c=4), so
+a bridge OW leg landing near 81.8 is not a failure against these numbers; it is the transient's
+absence plus the different day, and is reported as such.
+
+**But the share is the *only* OW quantity that survives. OW throughput, latency and energy are not
+citable.** Added 2026-10-02 after `remeasure_shares_tier1ow1` failed the drift gate at 73.2 → 45.4 rps
+(−38.0 % against a 20 % limit), and the decay is systematic, not a bad day. All four OW legs show it,
+run over run, at every concurrency, across two days:
+
+| leg | rps run_1 → run_5 | loss | untracked host CPU |
+|---|---|---|---|
+| `tier1ow1` (2026-10-01) | 58.5 → 35.1 | −40 % | 114 → 278 CPU-s |
+| `tier1ow4` (2026-10-01) | 61.8 → 29.7 | −52 % | 109 → 333 |
+| `tier1ow8` (2026-10-01) | 57.0 → 29.1 | −49 % | 121 → 339 |
+| `remeasure_shares_tier1ow1` (2026-10-02) | 73.2 → 45.4 | −38 % | 48 → 129 |
+
+The signature, measured rather than inferred. Latency is flat *within* each run and steps up *between*
+runs, so this is cumulative state, not noise. `cpu_sec.control_plane` settles at ~59 CPU-s and
+`cpu_sec.function` at ~16.9 CPU-s and stays there — the stack does the **same work** over 41 s → 66 s.
+What grows is host CPU that belongs to no tracked container: `host_overhead_cpu_sec` climbs
+monotonically (1.17 → 1.95 cores of 8) while *total* host busy cores *fall* (4.77 → 3.11), because
+wall grows 61 % while host CPU-s grows 46 %. Per request that is 16 → 43 ms of extra untracked host
+CPU, which at c=1 lands directly in latency.
+
+Ruled out by measurement, not argument: container set is flat at 26 across all five runs;
+`unclassified_cpu_s` is 0.53–0.84 s and flat, so every container process is already charged to cp or
+fn; keep-alive is on (no `-disable-keepalive` at `saqef_harness.py:573`) and TIME-WAIT is flat at 21;
+RAPL J/CPU-s is stable at ~5.9 so frequency and thermal are not implicated. The harness's own sampler
+costs 0.038 cores, and the still-running Knative stack 0.013 cores idle, against a 0.167-core idle
+host — so neither the instrumentation nor the leftover stack explains 1–2 cores. Standalone OpenWhisk
+is a single Java process, so nginx/etcd are not in play; the missing CPU is host-side (dockerd,
+containerd or kernel).
+
+**Corrected 2026-10-02 by direct idle measurement (`tools/ow_host_attrib_ab.py`, 17 × 2 s intervals,
+nothing deployed).** The host baseline is *already* 1.078 cores with zero containers, and it decomposes:
+
+| | mean cores |
+|---|---|
+| host busy | 1.078 |
+| containerd | 0.240 |
+| dockerd | 0.167 |
+| k3s-server | 0.058 |
+| softirq | 0.012 |
+| containers | 0.012 |
+| **unaccounted** | **0.601** |
+
+Three consequences, and one of them undercuts the drift story above:
+
+1. **softirq is ruled out.** The "if logs stay flat, read `/proc/stat` softirq" branch is dead —
+   0.012 cores. Do not spend a cycle there.
+2. **`unaccounted` is the operator, not a hidden daemon.** Per-process `/proc` deltas over the same
+   window give the interactive application 0.49 + ptyxis 0.11 + gnome-shell 0.04 + chrome 0.01 = **0.65 cores**, which
+   is the 0.601 to within a few percent. There is no unexplained host consumer; "unaccounted" on this
+   box means *this GUI session and this interactive session*.
+3. **The 15 % quiet gate cannot pass on this box with a desktop logged in.** 1.2-core ceiling against
+   a 1.078-core baseline of which ~0.65 cores is the desktop itself. A quiet-gate failure on this
+   machine is therefore expected and is **not** evidence about the platform. Citable legs need a
+   headless box or a logged-out session; see action item (1).
+
+Because "unaccounted" means operator, the *absolute* untracked figure in the decaying legs is not a
+platform measurement, and the quiet-gate failure on this box proves nothing about OpenWhisk. But the
+operator does **not** explain the drift shape on its own: untracked host CPU *grows* run over run
+(1.17 → 1.95 cores), and a steady operator load would hold that flat. So platform-side growth stays
+the leading explanation, with operator load as an additive offset on top of it. The two are cleanly
+separable, and the way to separate them is one headless leg with zero polling compared against the
+existing arms: if untracked stays ~0.6 cores and drift persists, it is the platform; if untracked
+grows again, it is the measurement.
+
+**Why the three OW rows above still say `gates_ok`.** They were written 16:54, 17:21 and 18:30 on
+2026-10-01; the drift gate landed in `1b6b306` ("lock: reject runs with degraded RAPL fit or
+throughput decay") at 19:15 that evening. They passed because each repeat was an independent
+snapshot and nothing compared them. As **share** references they stand — the share denominator is
+cp + fn container CPU only, and the growing host overhead is in neither — but rule 1 must never be
+applied to OW throughput, and no OW throughput/latency/energy number from these datasets may be
+quoted.
+
+**Two action items.** (1) Establish whether the decaying-leg overhead is platform-side at all, before
+looking for an OpenWhisk defect. On this box "unaccounted" *is* the desktop/interactive application session, so the
+cleanest test is one headless leg with zero interactive application polling and no GUI session, compared against the
+existing arms. If the drift persists headless, the platform hypothesis stands and the next probes are
+the cumulative `dockerd` json-file log state (the `wsk0_*` action container IDs are byte-identical in
+all five runs, so their `LogPath` files grow monotonically across repeats) and
+`pidstat -u -p $(pidof dockerd),$(pidof containerd) 5` during the leg. If it vanishes, the earlier
+legs are operator-contaminated and no OpenWhisk defect was ever demonstrated.
+(2) The cold-JIT first leg is a separate, already-known defect that `--discard-warmup` exists for;
+the re-measure session ran with `--discard-warmup 0`, so `run_1` at 88.38 % sat inside the median.
+New OW legs should use `--discard-warmup 1 --repeat 6`. That fixes the share but **not** citability:
+the drift gate compares first to last surviving run, so it would compare `run_2` to `run_6` and
+still fail.
+
+### 24.3 Decision rule
+
+Use bridge medians over 5 runs, computed by the same code that computed the reference.
+
+1. **Cell validated:** |bridge median − reference median| ≤ that cell's tolerance.
+2. **Central claim confirmed:** OF < Fn < Kn at every c in the bridge data, and OW above all three.
+   Note this is **stricter than the paper's claim**, which reports Fn ≈ Kn as a
+   convention- and condition-sensitive pair (§5.6) and never ranks them. If `Fn < Kn` fails at some
+   c while `OF < Fn` and `OW` above all three both hold, the paper's headline is *not* refuted — the
+   bridge has shown the Fn/Knative near-tie is not stable, which the paper already says. Report that
+   outcome as "pair ordering not stable", do not patch prose, and do not treat it as rule 2 failing
+   the central claim. Reserve "stop and re-plan" for `OF` losing to `Fn` or `Kn`, or OW dropping
+   below any of the three.
+3. **Shapes confirmed** (operational definitions, using each cell's tolerance as the noise scale):
+   - **Fn falls and stays down:** c1 > c2 > c4, and |c8 − c4| ≤ tolerance(c4). The reference c=4
+     and c=8 medians differ by 0.01 pp (10.57 / 10.56), i.e. a tie, which is why the second clause
+     is a tolerance band and not a strict inequality.
+   - **OpenFaaS dips at c=2:** c2 is lower than *both* c1 and c4 by more than 0.50 pp. If not, §5.3's
+     "unexplained c=2 minimum" becomes "did not reproduce; session state," and is reported that way.
+   - **Knative turns upward at c=8:** c8 − c4 > 0.50 pp.
+4. **If any cell fails rule 1:** run an interleaved A/B on that platform in **one** session,
+   alternating the pre-`c05a9df` sampler and the current one (`tools/contamination_ab.py` is the
+   template). If A ≠ B, the sampler disturbance is real: redo only that platform's affected legs on
+   the current harness and supersede them. If A = B, the difference is day-to-day drift: report it
+   as session variance, and the old data stand.
+5. **Report everything.** Every bridge cell goes into `VERIFIED_RESULTS.md` through the emitter,
+   pass or fail. A failed shape criterion changes the paper text; it is not grounds for a re-run.
+
+### 24.4 Self-check: the rule against the reference itself
+
+Run before the bridge, and recorded here so the criterion's own margins are known rather than
+discovered afterwards. Every rule passes on the reference data (2026-10-02):
+
+| criterion | reference outcome | margin |
+|---|---|---|
+| rule 2, `OF < Fn < Kn` at c=1/2/4/8 | holds at all four | smallest Fn→Kn gap **0.20 pp at c=2** |
+| rule 2, OW above all three | OW min 81.14 > Kn max 14.49 | 66.65 pp |
+| rule 3, Fn c1 > c2 > c4 | holds | \|c8 − c4\| = 0.01 pp, band ±0.50 |
+| rule 3, OF c=2 dip | c1 − c2 = 1.52, c4 − c2 = 0.90 | both exceed 0.50, by 1.02 / 0.40 |
+| rule 3, Kn turns up at c=8 | c8 − c4 = 1.04 | exceeds 0.50 by 0.54 |
+
+Two of those margins are thinner than they look, and both were true before any bridge data existed:
+
+- **The Fn→Kn gap at c=2 is 0.20 pp against a per-cell tolerance of ~0.50 pp.** The ordering is
+  real in the reference but is *not* resolvable at that concurrency — which is exactly why the
+  paper reports the pair as `≈` and §24.3 rule 2 is qualified above. If the bridge flips Fn and Kn at
+  c=2, that is the criterion behaving as designed on a gap that was always inside the noise, not a
+  regression.
+- **The OF dip margin is 0.90 vs a 0.50 threshold, and Knative's is 1.04 vs 0.50.** Both clear, but
+  both would be overturned by roughly half their current size. If either fails, §5.3's "unexplained
+  c=2 minimum" becomes "did not reproduce" — already the stated consequence — rather than evidence
+  that the sampler changed the shape.
+
+### 24.5 What the outcomes mean for the paper
+
+- **All of rules 1–3 pass:** the old corpus is validated against the sampler change. Cite the
+  bridge as the tier-1 replication; keep lock4 / baremetal / 2-core as they are. No more box time.
+- **Rule 1 or 3 fails on some cells:** follow step 4; the scope of any redo is those cells only.
+- **Rule 2 fails on the grouping:** OpenFaaS losing to Fn or Knative at any c, or OpenWhisk dropping
+  below any of the three, puts the central claim in question. Stop and re-plan; do not patch it in
+  prose.
+- **Rule 2 fails only on the Fn/Knative pair:** Fn and Knative flipping order while `OF < Fn`,
+  `OF < Kn` and `OW` above all three still hold means the **pair ordering is not stable**, which the
+  paper already states (§5.6). Report it that way. The paper's claim is the grouping, and the
+  relevant reference numbers are the 0.18 pp lock4 gap and the 0.20 pp tier-1 c=2 gap, both inside
+  their own spread — so a flip at either is the criterion working on an unresolved gap, not a
+  refutation. No prose change and no re-run.
+
+### 24.6 Amendment (2026-10-02, after the c=1 legs): RAPL FIT demoted for the bridge; resume plan
+
+**What happened.** The c=1 legs (`bridge_tier1c1`, 11:07–11:22) ran at `425c490`, one commit past
+`v9.13.1-bridge-prereg`. That commit only fixes `median_summary`'s list union (aggregation, not
+attribution), and every median below is recomputed from `runs.json`, so it does not touch the
+compared quantity. All gates passed on all 15 runs (worst sampling gap 0.073 s, 3000/3000
+requests, no loadgen fallback, delta checks ok, no RAPL wrap, ambient 5.4–7.2 %) **except RAPL
+FIT: 42.6–60.5 % on 15/15 runs**. `run_lock_session.sh` exited non-zero, the driver's `|| die`
+stopped the session, and **c = 2, 4, 8 never ran**.
+
+**Why RAPL FIT is demoted here.** 24.1 already says the RAPL gate "governs energy, not the CP/fn
+share this bridge compares". The share is a ratio of CPU-seconds and RAPL never enters it. The
+large errors are also not new: tier1c4 (24–43 %) and tier1c8 (11–40 %) were just as far out and
+passed only because the gate was added on 2026-10-01. Likely cause, **unconfirmed**: the model
+counts only fn+CP CPU, while RAPL meters the whole package, which includes dockerd, containerd,
+k3s and `hey`. In the c=1 bridge runs, 27–54 % of host CPU lies outside the model. The sign was
+not recoverable, because runs saved only the error %. That is fixed in `616812c`: runs now record
+`e_model_j` and `e_rapl_j`, and `lock_summary.json` now records each leg's `problems`.
+
+**Changes since the tag (none to attribution):**
+- `616812c`: harness emits `e_model_j` / `e_rapl_j` / `rapl_fit_err_pct` (output fields only).
+  `lock_summary.json` gains `problems` and per-run energy details.
+- This amendment's commit: `run_lock_session.sh --rapl-fit-warn` moves RAPL FIT from `problems` to
+  `warnings`. Every other gate stays fatal, and the session meta records
+  `"rapl_fit_gate": "warn"`. `run_tier1_conc.sh` passes the flag through and adds
+  `--light-from-c N` to resume without re-running (or clobbering) legs that already exist.
+
+`git diff cec0bd9 HEAD -- saqef_harness.py` is limited to those output fields and the
+`median_summary` fix. The c = 2/4/8 legs record the new `git_rev`; cite it next to this section.
+**Bridge energy figures are not citable.** Only the shares are compared.
+
+**Preliminary c=1 observation. Not adjudicated: the rule is applied after all cells exist.**
+
+| platform | reference median | bridge c=1 median (runs) | Δ | tolerance |
+|---|---|---|---|---|
+| openfaas | 7.78 | 4.94 (4.69 4.62 4.94 4.99 5.40) | −2.84 | ±0.50 |
+| fn | 13.97 | 9.32 (9.32 8.84 9.46 8.94 9.40) | −4.65 | ±0.50 |
+| knative | 14.49 | 10.77 (10.02 9.89 11.13 10.77 10.84) | −3.72 | ±0.50 |
+
+At c=1, rule 2's grouping holds (OF < Fn < Kn), and all three cells are far outside rule 1. They are
+lower, which is the direction expected if the old sampler's own CPU inflated the CP bucket. Rule 1
+failing means step 4 (the interleaved A/B) applies. Do not update paper numbers from this table.
+
+**Resume command — SUPERSEDED by §24.7, do not run.** The adjudication below changed the plan;
+this command is kept verbatim so the record shows what was decided before the rule was applied.
+See §24.7 for what runs instead.
+
+```bash
+bash tools/run_tier1_conc.sh --stamp-prefix bridge_ --skip-ow --light-from-c 2 --rapl-fit-warn --dry-run   # check stamps
+bash tools/run_tier1_conc.sh --stamp-prefix bridge_ --skip-ow --light-from-c 2 --rapl-fit-warn             # ~1 h (c=1 took ~20 min)
+```
+
+The final aggregation reads `bridge_tier1c1` from disk, so the table covers c = 1/2/4/8.
+
+**Next steps, in order — SUPERSEDED by §24.7. Kept for the record, NOT the plan:**
+1. ~~Run the resume command above. Then apply rules 1–3 to all twelve OF/Fn/Kn cells.~~
+2. ~~For every cell that fails rule 1, run the interleaved A/B from 24.3 step 4 in **one** session~~
+   ~~(`tools/contamination_ab.py` as template): old sampler vs current. A ≠ B means the old sampler~~
+   ~~inflated the shares; supersede those cells. A = B means day drift; report both.~~
+3. OpenWhisk bridge cells (c = 1/4/8): only after step 2, and only if its outcome makes them
+   necessary.
+4. Energy: using the new `e_model_j` / `e_rapl_j`, decide what RAPL FIT should compare (fn+CP
+   model vs. a host-CPU model) before any energy figure is cited again. tier1c4/c8 also fail the
+   current gate. Until this is settled, energy is model-only.
+5. Then new experiments instead of more replication. Candidates: an I/O-bound or memory-heavy
+   function (the I/O variant exists but is undeveloped), cold-start / scale-from-zero
+   (Knative/OpenWhisk), and bursty arrivals instead of a steady rate.
+
+### 24.7 Amendment (2026-10-02, after adjudicating c=1): rule 1 fails, bridge STOPPED, re-measure instead
+
+24.6 left the c=1 cells "not adjudicated" and proposed finishing the bridge. Applying the rule to
+the cells that exist reverses that plan. **This section supersedes 24.6's resume command and its
+"Next steps" list.** 24.6's factual record of what the legs did is unchanged and still stands.
+
+#### 24.7.1 Rule 1 is adjudicated: it fails on all three c=1 cells
+
+The rule does not require all cells to exist. Rule 1 is a per-cell predicate — "cell validated: |
+bridge median − reference median| ≤ that cell's tolerance" — and each cell is decidable on its own
+five runs. The twelve unrun cells do not make the three decided ones undecidable; they only add
+more of the same verdict.
+
+| cell | reference median | bridge median | Δ | tolerance | verdict | miss |
+|---|---|---|---|---|---|---|
+| openfaas c=1 | 7.78 | 4.94 | −2.84 | ±0.50 | **FAIL** | 5.7× |
+| fn c=1 | 13.97 | 9.32 | −4.65 | ±0.50 | **FAIL** | 9.3× |
+| knative c=1 | 14.49 | 10.77 | −3.72 | ±0.50 | **FAIL** | 7.4× |
+
+The run distributions do not touch: openfaas 7.09–7.92 vs 4.62–5.40; fn 13.78–14.21 vs 8.84–9.46;
+knative 14.04–14.64 vs 9.89–11.13. **15 of 15 bridge runs sit below their reference cell's minimum.**
+This is not drift. Drift at the observed scale would need ~5–9× the cell's own noise.
+
+**Rule 2 holds.** openfaas 4.94 < fn 9.32 < knative 10.77 — the grouping, which is the paper's
+actual claim, survives. What moved is the *level* of every share, not the order. That distinction
+governs everything below: the paper's central claim is not in question; its absolute numbers are.
+
+#### 24.7.2 The gap is in the data, not in the attribution code
+
+This closes off the cheapest possible explanation before acting on it. `c22dff9` / `34b4f26` /
+`908bece` (§19–§22) changed how CPU is attributed to the load window, so the reference datasets
+might simply be mis-attributed rather than differently measured. They are not:
+
+```
+$ python3 tools/legacy_reattribute.py results/openfaas_cpubound_lock_tier1c1 --verify
+legs scanned      : 5
+reconstruction ok : 5
+verify failed     : 0
+reconstruction err: median 0.0305%  max 0.0697%
+share shift unclipped : median 0.0012 pp  max 0.0035 pp
+```
+
+Re-attributing the old data with today's `sample_totals()` reproduces its stored totals to 0.03%
+and moves the share by **0.0012 pp**. A 2.84–4.65 pp difference cannot come from a 0.001 pp
+code change. The sampler produced different measurements.
+
+Corroborating, from the same legs: `host_overhead_cpu_sec` fell ~36.0 → ~15.0 CPU-s over a ~18 s
+window (~1.5 cores of host CPU, not the ~3 cores `c05a9df` estimated for Knative — the honest
+figure is the one measured), and `host_saturation_pct` fell 35.9 → 23.5. The control-plane bucket
+is the term that moved (1.62 → 0.92 CPU-s for openfaas c=1, −43%) while the function bucket barely
+moved (19.41 → 17.76, −8.5%), which is exactly the shape a shared-host contention removal predicts.
+For scale: runbook §1 records a ~2.8-core background interactive application shifting this metric by 0.3–1 pp. The old
+sampler burned comparable CPU *continuously, for the whole window*, and moved it 5–9× further.
+
+#### 24.7.3 Decision: stop the bridge, re-measure tier-1 on the current harness
+
+The bridge is **stopped after c=1**. The remaining twelve OF/Fn/Kn cells and the three OW cells are
+**not** run under the `bridge_` prefix. Reasoning:
+
+1. **The bridge has answered its question.** It existed to detect whether the old sampler perturbed
+   the system. It did, by 5–9× the pre-registered tolerance, with no distribution overlap. Running
+   twelve more cells re-confirms a known verdict at ~1 h of box time.
+2. **24.3 step 4's contingency has no tool.** It prescribes an interleaved old-sampler-vs-current
+   A/B "in one session", naming `tools/contamination_ab.py` as a template. That tool exists but
+   A/Bs *background load*, not *sampler versions*. Building it is unbudgeted work, and it would
+   be needed for a verdict 24.7.2 has already reached by a cheaper route.
+3. **Re-measurement yields citable data; bridge completion does not.** 24.3 step 4 says a
+   confirmed sampler effect means "redo only that platform's affected legs on the current harness and
+   supersede them" — i.e. a full re-measurement anyway, *after* the bridge. Skipping the bridge
+   spends ~3 h on data that is superseded by construction rather than ~3 h on data that can be
+   cited.
+4. **OW was to be run last, and is the cell most at risk.** OW's 81–84% share is the most
+   control-plane-dominated number in the paper, so it is the most exposed to exactly the mechanism
+   above. It has never been measured on the current sampler. It should be in the re-measurement,
+   not deferred behind an experiment whose outcome no longer branches.
+
+#### 24.7.4 Supersession scope is the whole corpus, not tier-1
+
+24.5 assumed the failure would be scoped to "some cells". It is not. **Every dataset measured before
+`c05a9df` shares the contaminated sampler**, so every absolute share in the paper is provisional:
+the lock4 headline table (openfaas 7.58 / fn 11.29 / knative 11.47 / openwhisk 81.78), the
+core-count experiment, the contamination A/B and the ablations. The three OW reference rows in
+24.2 were taken under it too.
+
+This is stated now, before the re-measurement, so the scope cannot be argued afterwards in either
+direction. Two consequences:
+
+- **The grouping claim is safe; the levels are not.** Every pre-`c05a9df` set has the same sign and
+  roughly the same relative size of shift (openfaas ×0.63, fn ×0.67, knative ×0.74 at c=1), so any
+  ordering asserted across the corpus is preserved. OW's level is the open question.
+- **`cp_dynamic_share_pct` is unaffected by idle-w, but energy and carbon are not.** The share is a
+  ratio of CPU-seconds; `energy_J` multiplies by `idle_w`, and idle watts are a property of the box
+  state that the sampler change perturbed (host overhead fell ~21 CPU-s). **Every energy, carbon
+  and gCO2/invocation figure must be treated as void**, independently of the share outcome. Idle-w
+  must be re-calibrated rather than carried over **in any session whose energy is cited**; §24.7.5
+  records one deliberate, scoped exception — a shares-only re-measurement that inherits the lock4
+  medians and inherits exactly the same voidness. Recalibration stops being optional the moment
+  energy is on the page.
+
+The old corpus is **retained, not deleted**, and relabelled pre-`c05a9df`/instrument-contaminated so
+a reviewer can see both series. Superseded numbers are struck in `VERIFIED_RESULTS.md`, never
+silently overwritten.
+
+#### 24.7.5 Protocol for the re-measurement (freeze before running)
+
+The mistake that cost `bridge_tier1c1` was running first and adjudicating later. Freeze these
+before the first leg:
+
+- **Revision.** **`v9.14.1-remeasure`** — the tag the re-measurement runs under, cited by name and never
+  by SHA. **One command runs the whole session**, and its step 1 is this gate:
+  ```bash
+  bash tools/remeasure_shares.sh            # pre-flight, dry run, confirm, then ~2.5-3 h
+  bash tools/remeasure_shares.sh --check    # pre-flight only, measures nothing
+  ```
+  Underneath, two conditions, because either failure alone makes the whole session uncitable:
+  ```bash
+  git status --porcelain                  # must be empty
+  git diff --name-only v9.14.1-remeasure..HEAD   # must be empty, or list ONLY:
+  #   TROUBLESHOOTING_RUNBOOK.md     -- where the protocol is written
+  #   tools/remeasure_shares.sh      -- the pre-flight wrapper doing this check
+  ```
+  Neither is on the measurement path, so neither can move a number. Anything else appearing in that
+  diff — `tools/run_tier1_conc.sh`, `tools/run_lock_session.sh`, `saqef_harness.py`, `tests/` — is a
+  **hard fail with the offending files listed**, not a warning: that is measurement code drifting past
+  the freeze, which is the exact failure that made the last campaign uncitable.
+
+  **A SHA quoted here goes stale** the moment a runbook-only commit lands — which happened twice while
+  writing this section (a trailer strip rewrote 7 commits, and the hash remap that followed was itself
+  a commit). Hence the tag name, and hence the second check.
+
+  Note the deliberate absence of `git describe --tags --exact-match`: it passes only while the tag sits
+  *on* the tip, so a single documentation commit would break the pre-flight for a session that is in
+  fact perfectly citable. `v9.14.1-remeasure` is therefore already behind the tip by exactly the
+  documentation and pre-flight commits that follow it, and that is the state this protocol is written
+  for. **The invariant is not "tag equals tip", it is "nothing between the tag and HEAD touches
+  anything a measurement depends on"** — which is what the `diff --name-only` allowlist asserts, and
+  what the empty `git status` guarantees for the working tree.
+
+  The driver also refuses to start on a dirty tree independently (provenance gate, `--allow-dirty` to
+  override for exploratory work). All 15 `bridge_tier1c1` legs recorded `git_dirty=true` and that
+  alone made them uncitable, with no measured number wrong.
+
+  `v9.14.1` exists because this section was amended **after** `v9.14-remeasure` was frozen — the
+  idle-w rule, the acceptance rule and the run command all changed — and amending a pre-registration
+  in place would destroy the only thing the tag was for. The old tag stays where it is, so a reader
+  can see what was frozen when and what was corrected before any leg ran. The same rule applies to the
+  corrections after it: documentation and pre-flight only, so the tag is left alone and the gap is
+  verified rather than erased.
+- **Stamps.** `remeasure_shares_` — distinct, as it must be (never bare `tier1c<N>`, or pre- and
+  post-`c05a9df` datasets can be confused or overwritten), and it *names the scope*, so nobody can
+  mistake a void-energy run for a fully citable one without opening it. **One command**, which does
+  the pre-flight, the box-state snapshot, a dry run and the session, in that order:
+  ```bash
+  bash tools/remeasure_shares.sh
+  ```
+  The underlying invocation, for the record and for reproducing a single leg by hand:
+  ```bash
+  bash tools/run_tier1_conc.sh --stamp-prefix remeasure_shares_ --rapl-fit-warn --dry-run
+  bash tools/run_tier1_conc.sh --stamp-prefix remeasure_shares_ --rapl-fit-warn
+  ```
+  Both flags are load-bearing. **`tools/run_tier1_quiet.sh` is not a substitute** — it invokes the
+  driver as bare `bash "$DRIVER"` with no arguments, i.e. bare `tier1c<N>` stamps and no
+  `--rapl-fit-warn`, which is a different protocol from this one: stamps that can collide with the
+  pre-`c05a9df` datasets, and RAPL FIT gating rather than warning.
+
+  The wrapper snapshots box state because §24.7.7's whole point is that `governor` is recorded per run
+  but EPP is recorded nowhere — so the one setting that cannot be recovered from the data is the one
+  worth writing down *before* the run. It also pins the power profile to `performance`, refuses to
+  start on battery, and diffs the thermal zones afterwards.
+
+  Output lands in `results/<platform>_cpubound_lock_remeasure_shares_tier1c<N>/`, the medians in
+  `results/lock_session_remeasure_shares_tier1c<N>/lock_summary.json`, and the per-leg background
+  probe in `results/idle_probe_remeasure_shares_tier1c<N>/<platform>/`. `run_lock_session` refuses
+  to clobber, so a re-run needs a fresh prefix rather than an overwrite — and because a new prefix is
+  a protocol change, it needs a new tag.
+- **Acceptance rule, decided in advance.** This campaign's job is to replace uncitable bridge data
+  with citable data, **not** to pass a test. So there is exactly one pass/fail in the protocol, and it
+  is mechanical:
+  1. **Is the cell citable?** Clean tree (`git_dirty=false`), revision named, no `LOADGEN FALLBACK`,
+     ambient < 15 %, `rapl_fit_gate=warn` recorded. A cell failing any of these is void however good
+     its numbers look. That single rule is what made all 15 `bridge_tier1c1` legs uncitable, with no
+     measured number wrong.
+  2. **Frozen questions for the new data.** Report the answers; do not score them:
+     - Does the grouping hold at every concurrency (OpenFaaS < {Fn, Knative})?
+     - What is OpenWhisk's level on the current sampler? It has never been measured there, and
+       §24.7.4 makes it the one genuinely open number in the paper.
+     - Do the three §24.3 shape claims still describe what is seen — Fn falling and staying down,
+       OpenFaaS dipping at c=2, Knative turning up at c=8? Recorded as descriptions **of this
+       corpus**, not as pass/fail. They are the claims the bridge could not confirm, so re-asking
+       "do they hold" would re-import exactly the post-hoc judgement §24.7 exists to remove.
+  3. **No practical-equivalence margin is stated here, deliberately.** TOST equivalence is in the
+     repo (`saqef_harness.py`, `tests/TestTier1StatsHygiene`) and OW has already failed it once
+     (`test_tost_rejects_the_openwhisk_c1_case`) — but a margin chosen at this moment, with the
+     pre-`c05a9df` corpus already visible, is chosen knowing the answer. That is precisely the
+     failure mode §23.2 already records (a 3-sample MAD deciding a bias). If an equivalence claim is
+     wanted, its margin must be fixed from an independent basis — §24.2's QoS floor is the obvious
+     candidate — **before** the data it judges, in its own pre-registration.
+  4. **Old-vs-new is descriptive.** §24.7 has already adjudicated c=1, so scoring new data against
+     old and calling it pass or fail is circular: the comparison is already decided. Both series are
+     reported side by side, and superseded numbers are struck in `VERIFIED_RESULTS.md`, never
+     overwritten (§24.7.4).
+- **Idle-w is inherited here, on purpose, and energy is therefore void.** This campaign's driver
+  passes `--skip-idle-calib` with the lock4 N=5 medians (OF 4.235 / Fn 4.249 / Kn 5.739 / OW 4.882)
+  instead of recalibrating per leg as §19 requires. That is a **recorded deviation with a stated
+  scope**, not an oversight, and it is the only point where this protocol departs from §19:
+  - `cp_dynamic_share_pct` and CP/fn per-invocation are ratios of CPU-seconds. They do not consume
+    idle-w, so every citable output of this campaign is unaffected by the inheritance.
+  - **Every `energy_J`, carbon and gCO2/invocation figure this session produces is void**, struck on
+    sight, exactly as §24.7.4 rules for the pre-`c05a9df` corpus. The stamp prefix records the scope
+    (`remeasure_shares_`) and the driver prints `shares only; energy NOT citable` on every leg, so the
+    constraint travels with the data instead of depending on someone reading this section first.
+  - Recalibration is deferred to one separate §19 idle-w calibration, run with the platform stack
+    up, before any energy figure is cited again. Dropping `--skip-idle-calib` here would cost
+    ~25–30 min of box time and buy no citable number, because §24.7.6 has not settled what energy
+    should even be compared against yet.
+  - **No mid-session re-anchoring.** Within the session the medians are fixed. Re-anchoring partway
+    through would make the per-leg background probe incomparable across legs, which is the one
+    cross-check this campaign actually retains.
+- **RAPL FIT stays demoted to a warning** (`--rapl-fit-warn`) for share sessions. It is uninformative
+  here: it fails the *reference* data too (tier1c4 24–43 %, tier1c8 11–40 %), so it cannot
+  discriminate. Energy stays model-only until 24.7.6 settles what it should compare.
+
+#### 24.7.6 RAPL FIT: what to do with the 42–60 % error
+
+Not a regression — the same magnitude is present in the reference corpus — but it must be explained
+before any energy figure is cited again. 24.6's hypothesis stands and is now testable rather than
+speculative: the model counts fn+CP CPU, RAPL meters the whole package, and 27–54 % of host CPU
+falls outside the model. `616812c` now records `e_model_j` and `e_rapl_j` per run, so **the sign and
+the ratio are recoverable from the first five runs of the re-measurement** — settle this from
+`run_1`, not after the campaign. Until then energy is model-only, as 24.6 already states.
+
+#### 24.7.7 Provenance gaps found while adjudicating
+
+- **The reference datasets carry no `harness.git_rev` at all** (the field predates them). So 24.1's
+  "the two reference values and the bridge values are computed by identical `saqef_harness.py`"
+  cannot be *verified* for the reference side, only asserted. It is also imprecise: the bridge
+  isolates `c05a9df` *plus* §19–§22, which 24.7.2 bounds at 0.0012 pp. New runs are stamped; these
+  are not.
+- **CPU frequency is uncontrolled in both corpora — and partly recorded.** `governor=powersave` is
+  recorded in every run, and the delivered clock swings from 517 to 3800 MHz across runs *and within
+  them*: one `bridge_tier1c1` leg recorded `env.freq_mhz_before` 3299.8 → `env.freq_mhz_after` 707.8.
+  No gate reads it. It is *not* the explanation for 24.7.1 — it is equally variable on both sides — but
+  it is an uncontrolled variable that inflates the noise floor against which every tolerance in 24.2
+  is judged.
+
+  The finer-grained setting is a **blind spot, and one this section previously got wrong by asserting
+  it as fact.** Under the `intel_pstate` driver the `governor` string is only a passive hint; the real
+  bias lives in `cpufreq/energy_performance_preference` (EPP). **`governor` is the only frequency
+  control any run records** — checked across all 127 `summary.json` files in `results/`, whose `env`
+  blocks contain `cpu_count`, `freq_mhz_after`, `freq_mhz_before`, `governor`, `interarrival_ms`,
+  `loadgen`, `loadgen_fallback`, `loadgen_requested`, `sampler`, `target_qps` and nothing else. No EPP
+  value is recorded in either corpus or in the bridge, and the file name for it is not even a distinct
+  grep hit. So any statement about what EPP was during the reference runs is an **assumption, not a
+  record**. This box reads `balance_performance` today under the `balanced` profile; that is today's
+  value and nothing more — it is **not** evidence about the reference runs, and the fact that it did
+  not even hold steady within one working session (it also read `balance_power`) is the reason not to
+  read anything into it. §24.7.7 previously wrote that the reference corpus "was collected under
+  `balance_power`"; that was an assumption dressed as a measurement, and it is corrected here.
+
+  Two corrections to what this section previously recommended. First, **"recording per run" is partly
+  done**: `saqef_harness.py` writes `env.freq_mhz_before` / `env.freq_mhz_after` / `env.governor`
+  into every `summary.json`, verified in `results/fn_cpubound_lock_bridge_tier1c1/`. What is missing is
+  EPP and a gate — not the frequency fields. Second, **pinning is deliberately not done for this
+  campaign.** This box runs the `intel_pstate` driver, where the real knobs (`intel_pstate/no_turbo`,
+  `min_perf_pct`, `cpufreq/energy_performance_preference`) are root-owned, so pinning needs `sudo`.
+  The move is also questionable *here* even with root, though the honest reason is weaker than the one
+  previously given: we cannot show the reference corpus ran under this EPP, so we cannot show that
+  changing it would break comparability — only that we do not know either way. What *is* certain is
+  that the reference corpus and this campaign were **never recorded as matching**, and that switching
+  a root-owned machine setting between the two series would introduce an undeclared protocol
+  deviation — the exact failure that made `bridge_tier1c1` uncitable. Pins belong in a dedicated
+  like-for-like session that re-measures a reference leg *and* a new leg under the same pinned state,
+  so both sides of any comparison demonstrably share it. For this campaign the discipline is narrower
+  and free: **snapshot the box state before the first leg** (recorded in
+  `results/remeasure_shares_box_state/cpufreq.txt`) and **report each cell's `freq_mhz_before`/`after`
+  swing beside its numbers**, so a swing-driven outlier is visible rather than silently absorbed into
+  a median.
+
+- **The box is a laptop, and two daemons own the frequency policy.** This is the part that actually
+  governs whether the re-measurement is repeatable, and it was not written down until now. The host is
+  a **Dell Latitude 3420** (`chassis_type=10`, notebook), running on AC, with the
+  **`power-profiles-daemon`** (currently profile `balanced`, EPP `balance_performance`) and
+  **`thermald --adaptive`** both active.
+  - `power-profiles-daemon` is the thing that *writes* `energy_performance_preference`. Nothing in
+    this repo records it, and it is not stable over the life of the box: it read `balance_power` and
+    `balance_performance` within a single working session. Leaving the profile at whatever the daemon
+    last chose means a variable the protocol needs fixed is owned by software the protocol never
+    records. **Set the profile deliberately before the run** (`powerprofilesctl set performance`) so
+    the value is known and matches the snapshot, rather than inherited by accident. This needs no
+    `sudo`, unlike the `intel_pstate` knobs.
+  - `thermald --adaptive` throttles on a laptop chassis with no sustained-load cooling budget.
+    `x86_pkg_temp` was already at **67 °C at idle** before the session began, with `TCPU` 63 °C and
+    `TSKN` (skin) 59 °C. A 2.5–3 h run with a 420 s × 5 OpenWhisk leg will very plausibly cross the
+    throttle threshold partway through, and delivered frequency will then fall *within* the campaign —
+    which is the same uncontrolled variable as above, arriving from the thermal side and recorded
+    nowhere.
+  - What follows for the numbers: throttling does not obviously damage `cp_dynamic_share_pct`, since
+    that is a ratio of CPU-seconds and both platforms are throttled together — but it degrades
+    *absolute* figures and widens the noise floor, so it is one more reason §24.7.4's energy void
+    stands and one more reason the freq swing must be reported per cell. It is **not** a reason to
+    skip the campaign: the shares are the citable output and they are the robust one.
+  - The honest summary is that this box is a laptop being used as a bench, and no amount of runbook
+    text makes it a server. A machine-state pin plus the per-cell swing report is the best available
+    mitigation; a proper fix is a dedicated, thermally stable, pinned host, which is a hardware
+    decision rather than a protocol one.
+
+
+### 24.8 Final corpus — pre-registered (written 2026-10-02, before any `final_` data)
+
+Supersedes 24.7.5 as the protocol for citable numbers. `remeasure_shares_*` stays on disk as the
+record of what the desktop-session, unbounded-log condition produced. It is never mixed with `final_*`.
+
+#### 24.8.1 What changes, and why each change is justified by data already in hand
+
+| change | justification |
+|---|---|
+| dockerd `json-file` `max-size: 64k`, `max-file: 1` | `owhead1` A/B, same session: unbounded logs give 67.9 → 35.9 rps over 6 repeats with dockerd at 1.24 cores. Truncated logs give 90.6–93.7 rps flat with dockerd at 0.46 cores. Log volume is ~219 B/activation, ~320 KB per run per action container. A 1 MB cap would bind only ~3.2 runs into a leg, so runs 2–4 would stay in the ramp. 64 KB binds after ~0.2 runs, which reproduces the truncate arm's condition natively. |
+| applies to **all** platforms | `k3s server --docker`: Knative/k3s pods are dockerd containers too. A daemon-level cap cannot be scoped to OW, so all four platforms are re-measured under it. |
+| headless (`multi-user.target`), no interactive applications | §24.2: ~0.65 of the 1.078-core idle baseline is the desktop + interactive application. Contention of ~1.5 cores moved shares 3–5 pp (24.7.2). |
+| idle_w recalibrated in-session (5 states × 3 × 60 s) | idle_w is measured per stack state and enters every energy figure as `idle_w × wall`. Leaving the desktop changes it, so inherited values would be wrong by an unknown offset. |
+| OW `--repeat 6 --discard-warmup 1` | OW run_1 cp CPU-s is 2.1–2.4× steady in every OW leg (post-deploy JIT/classload), and the light platforms do not show it. The drift gate then compares run_2 to run_6 (`run_lock_session.sh` drift block uses the post-discard list). |
+| `psys` recorded (`e_psys_j`, `psys_wrap`, `psys_status`), 1 Hz `energy_trace.csv` per run, JVM per-thread CPU on OW legs | Reporting only; none enters a gate or the share. The trace makes the within-run power-vs-load check (25.6) possible offline. |
+
+This is a deliberate, non-default deployment configuration and the paper's setup section must state it
+as such, with the A/B as the reason. Stock dockerd has no rotation. With it, OW throughput is not
+stationary, so it is not measurable as a single number.
+
+The same applies to the OW throttle: `platforms/openwhisk.py:57-72` raises the standalone's default
+60 invocations/min/namespace limit (which 429s 40 % of calls at c=4) via JVM system properties. That is
+also a stated deviation from default.
+
+#### 24.8.2 Acceptance (per leg; evaluated mechanically from `lock_summary.json`)
+
+1. All existing gates pass (sampling gap, completeness, no loadgen fallback, host_plausible, delta
+   check, quiet gate per run).
+2. Drift (first usable run → last) ≤ 20 % throughput loss. For OW that is run_2 → run_6.
+3. RAPL FIT is **warn-only** (`--rapl-fit-warn`). It measures |e_model − e_rapl| / e_rapl
+   (`saqef_harness.py`, the `rapl_validation` line), i.e. the disagreement between RAPL and the
+   **retired** 3.5 W/core model (§25.1). It says nothing about RAPL's own quality, so it cannot gate a
+   RAPL-based energy figure.
+
+Predictions, stated now:
+- **P1.** OW c=1 runs 2–6 are flat (drift < 20 %) at ~90 rps (owhead1 truncate: 90.6–93.7).
+- **P2.** OW cp share stays in its previous 81–84 % band. The share never contained dockerd CPU
+  (§24.2), so bounding logs should not move it. A move > 3 pp would mean the logs were reaching cp
+  CPU, and that must be explained before citing.
+- **P3.** Ordering OpenFaaS < {Fn, Knative} < OpenWhisk holds at every concurrency. The Fn-vs-Knative
+  order is **not** predicted: in `remeasure_shares_` it flips at c=1 (12.73 vs 11.12).
+
+A failed prediction is reported, not tuned away.
+
+#### 24.8.3 Stop rule
+
+A leg that fails acceptance is retried once (`_r2`) inside the same session, automatically. A leg that
+fails twice is reported as failed with its reason. It is investigated further **only** if it breaks
+P3's OpenFaaS-lowest / OpenWhisk-highest claim. After this corpus, no further re-measurement on this
+machine. Open questions become stated limitations or new, separately pre-registered experiments.
+
+Comparing `final_*` to `remeasure_shares_*` is **descriptive only**. The two differ in three factors at
+once (log cap, headless, in-session idle_w), so no difference between them may be attributed to any
+one factor. The cap's effect on OW is isolated by `owhead1` (same session, one factor), not by this
+comparison.
+
+#### 24.8.4 How it is run
+
+`tools/run_final.sh` drives it. Pre-flight hard gates (abort, nothing measured):
+- root
+- `hey` resolves to the corpus build, checked by sha256 (`/usr/local/bin/hey -> /root/go/bin/hey`,
+  `952be8d7…`). PATH is pinned to root's. `~/go/bin/hey` is a different build (`6666d178…`) and must
+  not be picked up. See 25.6.
+- daemon.json cap present, dockerd restarted after it, and a live `k8s_*` container carrying
+  `max-size=64k`
+- knative-serving Ready
+- power profile `performance` with uniform EPP
+- no `final_*` results present
+- measurement-path code committed
+- no graphical session, no interactive application
+
+The job waits up to 20 min for the operator to leave the desktop and quit interactive applications. It does not race a
+countdown. Then it calibrates (`final_calib`), runs 12 light legs and 3 OW legs, appends each verdict
+to `results/final_session/checkpoint.tsv` as it lands, snapshots box state before and after, and
+restores the desktop. Commands are in §24.8.5.
+
+#### 24.8.5 Operator commands
+
+```bash
+# 0. commit first (pre-flight refuses uncommitted measurement-path code)
+# 1. log cap (create; the file does not exist today)
+sudo tee /etc/docker/daemon.json >/dev/null <<'JSON'
+{ "log-driver": "json-file", "log-opts": { "max-size": "64k", "max-file": "1" } }
+JSON
+sudo systemctl restart docker          # restarts k3s pods too (k3s --docker); they come back on their own
+# 2. wait until Ready, then the pre-flight (expect ONLY desktop/interactive application problems)
+sudo k3s kubectl get pods -n knative-serving
+sudo bash tools/run_final.sh --check
+# 3. launch as a system unit (survives leaving the desktop), quit every interactive application, drop the desktop
+sudo systemd-run --unit saqef-final \
+  systemd-inhibit --what=sleep:idle:handle-lid-switch --why="SAQEF final corpus" \
+  bash tools/run_final.sh
+sudo systemctl stop display-manager   # NOT isolate multi-user.target: that also kills saqef-final
+# 4. ~2 h later the desktop comes back by itself. Then:
+systemctl status saqef-final
+column -t -s $'\t' results/final_session/checkpoint.tsv
+```
+
+## 25. Supervisor review questions (2026-10-02) — what the data already answers
+
+### 25.1 Is 3.5 W per busy core trustworthy? No — measured, it is not a constant
+
+`P_BUSY_CORE_W = 3.5` (`saqef_harness.py:50`) is an assumed literature value, never calibrated on this
+box. The data to calibrate it already exists: marginal W per busy core-second =
+`(e_rapl_j − idle_w × wall_s) / host_cpu_sec`, per run, from the `remeasure_shares_*` and `owhead1_*`
+legs (all RAPL package-0):
+
+| platform | c=1 | c=2 | c=4 | c=8 |
+|---|---|---|---|---|
+| openfaas | 6.17 | 5.27 | 5.17 | 3.75 |
+| fn | 6.08 | 6.49 | 4.57 | 3.21 |
+| knative | 4.98 | 6.25 | 4.60 | 3.61 |
+| openwhisk (c=1, owhead1 baseline / truncate) | 2.75 / 1.96 | | | |
+
+So the effective figure spans **1.7–7.7 W**. It falls with concurrency (more busy cores share one
+turbo/power budget, so each runs at a lower frequency and voltage) and differs between legs (OW ~2 W, the others 5–6 W at c=1; per 25.5 this is clock state, not a
+per-platform efficiency). To the supervisor's sub-questions:
+it **does** change with workload type (IPC, memory stalls, vector units), with core type and SMT (a
+hyperthread is not a core; P- vs E-cores differ several-fold), with hardware generation, process node,
+TDP and temperature (leakage), and with DVFS state. It does **not** change with the energy *source*:
+that changes carbon per joule (`ci`, gCO2/kWh), not watts. `PUE = 1.15` is a data-centre facility
+factor and has no meaning on a laptop.
+
+Consequence: `e_model_j` is CPU-seconds × an uncalibrated constant, contributes no evidence beyond
+CPU time, and is not cited. Energy claims come from RAPL directly (25.2).
+
+### 25.2 What energy *can* be claimed
+
+- **Per-platform dynamic energy, measured.** Legs run one platform at a time, so
+  `e_rapl − idle_w × wall` is the package energy that platform's leg added. No W/core model needed.
+- **Standing (idle) control-plane power, measured.** The per-platform idle calibration is already
+  model-free RAPL: knative 5.74 W vs openfaas 4.24 / fn 4.25 / openwhisk 4.30 W
+  (`lock_summary.json idle_w_by_platform`). Knative's deployed-but-idle control plane costs ~1.5 W
+  more. This is a real result.
+- **CP vs function split of dynamic energy** needs an attribution rule (proportional to CPU time).
+  Report it as attributed, never as measured.
+- **`psys`** (`/sys/class/powercap/intel-rapl:1`) is the platform-level domain. It cannot be broken
+  down by itself any more than package can; record it next to package as a bound on what package
+  misses (DRAM, PCH, etc.), not as a separate attribution.
+
+### 25.3 Success rate: measured, not assumed — but never stressed
+
+Not assumed. Every request is checked: `hey` rows count as successes only on an HTTP `2xx` status
+(`saqef_harness.py:631`), the Python fallback only on a completed response within the 10 s timeout
+(`:525-528`). `availability = successes / requests` is recorded per run, and non-2xx responses print a
+warning. In every leg so far it is **1.0 (3000/3000)**.
+
+That 100 % is a property of the test conditions, not of the platforms. Load comes over loopback (no
+packet loss), it is closed-loop (at most `c` requests in flight, so the platform is never pushed past
+capacity), and no faults are injected. The paper must state this as a limitation: the results describe
+the control-plane cost of *successful* steady-state invocations below saturation. They say nothing
+about how each platform behaves on drops, timeouts, retries or overload, and that behaviour is
+platform-specific (OW and Knative queue and retry inside the control plane; OpenFaaS sync calls fail
+fast). The way to test it later is fault injection (`tc netem loss` on the docker bridge) or open-loop
+overload. Both are new experiments, not fixes to this one.
+
+### 25.4 Desktop session vs headless
+
+All earlier legs ran with the GNOME desktop logged in (~0.65 cores idle, §24.2) and no interactive applications. A
+headless final session changes that condition. The share is cp/(cp+fn) container CPU, so the desktop
+enters only through contention, and §24.7.2 showed contention of ~1.5 cores moved shares by 3–5 pp.
+So headless *can* move numbers. It is acceptable only because the final corpus re-measures **all four
+platforms** under the same condition: nothing headless is ever compared with anything desktop. It is
+also the more representative condition, since production hosts are headless.
+
+### 25.5 Corrections and additions after review (2026-10-02)
+
+- **Retracted: "OpenWhisk's Java control plane draws ~2 W per core".** The W/core figure falls
+  monotonically with concurrency on all three light platforms. That is DVFS (more busy cores sharing
+  one package power budget at a lower clock), not a platform property. The per-cell numbers in 25.1
+  show that 3.5 W is not a constant. They are **not** per-platform efficiencies and do not go in the
+  paper as such.
+- **Why OW's energy looks low per core-second but is high per request.** RAPL dynamic energy per
+  request at c=1: OpenFaaS 0.065 J, Fn 0.064 J, Knative 0.065 J, OW 0.084 J (truncate) / 0.186 J
+  (baseline, decaying). OW burns 128–216 host CPU-s per 3000 requests against 31–38 for the others.
+  Much of that is low-intensity work at a low clock, so each core-second is cheap, but there are 4–7×
+  more of them. **Per request, OW costs ~1.3× (bounded logs) to ~2.9× (unbounded) the energy of the
+  others.** Per request is the figure the paper reports.
+- **psys vs package.** Both are RAPL domains read the same way. `intel-rapl:0` (package) covers CPU
+  cores + uncore + iGPU. `intel-rapl:1` (psys) is the platform domain reported by the platform power
+  controller, so it includes package plus more of the SoC/board. It still excludes the display and
+  PSU losses. Neither can be broken down by itself. Per-platform figures come from differencing
+  (legs run one platform at a time, minus that state's idle_w), and the CP/fn split is an attribution.
+  psys is recorded as the wider bound, not attributed.
+- **CP-vs-fn energy "in proportion to CPU time"** is a CPU-time ratio expressed in joules. It must be
+  labelled as such, never as a measured energy split.
+- **RAPL is not "failing a third of runs".** The >15 % FIT flag is model-vs-RAPL disagreement (24.8.2,
+  item 3), not a RAPL defect.
+- **Success-rate regime (adds to 25.3).** Every citable leg is closed-loop: `hey -n -c` with no `-q`
+  (the rate flag exists at `saqef_harness.py` `run_hey` and is never passed by any driver). Offered
+  load is at most `c` outstanding requests and self-limits to what the platform retires, so overload
+  is unreachable by construction. 100 % success holds even at 90–92 % host saturation. That is real,
+  but only for this regime. The open-loop arm (`--qps` above measured capacity, drops/429s/timeouts
+  as the measurement) is a separate experiment and is pre-registered only as a stated limitation here.
+- **JVM thread → subsystem map (pre-registered before any `final_tier1ow*` data).** Thread names
+  are the 15-char pthread names in `results/final_session/jvm_threads_*.csv`:
+
+  | subsystem | thread-name pattern |
+  |---|---|
+  | JIT | `C1 CompilerThre*`, `C2 CompilerThre*` |
+  | GC / VM | `GC Thread*`, `G1 *`, `VM Thread`, `VM Periodic*` |
+  | actor system (controller + invoker logic, HTTP) | contains `akka` or `dispatcher` |
+  | thread pools (blocking I/O, clients) | `pool-*`, `ForkJoinPool*` |
+  | docker CLI spawned by the invoker | the `<children>` row (reaped-child CPU) |
+  | other | everything else |
+
+  If "other" exceeds 20 % of JVM CPU over a leg, the breakdown is reported as incomplete rather than
+  re-mapped after the fact. Inter-container breakdowns (Knative activator / queue-proxy / autoscaler;
+  OpenFaaS gateway / provider; Fn fnserver) come from the per-container data already recorded. The
+  paper must state that OW's breakdown is intra-process and the others' are inter-container: same
+  axis, different granularity.
+
+### 25.6 Load-generator provenance, and the energy checks that replace the model gate
+
+**Two `hey` builds exist on this box.** `/usr/local/bin/hey -> /root/go/bin/hey` (sha256 `952be8d7…`,
+2026-08-08) is what `sudo` resolves, so it is the build behind every leg in the corpus.
+`~/go/bin/hey` (`6666d178…`, 2026-08-06) is what an interactive shell resolves. Nothing
+recorded which build ran until now. From 2026-10-02 every run records `env.loadgen_bin` and
+`env.loadgen_sha256`, and `run_final.sh` refuses any build but `952be8d7…`. For the existing corpus,
+the build is inferred from `sudo` resolution, not recorded. State it as inferred.
+
+**A requested-but-missing `hey` is now fatal before the window opens.** Previously `run_hey` returned
+`None` and the run silently used the Python loadgen, flagged only by `loadgen_fallback` afterwards.
+`run_lock_session` gated on that flag, so a leg would fail rather than be cited. But a whole
+unattended session could still burn its time producing nothing but failed legs. A `hey` that exists
+but fails mid-run still falls back and is still gated.
+
+**The ">15 %" flag is the model's residual, and its message now says so.** `rapl_validation_err_pct`
+keeps its name: the repo removed an alias of this field once already ("one name for this value, not
+two"), and every summary and reader uses it. But `saqef` now prints "MODEL RESIDUAL", not "RAPL FIT
+DEGRADED". Note that its value depends on `idle_w`, so it shifts between desktop and headless sessions
+for reasons unrelated to RAPL.
+
+**Model-free energy checks (offline, from the new per-run files; no global constant):**
+- *Within-run linearity.* `energy_trace.csv` (1 Hz package + psys) is aligned against host busy cores
+  from the same interval. A power-vs-busy-cores slope that is stable across the run's intervals means
+  energy scales linearly with load inside that run. A slope that grows with load is the superlinearity
+  §24.6 suspected. The per-interval CPU in `samples_raw.csv` is container-only, so host busy cores
+  come from the same 1 Hz windows via `/proc/stat` in the analysis, or from `host_cpu_sec` at
+  run granularity.
+- *Idle cross-check.* The 60 s idle probe after each leg is RAPL at zero traffic in the same stack
+  state as that leg's `idle_w`. |probe W − calibrated idle_w| is a within-session drift detector for
+  the baseline every energy figure subtracts.
+
+Neither gates tonight's session. Both are pre-registered here so their thresholds are not picked
+after seeing the data. Reported as-is, they are:
+- linearity: slope CV across intervals, reported per leg
+- idle cross-check: absolute difference, flagged if it exceeds the max − min spread of that state's
+  own three calibration reads in `final_calib`. No fixed wattage: no per-read calibration file
+  survives from any earlier session (every `results/idle_w_calibration/lock_*` dir is empty, because
+  each session reused inherited values), so there is no measured spread to anchor a number on.
+
+## 26. Roadmap from here (agreed 2026-10-02; corrected the same day)
+
+Rule: nothing measured in `final_*` is re-measured. Every later step is either analysis or a new
+**workload**: the plan already set in §24.6 step 5 (I/O-bound, memory-bound, bursty, cold start).
+An "overload" arm proposed earlier the same day is **dropped**. Bursty arrivals answer the
+supervisor's success-rate question in a realistic form, because bursts are where requests queue,
+get rejected (429) or time out.
+
+Every measurement night is one command: `sudo bash tools/go.sh`. Progress afterwards:
+`sudo bash tools/go.sh --status`.
+
+| # | step | type | answers |
+|---|---|---|---|
+| 1 | **CPU-bound final corpus** (`go.sh`, §24.8) | measurement, ~2 h | citable baseline for all 4 platforms |
+| 2 | Adjudicate P1–P3; paper tables/figures; close §24.2 action item (1) | analysis | main results |
+| 3 | Control-plane anatomy (OW JVM threads; Knative activator/queue-proxy/autoscaler; OpenFaaS gateway/provider; Fn fnserver) + energy per request, idle CP power, §25.6 checks | analysis of step-1 data | *why* OW costs 21–45× more CP CPU; whether the energy is trustworthy |
+| 4 | **W1 I/O-bound** *(superseded twice: §27.14, then §28.1 — W1 is the payload echo, done, §28.7–28.9)*: handler waits 5 ms (`time.sleep`, simulating a downstream call) instead of spinning | measurement, ~2 h | is CP cost a property of the platform or of the workload? An earlier quick-tier pass (old sampler) suggested CP ms/inv is workload-invariant but the share ordering is not. W1 settles that under the final protocol. |
+| 5 | **W2 memory-bound**: handler sweeps a resident buffer larger than cache (sized to stay under every platform's memory limit) | measurement, ~2 h | does memory pressure in the function inflate CP cost (cache/bandwidth contention on a shared host)? |
+| 6 | **W3 bursty**: on/off arrivals (bursts at high concurrency separated by idle gaps) instead of a steady closed loop | measurement, ~2 h; needs a burst mode in the load generator | success rate, latency tails and CP cost under realistic bursts; autoscaler reaction (Knative), container creation (OW) |
+| 7 | **W4 cold start / scale-from-zero** (Knative, OpenWhisk; Fn idle timeout) | measurement | CP cost per cold start |
+| — | fifth platform | only if supervisor/reviewer asks | |
+
+Build order for the tooling. Each piece is pre-registered (design + predictions) before its night:
+- `go.sh --workload cpu|io|mem`: generalise the existing handler swap in `tools/run_io_bound.sh`
+  (swap → rebuild images → measure → restore) into `run_final.sh`, so W1/W2 are the same one command
+  with a different flag.
+- W3: a burst arrival mode in the harness's load generator.
+- W4: scale-to-zero settings per platform.
+
+Decision point: after step 2, if P2 fails (OW share moves > 3 pp), explain it before step 3.
+
+## 27. Final corpus — P1–P3 adjudicated (2026-10-03)
+
+Session `final_` (§24.8), headless via `tools/go.sh`, 2026-10-02 19:11–20:53 UTC. 15/15 legs
+`rc=0 gates_ok=True` on attempt 1, `failed_legs=0`. idle_w calibrated in-session 24 min before the
+first leg (`results/idle_w_calibration/lock_final_calib/`, 5 states: bare 6.548 / of 6.857 /
+fn 6.984 / kn 8.767 / ow 8.19 W). Log cap checked on a live `k8s_*` container, EPP performance ×8,
+psys ok, 1 Hz `energy_trace.csv` in every run, OW JVM thread CSVs written. Drift ≤ 7.6 % everywhere.
+
+| cp share % | c=1 | c=2 | c=4 | c=8 |
+|---|---|---|---|---|
+| OpenFaaS | 4.74 | 4.92 | 5.91 | 6.09 |
+| Fn | 8.97 | 8.53 | 8.71 | 8.78 |
+| Knative | 9.95 | 9.52 | 9.26 | 10.38 |
+| OpenWhisk (ow1 / ow4 / ow8) | 76.57 | — | 76.16 | 76.29 |
+
+As pre-registered, failed predictions are reported, not tuned away.
+
+### 27.1 P3 — holds
+OpenFaaS < {Fn, Knative} < OpenWhisk at every concurrency. Fn < Knative also at c=1
+(8.97 < 9.95), so the `remeasure_shares_` c=1 flip (12.73 vs 11.12) does not reproduce. Citable.
+
+### 27.2 P2 — fails; the pre-registered mechanism was wrong
+OW share 76.57 / 76.16 / 76.29 (§27.11) against the predicted 81–84 % band: −4.4 to −7.8 pp. §24.8.2 said a
+move > 3 pp "would mean the logs were reaching cp CPU". They were not counted in cp CPU. Instead, cp
+CPU per invocation itself fell:
+
+| OW c=1 (median usable run) | fn ms/inv | cp ms/inv | share % | untracked host CPU, last run (CPU-s) |
+|---|---|---|---|---|
+| `tier1ow1` (2026-10-01, ref) | 5.77 | 24.7 | 81.1 | 278 (run_5) |
+| `remeasure_shares_tier1ow1` (2026-10-02) | 5.64 | 19.8 | 77.8 | 129 (run_5) |
+| `final_tier1ow1` (this session) | 5.64 | 18.4 | 76.5 | 24.6–31.2 (runs 2–6, flat) |
+
+Function CPU per invocation does not change. The whole move is cp CPU per invocation, −26 %, while
+untracked host CPU (`host_overhead_cpu_sec`) collapses. The light platforms move the same way at
+c=1 against `tier1` (OpenFaaS −3.0 pp, Fn −5.0, Knative −4.5). So this is a **box-state** effect, not
+an OpenWhisk change: the log cap plus headless remove the dockerd and desktop/interactive application contention (§24.2,
+~0.65 cores of desktop + interactive application; dockerd 1.24 → 0.46 cores in `owhead1`), and that contention was
+inflating cp CPU per invocation. §25.4 had already said headless could move shares 3–5 pp through
+contention. P2 was written without that and assumed only *direct* accounting of dockerd CPU could
+move the share. That assumption was wrong.
+
+Consequence: every pre-`final_` share was measured under contention and reads 3–8 pp high. Only
+`final_` shares are cited. The ordering (P3) does not depend on this.
+
+### 27.3 P1 — half fails
+Flatness holds: OW c=1 runs 2→6 are 104.4 → 107.1 rps (+2.6 %; §24.2 had −38 to −52 %). The level
+is 104–110 rps, not the predicted ~90. The ~90 came from the `owhead1` truncate arm, which ran with
+the desktop up; headless removes that contention too. Reported, not fixed.
+
+### 27.4 §24.2 action item (1) — closed
+The OW throughput decay was operator contention plus unbounded docker log volume, not an OpenWhisk
+defect. With logs capped and the box headless it is gone (flat throughput, flat untracked host CPU).
+
+### 27.5 Energy — RAPL-based energy IS citable from this session
+Every leg warns ">15 %" (OW 16–20 %, light legs up to 44 %; model/RAPL ≈ 0.6 at c=1, ≈ 0.9–1.0 at
+c=8). That figure is the **model's residual** against RAPL (§25.6), not a RAPL quality check. The
+3.5 W/core constant is retired (§25.1), energy claims come from RAPL directly (§25.2), and §24.8.2
+pre-registered the residual as warn-only because it "cannot gate a RAPL-based energy figure".
+`--rapl-fit-warn` is therefore what makes `final_` the citable **energy** session. Cite
+`e_rapl_j − idle_w × wall_s` (basis: §27.8). Never cite `energy_J` (the model's figure). The model
+undershoots at low load because marginal W per busy core falls with load (§25.1: OpenFaaS
+6.17 → 3.75 W). No extra experiment is needed for this.
+
+`run_lock_session.sh` used to say the opposite (comment at `RAPL_FIT_WARN`, the `rapl_fit_gate`
+comment, and the end-of-session NOTE: "ENERGY figures from this session are not citable"). Fixed
+2026-10-03. The 15 `final_` leg logs still carry the old NOTE line. This section supersedes it.
+
+The share is not energy-weighted. `cp_dynamic_share_pct` = cp_cpu_s / (cp_cpu_s + fn_cpu_s) exactly,
+because the model applies one constant to both terms (`saqef_harness.py`
+`sensitivity.cp_dynamic_share_pct_by_busy_w` is identical at 2.0 / 3.5 / 5.0 W). idle_w does not
+enter the share.
+
+### 27.6 Provenance fix
+All 15 original `lock_summary.json` files said "idle-w NOT recalibrated this session — INHERITED".
+That was false. `run_lock_session.sh` only looked under the leg's own stamp, but `run_final.sh`
+calibrates once under `lock_final_calib` and then runs each leg under its own stamp. Fixed:
+`run_lock_session.sh --idle-w-source DIR` names the calibration the `--idle-w-*` values came from.
+The summary now cites that directory and checks that the values used equal its medians (otherwise it
+says "idle-w NOT from …"). `run_final.sh` passes `--idle-w-source "$CAL"`. The 15 summaries were
+regenerated by re-running the gate block on the on-disk runs. Apart from `idle_w_provenance` and
+`notes`, they are byte-for-byte identical in content to the originals.
+
+### 27.7 Variability (corrected figures)
+Run-to-run CV of throughput: light legs 0.64–4.78 %. OW is 7.9–9.0 % over all six runs, but that
+comes entirely from the discarded warm-up run_1. Post-discard it is 1.5–2.0 % (104.4–109.7 rps at
+ow1). Quote the post-discard figure. Share CV over usable runs: 1.3–6.0 %, except Knative c=4 at
+8.54 %. The 7.6 % quoted elsewhere was the worst throughput **drift**, not a CV.
+
+### 27.8 Idle cross-check (§25.6) — fails 12/15; per-leg probe is the idle_w basis
+`tools/idle_crosscheck.py` (offline; rows in `results/final_session/idle_crosscheck.json`). Every
+post-leg 60 s probe reads above the session calibration: +0.51 to +1.91 W. That exceeds the
+calibration's own read spread (of 0.45, fn 0.42, kn 0.54 W) on all 12 light legs. The 3 OW legs pass
+only because OW's spread is 1.24 W. The probe direction is uniform: of 7.63–8.02 vs 6.86, fn
+7.50–7.93 vs 6.98, kn 9.62–10.68 vs 8.77, ow 8.89–9.35 vs 8.19.
+
+Cause, not separable from data on disk. Power is flat within each probe (no decaying tail after the
+bench). Two candidates:
+1. Leakage at higher package temperature. Calibration ran 19:13–19:37 before any load. pkg temp
+   during legs ran 62–85 °C.
+2. Instrumentation. The probe runs the full harness (CPU sampler etc.) and shows 0.44–0.88 host cores
+   busy outside the containers. The calibration was RAPL reads only, with no host CPU recorded. The
+   excess tracks host cores loosely (Knative highest on both).
+
+**Decision: idle_w basis = the leg's own probe.** It shares the leg's stack state, thermal epoch and
+instrumentation load, so `e_rapl − probe_W × wall` removes exactly what was present without traffic.
+The calibration-basis figure is kept as an upper bound. With the calibration basis, dynamic energy
+is overstated by 2.8 % (fn c=4) to 10.8 % (of c=1). Restated (median over usable runs, J per run of
+3000 invocations):
+
+| leg | E_dyn probe basis | E_dyn calib basis | over % | mJ/inv (probe) |
+|---|---|---|---|---|
+| of c1 / c2 / c4 / c8 | 174.1 / 121.5 / 93.9 / 71.3 | 193.0 / 132.1 / 99.4 / 73.9 | 10.8 / 8.7 / 5.8 / 3.6 | 58.0 / 40.5 / 31.3 / 23.8 |
+| fn c1 / c2 / c4 / c8 | 141.3 / 98.4 / 82.6 / 60.6 | 154.6 / 106.4 / 84.9 / 63.2 | 9.5 / 8.1 / 2.8 / 4.4 | 47.1 / 32.8 / 27.5 / 20.2 |
+| kn c1 / c2 / c4 / c8 | 180.7 / 116.1 / 98.6 / 77.0 | 197.2 / 127.4 / 104.5 / 83.2 | 9.2 / 9.8 / 6.0 / 8.1 | 60.2 / 38.7 / 32.9 / 25.7 |
+| ow1 / ow4 / ow8 | 339.6 / 319.6 / 324.5 | 372.1 / 342.9 / 343.6 | 9.6 / 7.3 / 5.9 | 113.2 / 106.5 / 108.2 |
+
+Each probe is a single 60 s read (N=1), so the probe basis carries probe-to-probe noise that the
+N=3 calibration does not. The table reports both bases rather than hiding that trade-off. No
+re-measurement (§26). `tools/reanchor_and_kn_idle.sh` is **not** run: task (b) re-measures and task
+(c) recalibrates Knative idle-w, which `final_calib` supersedes.
+
+### 27.9 cp CPU per invocation — the cleanest result in the corpus
+Median over usable runs, ms of CPU per successful invocation:
+
+| | c=1 | c=2 | c=4 | c=8 | fn ms/inv |
+|---|---|---|---|---|---|
+| OpenFaaS | 0.29 | 0.31 | 0.39 | 0.40 | 5.9–6.2 |
+| Fn | 0.52 | 0.50 | 0.52 | 0.52 | 5.3–5.5 |
+| Knative | 0.70 | 0.67 | 0.66 | 0.72 | 6.2–6.5 |
+| OpenWhisk (ow1 / ow4 / ow8) | 18.43 | — | 17.70 | 17.85 | 5.5–5.6 |
+
+Both terms are per-invocation constants against concurrency, which is why the share is flat and why
+it can be interpreted. OpenFaaS is the exception: cp ms/inv rises 38 % (0.29 → 0.40) with fn flat [correction 2026-10-12: 36 %, 0.293 → 0.400 unrounded; 38 % came from the rounded values],
+so its share creep 4.74 → 6.09 % is real. At c=1, OW costs **26–64×** more cp CPU per invocation
+than the others (18.43 vs Knative 0.70 / Fn 0.52 / OpenFaaS 0.29). §26 step 3 predicted 21–45×.
+The 8× share ratio understates this, because OW's function cost is the same as everyone else's.
+(§27.2 uses the median run, 18.4 ms. A mean over runs 2–6 gives 18.2.)
+
+### 27.10 Next
+1. Copy `results/` → `saqef-paper`, commit, push.
+2. `figures/make_figures.py` REGIMES and paper numbers from `final_` (shares §27, cp ms/inv §27.9,
+   energy §27.8 probe basis with the calibration band).
+3. §26 step 3 (control-plane anatomy from the JVM CSVs and traces). Then W1.
+
+Status 2026-10-03: (1) done, `saqef-paper` pushed. (2) done as a separate script,
+`saqef-paper/figures/make_final_figures.py` → `figures/final/` (F1 share vs c, F2 cp ms/inv,
+F3 energy/inv, `final_tables.md`, `final_legs.csv`). `make_figures.py` is left as is so V5 still
+rebuilds. The final draft starts from V5 and is rewritten only once the workload results are in.
+
+### 27.11 OW headline shares included the discarded warm-up (fixed 2026-10-03)
+`run_lock_session.sh` applied `--discard-warmup` to the gates but took the headline
+`cp_dynamic_share_pct` (and `cv_pct`) from the leg's `summary.json`, which is the median over **all**
+runs in `runs.json`. The OW legs keep run_1 in there (87.7–87.9 %). Cited vs usable-run medians:
+ow1 76.715 → **76.57**, ow4 76.28 → **76.16**, ow8 76.315 → **76.29**; CV 5.2–5.5 % → 1.2–1.5 %.
+Light legs ran without a warm-up discard and are unaffected, as are §27.8 energy and §27.9 cp ms/inv
+(both already sliced). P2/P3 conclusions are unchanged (−4.4 to −7.8 pp below the band). The §27 table
+now carries the corrected values. The three OW `lock_summary.json` files are recomputed in
+`saqef-paper` with a note. The gate block now computes share and CV over usable runs only.
+
+A side observation from the tables, not pre-registered: OW throughput is pinned at 107–111 rps for
+c = 1, 4, 8 while p50 latency rises 8.8 → 33.9 → 68.3 ms. The light platforms scale 5.5–6.1× from
+c=1 to c=8. OW is serialising requests at about 9 ms each. This is why OW's energy per invocation stays flat
+(113 / 107 / 108 mJ) while the others fall 2.3–2.4×. It needs explaining in §26 step 3.
+
+### 27.12 Control-plane anatomy (§26 step 3) — where cp CPU goes
+`tools/cp_anatomy.py` (offline). Output is in `saqef-paper/results/final_session/cp_anatomy.json` and the
+figure is `figures/final/F4_cp_anatomy_c1`. Medians over usable runs, ms of CPU per invocation. For
+every leg the components sum to the recorded cp CPU within 1 %, so the attribution closes.
+
+**Light platforms: one component carries the cost (inter-container).**
+
+| c=1 | component | ms/inv | rest of cp |
+|---|---|---|---|
+| OpenFaaS | gateway | 0.28 (95 %) | provider, nats, queue-worker, prometheus ≤ 0.01 each |
+| Fn | fnserver | 0.52 (100 %) | — |
+| Knative | activator 0.34 + kourier gateway 0.33 | 0.67 (96 %) | autoscaler, controllers, webhook ≈ 0.01 each |
+
+OpenFaaS's rise 0.29 → 0.40 from c=1 to c=8 (§27.9) is all gateway (0.28 → 0.40). The provider, the
+autoscaler and the controllers are near zero under steady load: on a warm platform, cp cost is
+request-path proxying, not orchestration.
+
+**Knative classification sensitivity.** `queue-proxy` is counted as function by the V5 convention
+(co-located request-path proxies → function; see V5 §5.6). It costs 0.73–0.84 ms/inv, more than the
+whole cp. Moving it to cp would double Knative's share: 9.98 / 9.53 / 9.25 / 10.40 % →
+20.4 / 20.5 / 20.5 / 22.5 % (c = 1/2/4/8). The ordering P3 still holds (OpenFaaS < Fn < Knative ≪ OW).
+OpenFaaS's of-watchdog runs inside the function container, so it cannot be separated the same way.
+
+**OpenWhisk: process spawning, not orchestration logic (intra-process).** JVM threads plus reaped
+children account for 91.7–92.9 % of the `openwhisk` container's CPU. The remaining ~1.5 ms/inv is
+other processes in the container and the 5 s sampling grain.
+
+- Under the **pre-registered map (§25.5)** the breakdown is **incomplete**: "other" is 27.1–27.9 %,
+  above the 20 % limit. The map was written for HotSpot thread names (`C1/C2 CompilerThread`,
+  `GC Thread`, `akka`/`dispatcher`). This JVM is OpenJ9 (`JIT Compilation`, `GC Worker`,
+  `Concurrent Mark`), and the actor-system threads are truncated to 15 chars as `standalone-acto`,
+  so "akka" never appears. As pre-registered, this is reported, not re-mapped.
+- One component needs no thread-name mapping, because it is the pre-registered `<children>` row:
+  **reaped child processes = 12.2 / 11.9 / 11.9 ms/inv = 72 % of JVM CPU** at ow1/ow4/ow8. These are
+  the processes the invoker forks (§25.5 calls this row "docker CLI spawned by the invoker"). That
+  alone is 17–42× the entire cp cost of each light platform.
+- **Post hoc, labelled as such:** with an OpenJ9 name map ("other" = 0 %), the actor system
+  (controller + invoker logic, HTTP) is 3.8–4.0 ms/inv (23 %), and JIT, GC, telemetry and pools
+  together are ~0.7 ms (4 %).
+
+So OW's 26–64× cp premium (§27.9) is mostly **per-activation process spawning** (≈ 12 ms CPU per
+invocation in child processes). Even OW's actor-system logic alone (≈ 4 ms) is 6–14× a light
+platform's whole cp. The CPU the docker CLI triggers inside dockerd is not in cp at all. It lands in
+untracked host CPU, so this is a lower bound on OW's real cost.
+
+**Open, not resolved from data on disk.**
+(a) Which docker commands run per activation. The children row has no argv. A one-leg strace/execsnoop
+during W1 would settle it.
+(b) The throughput cap (§27.11). Only 2 `guest_hello` action containers exist at c = 1, 4 and 8, and
+throughput is pinned at ~110 rps ≈ 9 ms per request serialised. Candidates: the standalone invoker's
+concurrency/container limits, or serialised docker CLI calls. Cap and spawn cost may share one cause.
+Both are W4-adjacent (container lifecycle) and are noted for that pre-registration.
+
+§27.10 status: step 3 done. Next is W1 (`go.sh --workload io`, pre-registered first).
+
+### 27.13 Record-keeping audit (2026-10-03) — what a reviewer needs is now in the repos
+Checked that someone opening `saqef-paper` cold can go from each figure to its data and back to the
+run that produced it. Four things were missing. All four are fixed in `saqef-paper`:
+
+1. **Captions.** `figures/final/` had figures and tables but no captions.
+   `figures/final/README.md` (hand-written) now holds a caption for F1–F4, the conventions
+   (what counts as cp, dynamic CPU, per invocation), caveats per figure, a table → figure map and an
+   input → producing-tool provenance table.
+2. **Table captions and anatomy tables.** The generated tables are now numbered
+   T1–T9, each with a caption, plus a header stating the session, n and why OW has no c = 2.
+   T8 (light-platform cp by component at every c) and T9 (OW cp by component, c = 1/4/8) put the
+   §27.12 numbers in a table. Before this they were only in the runbook and a JSON file.
+3. **F4 overclaim.** The OW bar was labelled "docker CLI (child processes)". The child-process argv
+   was never recorded (§27.12 open item a), so the label is now "invoker child processes". The JSON
+   key `docker CLI children` stays as is. It is the §25.5 pre-registered row name, and README/T9 say so.
+   F2 gained a footer (n, definition, OW c = 2 absent).
+4. **One final results file.** `VERIFIED_RESULTS.md` called itself the single source of truth but
+   covered only the V5 corpus. It now has **Part A**, the final_ corpus with tables T1–T9 and
+   captions, emitted from `make_final_figures.final_corpus_lines()`. **Part B** is the V5 corpus, marked
+   superseded for the final paper and kept because V5 is built from it. `figures/final/final_tables.md`
+   is deleted, so the numbers live in one place. The Part B content is byte-identical to before.
+
+**Aborted attempts on 2026-10-02 (backed up as `results/aborted_20261002T{1829,1837,1857}Z_*`), not
+used anywhere.** None of them got past idle_w calibration, so they contain no leg data. Each session.log
+ends with `Terminated … run_lock_session.sh --stamp final_calib` and rc = 143 (SIGTERM).
+The logs show only the signal: 18:29Z after 11 s of calibration, 18:48Z after 11 min, 18:59Z after 10 s.
+The third also shows a `poweroff.target` job queued, so the box was being shut down. They coincide
+with the go.sh display fixes committed between them (`63f3994`, `76b9292`, `48000da`: the desktop was
+stopped and the screen gave no progress). From the logs alone, the sender of the signal is
+not recorded. The completed session started at 19:11Z on `48000da`.
+
+**Mirror.** The three recomputed OW `lock_summary.json` files (§27.11) were copied back from
+`saqef-paper/results/` into this repo's `results/` (identical bytes, checked with `cmp`). `results/`
+is git-ignored here, so `saqef-paper` stays the committed record.
+
+**State at the end of §27.** The CPU-bound baseline (§26 steps 1–3) is closed: data, adjudication, figures,
+tables, captions and anatomy are all committed. The paper text is untouched by design. The final draft
+branches from V5 after W1–W4.
+
+**Next: §26 step 4, W1 I/O-bound.** In order:
+(1) pre-register W1 as §28 (design, predictions, decision rule) **before** any W1 data. W1 was
+redefined as object-storage I/O, see §27.14. Include a
+one-leg `execsnoop`/strace of OW to settle §27.12 (a).
+(2) build `go.sh --workload io` *(became `--workload payload`, §28)* by folding the handler swap from `tools/run_io_bound.sh` into
+`run_final.sh` (swap → rebuild images → measure → restore). Dry-run it.
+(3) one night: `sudo bash tools/go.sh --workload io`.
+
+### 27.14 W1 redefined (2026-10-03): real object-storage I/O, not a 5 ms sleep
+The §26 step-4 design ("handler waits 5 ms, `time.sleep`") is the experiment already run on 2026-08-15
+(`tools/run_io_bound.sh`; VERIFIED_RESULTS Part B §10). Re-running it under the final protocol would
+be a re-check, not a new result, and a sleep is idle waiting, not I/O. It does not exercise the
+network stack, data copies or disk. **Decision (user, 2026-10-03): W1 = object-storage I/O.**
+- Backend: one MinIO container (S3 API), run by plain Docker outside all four platforms, so every
+  platform calls the same service. Its CPU is a separate **backend** bucket, neither cp nor function,
+  which keeps cp/function comparable to the CPU corpus.
+- Handler: GET an input object from MinIO, PUT a result object back (the S3-triggered function pattern).
+  Object size, warm-object setup and the PUT key scheme are fixed in the pre-registration.
+- Built-in check: backend CPU per invocation should be the same on all four platforms. A platform
+  that differs points at a classification or request-path problem.
+- The sleep variant stays as the 2026-08-15 record (Part B §10). It is not re-run.
+
+Next: pre-register W1 as §28 (design, object size, predictions, decision rule, the OW execsnoop leg for
+§27.12 a), then build `go.sh --workload io` with the MinIO handler, dry-run, one night.
+
+**Superseded the same day by §28:** W1 is payload I/O through the platform, not MinIO.
+
+## 28. W1 payload I/O — pre-registration (written 2026-10-03, before any W1 data)
+
+### 28.1 Decision: payload echo, not object storage
+The user re-opened §27.14 on 2026-10-03, and the developer's review agreed. W1 is **option D: a
+payload-size sweep through each platform's own request path**. Why not MinIO or Redis:
+- External-storage I/O bypasses the control plane. The function waits on an outside service and
+  cp ms/inv barely moves. Part B §10 (the sleep variant) already showed that.
+- It adds a second daemon whose CPU must be put in its own cgroup and subtracted from
+  `host_overhead_cpu_sec`/`orchestration_cpu_sec` (`saqef_harness.py` derives both as host − fn).
+- Payload bytes **must** pass through gateway, proxy, sidecar and invoker. So "does cp cost grow with
+  data, and where?" is a new question about the platforms themselves, and needs no new service.
+
+Not chosen and not to be re-opened this round: MinIO, Redis, local-disk I/O, pub/sub. W2 stays
+**memory-bound** (§26); it is not replaced by an external-backend I/O variant.
+
+**Framing (user, 2026-10-03):** the platforms are free to licence, so the paper speaks of
+*resource overhead* (CPU-seconds, energy, CO₂), not dollar cost. One motivating sentence: commercial
+billing charges function time only, so control-plane energy is real but unpriced and unreported.
+
+### 28.2 Design (fixed)
+- **Handler:** read the whole request body and return it unchanged. No other work, no disk, no external
+  call. Files: `workloads/payload/` (Fn `func.py`, OF `handler.py` + `index.py`, Kn `app.py`, OW
+  `hello.py`). OW is the same web action, POSTed as `text/plain`, so it arrives as `__ow_body`.
+- **Bodies:** deterministic printable ASCII, exactly **1 KiB, 64 KiB, 512 KiB**
+  (`tools/workload.sh bodies`). 512 KiB, not 1 MiB: OW's activation payload limit is ~1 MB including
+  JSON wrapping. Request and reply are both N bytes.
+- **Load:** hey `-m POST -T text/plain -D body_<size>.txt`, closed loop, c = **1, 4, 8** on all four
+  platforms (c = 2 dropped: it added nothing in the CPU corpus). TOTAL = 3000. Light platforms
+  REPEAT 5. OW REPEAT 6, discard warm-up 1, `--ow-duration` 420/300 s. Same gates, `--cpu-probe 60`,
+  idle-w calibration in-session and JVM thread sampler on OW legs, exactly as the `final_` corpus (§24.8).
+- **Order:** for each size (1k → 64k → 512k): light legs c = 1, 4, 8 × of, fn, kn, then OW c = 1, 4, 8.
+  A session cut short therefore still has complete size blocks.
+- **Provenance:** every `summary.json` records `env.payload_bytes` and `env.payload_sha256`.
+  `box_state.txt` records the workload and the handler sha256s.
+- **Unmeasured, after all legs:** an execsnoop trace (`execsnoop-bpfcc -T -x`) of OW serving 2000
+  64 KiB activations at c = 4, on its own deploy, so no measured window is traced. → `ow_execsnoop.txt`.
+  It settles §27.12 (a): which processes are spawned per activation.
+- **Guard rails:** before any leg, `tools/workload.sh probe` deploys each platform and requires a 2xx
+  whose reply byte-equals the body, for all three sizes, or the session aborts (exit 7). Handlers are
+  restored and the OF/Kn images rebuilt on exit. Every session (CPU too) rebuilds the OF/Kn images from
+  the working tree at start, so an echo image can never survive into a CPU run.
+
+**Probe, attended, 2026-10-03 (not a measurement).** OW, Fn and OF echo 1k/64k/512k byte-exact.
+The OW limit does not bite at 512 KiB. OF first replied **0 bytes**: of-watchdog forwards POST bodies
+*chunked*, and the CPU-bound `index.py` only read `Content-Length`. Hence the payload `index.py`,
+which reads both forms; the Kn app reads both too. Knative was not probed attended (root kubeconfig).
+The in-session probe covers it.
+
+### 28.3 Predictions
+Anchors are `final_` T2/T8/T9 at matched c. "Component" means the per-container cgroup rows of T8
+(`tools/cp_anatomy.py --prefix payload_<size>`), plus the OW JVM rows of T9.
+
+- **P1 — the 1 KiB control reproduces the CPU corpus's cp.** At 1 KiB, cp ms/inv is within **±30 %**
+  of T2 for OF/Fn/Kn (Part B §10 saw −17…−26 % with a no-CPU handler), and within **±15 %** for OW.
+  OW's "invoker child processes" row stays within ±15 % of T9 (≈ 12 ms).
+- **P2 — cp work grows with bytes on every platform.** The request-path cp component's ms/inv rises
+  strictly 1k < 64k < 512k, at ≥ 2 of the 3 concurrencies: OF gateway, Fn fnserver, Kn activator +
+  kourier, OW standalone total.
+- **P3 — on OF and Kn much of the byte cost lands in the function bucket.** of-watchdog and queue-proxy
+  are counted as function (T1 note). For OF and Kn, the 1k → 512k increase in fn ms/inv is **≥** the
+  increase in cp ms/inv. Consequently **no direction is predicted for OF/Kn cp share**: a flat or falling
+  share there is the expected outcome, not a contradiction. Fn (fdk in the function container, fnserver
+  in cp) is reported descriptively.
+- **P4 — OW pays the most per byte, but not in spawning.** OW's cp increase 1k → 512k, in absolute
+  ms/inv, is the largest of the four. It serialises the body as JSON from controller to invoker to
+  action proxy. Its child-process row stays within ±15 % across sizes: spawning does not depend on payload.
+- **P5 — kernel networking grows.** Untracked host CPU per invocation
+  (`(host_cpu_sec − cp − fn) / requests`) rises with size on every platform: loopback, veth and bridge
+  copies are kernel time, outside every cgroup. Direction only.
+
+### 28.4 Decision rules
+1. Each prediction is judged per platform, from the session's own data. A failed prediction is a
+   **finding** and is reported as such. No leg is re-run to rescue a prediction.
+2. Failed legs are retried once in-session (`_r2`) and then recorded (§24.8.3). Nothing else is re-run.
+3. P1 fails → absolute cp ms/inv is not compared across workloads. The within-W1 slopes (P2–P5)
+   still stand, because they only compare W1 legs with each other.
+4. `host_saturated` legs (most likely 512 KiB, c = 8): QoS is not cited. CPU and energy are cited if
+   the other gates pass (same rule as the CPU corpus).
+5. Energy: RAPL, probe basis, as §27.5/§27.8. The 3.5 W/core model is retired (§25.1), so FIT warns
+   are expected and are not a gate.
+6. Probe fails at 512 KiB on any platform → the session aborts before measuring. The top size is then
+   decided by the user. It is not changed silently.
+
+### 28.5 Run
+One command, one night: `sudo bash tools/go.sh --workload payload`. The watchdog is **6 h**: 36 legs,
+expected ~3.5–4 h (the developer estimated 2.5–3.5 h; the 6 h margin costs nothing). Progress:
+`sudo bash tools/go.sh --status` (it shows whichever session is newer). Results: `results/payload_session/`,
+`results/*_cpubound_lock_payload_*`.
+
+### 28.6 Desk work queued (no machine time)
+- **H1 standing cost:** per-platform idle CPU and power from the `final_calib` stack states, i.e.
+  the cost of being deployed with zero traffic.
+- **H2 break-even:** with cp ms/inv constant, share = cp/(cp + fn). Give the function duration at
+  which the platform tax falls below 10 % and 1 %, per platform, in CPU and energy terms.
+
+### 28.7 Session 2026-10-03 (`payload_`): outcome, corrections, harness fixes
+Ran on `8031146`, 07:24–11:40 Z. `box_state.txt` has an empty `git:` line (see bugs below); the commit is
+fixed by timing (committed 07:16 Z, nothing later) and by the handler sha256s the snapshot did record.
+**31/36 cells citable. Nothing is re-run (§28.4 rules 1–2).** The two missing cells are a coverage limit,
+not a reason for an amendment, because every prediction can still be judged without them.
+
+**Cells not citable.**
+- Kn 1k c=8, Kn 64k c=8: attempt 1 failed DRIFT by a hair (21.0 %, 21.5 % > 20 %); every run was
+  individually clean. Attempt 2 never measured: it started 5 s after a 16-pod teardown and failed the
+  quiet gate (15.4 %, 17.6 %; containerd ≈ 38 %).
+- OW 512k c=1/4/8, both attempts: the `openwhisk` container died in run 3 (cp_peak_mem 8.25–8.32 GB).
+  Standalone OW keeps every activation in its in-memory store. It retains ≈ 2 B per payload byte (JVM
+  UTF-16): 125–130 KB/activation at 64 KiB, ≈ 1 MB at 512 KiB, so death comes after 7.1–7.5 k
+  activations. 64k survived (18 k activations, 2.65 GB). **Usable: run_2 of each attempt only, n = 2 per
+  cell.** cp ms/inv a1/r2: c=1 45.2/44.6, c=4 54.3/57.0, c=8 54.3/54.0. One post-warm-up run per attempt
+  (run_1 = 70–92 ms/inv), so steady state is not demonstrated. Label: "standalone OW, in-memory store".
+
+**Verdicts, re-derived from `summary.json` medians (harness), T2 unrounded.**
+- P1 light, 1k cp vs T2: OF −12.5 / +12.8 / **+36.7** %; Fn **−30.6** / −7.1 / −5.8 %; Kn **−34.0** /
+  −15.2 % / n/a. **Fails in 3 of 8 cells → rule 3: no absolute cp ms/inv comparison across workloads;**
+  W1 slopes stand. OW: +9.5 / +10.0 / +11.2 % ✓. OW child-process row (`cp_anatomy.py`, interpolated)
+  13.3 / 12.9 / 13.2 ms/inv = +9.2 / +9.0 / +10.7 % vs T9 ✓. (An earlier ad hoc snapshot sum gave 14.0 at
+  c=1; the tool's interpolated value supersedes it.)
+- P2 ✓ on all four, per component: OF gateway 3/3, Fn fnserver 3/3, Kn activator + kourier 2/2 (c=8 not
+  citable), OW standalone container 3/3.
+- P3: OF ✓ (fn Δ 4.3 / 5.2 / 6.5 vs cp Δ 1.5 / 1.6 / 1.9 ms/inv). **Kn ✗** (fn Δ 1.28 / 1.04 vs cp Δ
+  1.57 / 1.53): a finding, not a defect.
+- P4 ✓: OW cp Δ 1k→512k (run_2) +24…+25 / +35…+38 / +34 ms/inv vs +0.9…+1.9 for the light three.
+  Child-process row within ±15 % across sizes except one c=4 attempt at 512k (+15.3 %). At 1k → 64k
+  (fully citable) OW's Δ is also the largest at every c.
+- P5 ✓: untracked host CPU rises 1k < 64k < 512k in all 11 evaluable cells (W1-T4).
+
+**Where it is recorded.** `saqef-paper/VERIFIED_RESULTS.md` Part C (W1-T1…T6), generated by
+`figures/make_payload_tables.py` from the backed-up session (`saqef-paper` commit `d9b8b79`). The six
+OW 512k `lock_summary.json` files, and `acceptance.json` for every leg, were produced afterwards by the
+fixed gate step (same arguments; the 34 existing summaries came out byte-identical). Per-leg anatomy:
+`results/payload_analysis/cp_anatomy.json` (`cp_anatomy.py --prefix payload_ --legs '*' --jvm-dir
+payload_session`).
+
+**Correction to the developer's review.** "GC Worker 0.43 → 19.2 ms/inv (45×)" is a whole-leg figure and
+is dominated by run 3's death spiral. Inside the run_2 windows GC is **1.0–1.6 ms/inv** (64k: 0.4). GC is
+therefore not the main 512 KiB mechanism. Most of the +25…+38 ms/inv is the `standalone-acto` threads
+(serialisation). The developer's Kn P1 values (−30.5 / −21.7) do not reproduce from the harness medians.
+
+**Harness bugs found and fixed (no measurement changed):**
+1. git as root on a user-owned repo refused every call ("dubious ownership"). The handler restore
+   failed, `restore_handlers` rebuilt the images anyway (`|| true`), and the box was left with
+   payload-echo OF/Kn images and handlers. The pre-flight dirty check was also silently passing.
+   Fix: `git -c safe.directory=…` on every call (no global config change). Restore is checked by
+   `git diff --quiet HEAD` and aborts loudly, and a failed restore no longer rebuilds images.
+2. `snapshot_box` ran twice and overwrote `box_state.txt` → `box_state_pre.txt` / `box_state_post.txt`.
+3. Retry settle: `_r2` now waits until `/proc/stat` shows ≤ 10 % busy (5 s samples, 180 s cap) before
+   redeploying. Post-deploy ambient across this session ranged 3.3–12.9 %.
+4. Gate step crashed with `median(None)` when a run had 0 successes. Fixed, and each leg now writes
+   `acceptance.json` (per-run `usable` + reasons; warm-up, INCOMPLETE, SUCCESSES < 99 %, etc.). `runs.json`
+   stays raw. Anything that aggregates runs must read `acceptance.json` (the §23 bug class).
+5. execsnoop-bpfcc cannot compile on kernel 7.0 → bpftrace `sys_enter_execve`. §27.12 (a) is still open.
+6. OW legs log the expected activation-store growth before they start.
+
+Note for reviewers: `governor: powersave` next to EPP `performance` is cosmetic. intel_pstate is active,
+and EPP sets the frequency policy.
+
+**Developer review of 28.7 (2026-10-03), checked against the data.** Agreed and adopted: (i) P3's Knative
+failure depends on the accounting convention. queue-proxy (function) and kourier (cp) are both per-request
+HTTP proxies, and each takes about a third of the byte cost (c=1 Δ: queue-proxy +0.91, activator +0.76,
+kourier +0.80 ms/inv). With kourier counted as function, fn Δ > cp Δ (c=1 +2.08 vs +0.78; c=4 +1.86 vs
++0.71). This is reported as a **sensitivity**, not a rescue: the pre-registered verdict stays "fails".
+(ii) W1 energy (RAPL probe basis, §28.4 rule 5) is still owed for Part C. (iii) `acceptance.json` now
+records `drift_pct` for every leg, so passing margins are visible. Not adopted: (iv) "the ~21 % Knative
+c=8 decay is the autoscaler". Replicas are pinned (minScale = maxScale = 16), so the autoscaler does not
+scale. The failing legs were non-monotone noise on 1–3 s runs (64k c=8: 1703, 1205, 1832, 1232, 1337 rps),
+except 1k c=8, a steady decline (2671 → 2111). (v) "pin OpenFaaS's fn Δ to of-watchdog". of-watchdog
+and the handler share one container (`fwatchdog` is its command), so cgroup data cannot split them.
+
+### 28.8 Amendment: Knative c = 8 at 1 KiB and 64 KiB (pre-registered 2026-10-03, before any amendment data)
+Amendment 28.8: pre-registered
+
+**Why.** Part C has no citable Knative c=8 cell at 1k or 64k (28.7). The user decided to measure them
+instead of leaving the row incomplete. No verdict depends on them: P2 Knative is already 2/2, and P3
+Knative already fails at c=1 and c=4. This amendment is not a rescue. The original attempts
+(`payload_1kc8_kn`, `_r2`, `payload_64kc8_kn`, `_r2`) stay on record as they are.
+
+**Legs (fixed in `run_final.sh`, `--amend 28.8`).** Knative 1k c=8 and 64k c=8, plus **Knative 512k c=8
+as a bridge**. It is citable in the main session (cp 2.22, fn 2.63 ms/inv) and measures how far a
+different day moves the same cell.
+
+**Protocol: identical to §28.2.** Same handler, bodies, TOTAL = 3000, REPEAT 5, `--cpu-probe 60`, same
+gates. That includes the 20 % first-vs-last drift gate, which is **not** changed after seeing W1 data
+(a better drift rule is a W2 matter). In-session payload probe and idle-w calibration. One in-session
+retry per leg, with the 28.7 quiet-wait. Afterwards the unmeasured OW exec trace (§27.12 a). Prefix
+`payload_amend28_8_`. Command: `sudo bash tools/go.sh --workload payload --amend 28.8`
+(≈ 1 h: probe 8 min, calibration 24 min, legs ~25 min, trace 2 min; watchdog 2 h).
+
+**Decision rules.**
+1. **Pooling.** The two amendment cells enter Part C's grid only if the bridge's cp ms/inv **and** fn
+   ms/inv are both within **±10 %** of the main session's (2.22 / 2.63). Otherwise they are reported in
+   their own column, the session-to-session shift is reported as a finding, and nothing is pooled.
+   Either way they carry an "amendment session" mark.
+2. A leg that fails twice is recorded as missing. These cells get no further amendment.
+3. Once pooled, P1–P5 for Knative c=8 are judged exactly as §28.3 states them. A failure is a finding.
+4. No other cell, platform or size is measured under this amendment.
+
+### 28.9 Amendment 28.8 outcome (2026-10-03, `payload_amend28_8_`), corrections, findings, fixes
+Ran on `014ea91`, 15:44–16:53 Z, rc = 0, handlers and images restored, box state pre/post equal apart
+from temperatures. Probe, idle-w calibration (of 6.11, fn 6.29, kn 7.37, ow 7.18, bare 6.21 W) and the
+OW exec trace all ran. Data backed up to `saqef-paper/results/*amend28_8*`.
+
+**Legs.** 1k c=8 passed first time (drift −0.3 %). 64k c=8 failed the quiet gate twice (18.0 %, 16.7 %)
+→ **missing (rule 2)**. 512k c=8 bridge failed the quiet gate once (16.3 %), passed on `_r2` (11.0 %).
+
+**Rule 1 (pooling): not pooled.** Bridge cp 2.557 vs 2.220 ms/inv (+15.2 %), fn 2.933 vs 2.627
+(+11.6 %): both outside ±10 %. The 1k c=8 cell (cp 0.587, fn 1.430 ms/inv; the main session's
+DRIFT-failed attempt had 0.570 / 1.433) is reported in its own column, `VERIFIED_RESULTS.md` W1-T10.
+No verdict changes: Knative P2 stays 2/2, P3 stays "fails".
+
+**What the bridge does and does not show.** Per usable run, cp ms/inv: main 2.19, 2.24, 2.14, 2.23, 2.22
+(CV 1.8 %); amendment 2.46, 2.27, 2.56, 2.73, 2.76 (CV 7.8 %, +12 % run_1 → run_5). Every amendment run
+is above the main maximum, so the amendment session did run higher. But by +2 % to +24 % depending on
+the run, so **the size of a day-to-day shift is not quantified**. Do not cite "+15 % day shift". The cp
+share barely moved (45.61 → 46.57 %): a ratio cancels what hits cp and fn alike.
+
+**Corrections to the first reading of this session (mine, in conversation, never committed).**
+1. "containerd + dockerd take ~60 % of a core while the gate measures" was wrong: `ps %CPU` is the
+   average over the process lifetime (daemons up since 10:42), not the 20 s gate window. Use
+   `/proc/stat` deltas or `pidstat`, never `ps %CPU`, for current load.
+2. "+15 % day shift" as a finding: withdrawn (above).
+Correction to the developer's review of it: "the main median sits inside the amendment run range" is
+not so; 2.22 is below every amendment run. Their conclusion (magnitude not supported) stands.
+
+**Finding A: the quiet gate is a coin flip for Knative c = 8, not a Knative property.** All ten
+Knative c=8 legs over both sessions: pass 6.5, 10.6, 11.0, 11.7, 12.2 %; fail 15.4, 16.3, 16.7, 17.6,
+18.0 %. The resting floor with k3s + Knative + docker is ~10–12 %, and the deploy/scale-to-16/verify
+burst eats the 3–5 pp of headroom about half the time. The run_final `wait_quiet` ran *before* the leg
+(before scale-up), so it could not help. Fix below.
+
+**Finding B: short runs do not explain the run-to-run noise (checked on 50 existing legs).** Per-run cp
+ms/inv CV does not fall with run length: Fn 64k c=8 at 0.9 s/run 1.8 %; Knative CPU-bound c=1 at
+19.5 s/run 5.8 %; OW 1k c=4 at 21 s/run 10.5 %. The noise depends on the platform (Knative and OW cp
+3–10 %, Fn and OpenFaaS ~1.5–3 %), not on run length. A proposed 3000-vs-30000-request experiment
+was dropped on this evidence. Lowering TOTAL to 500–1000 was also rejected: load is ~6 s of a ~7 min
+leg (deploy, scale, verify, quiet gate, 60 s probe dominate), so it saves seconds and leaves 0.4 s
+runs with ~7 cgroup samples at 2500 rps.
+
+**Finding C: the drift gate is one-sided, and making it two-sided is not the answer.** It fails only a
+throughput loss: the bridge's +42.7 % rise passed. But a two-sided 20 % throughput rule would also
+reject the main 512k c=8 leg (+31.9 % throughput, cp CV 1.8 %, the flattest Knative leg): 2 of 33
+gate-passing W1 legs fail it, one of them clean. Gating on cp CV ≤ 5 % would reject 10 of 33 (OW 1k at
+all c, several Knative and Fn cells). Throughput on 1–4 s runs is the wrong quantity to gate on, and a
+fixed CV bound rejects normal Knative/OW noise. Decision for W2: record stability per leg (below),
+report it as the cell's uncertainty, and pre-register any bridge as a comparison against the legs'
+own run spread, not a fixed ±10 %. `--drift-two-sided` exists but stays off.
+
+**Finding D: the OW "invoker child processes" row is `docker logs`, once per activation (§27.12 a
+closed).** Trace (bpftrace with argv, unmeasured, 2026-10-03 23:40, 500 requests, 1 KiB): **500 ×
+`/usr/bin/docker logs <cid> --since <t0> --until <t1> --timestamps`** from the `standalone-acto`
+threads, plus one `docker run` and one `docker inspect` (container creation). The session trace at
+64 KiB (filename only) gave 2004 docker execs / 2000 activations. Source: the image's
+`standalone.conf` sets `LogStoreProvider = DockerCliLogStoreProvider` (and `use-runc = false`);
+`DockerCliLogStore.collectLogs` calls `ExtendedDockerClient.logs`. The production default and the
+image's own `standalone-kcf.conf` use `DockerToActivationLogStoreProvider`, which reads the container's
+log file directly and spawns no process. Consequences:
+- ≈ 12–13 ms/inv of OW's ≈ 18–20 ms/inv cp (T9, W1-T5) is the standalone distribution's log
+  collection, not inherent OpenWhisk work. The dockerd side of each `docker logs` call is in untracked
+  host CPU (OW 8.8–10.8 ms/inv at 1 KiB, W1-T4), so it is not in cp at all.
+- The same call explains the settled decay (§24.8 table, `owhead1`): `docker logs --since` scans a
+  json log file that grows with every activation.
+- Every OW claim must say **"OpenWhisk standalone"** (as Parts A and C already label it). The 26–64×
+  cp premium is a measured property of the standalone distribution on this box, not of a production
+  OpenWhisk deployment (which also adds Kafka and CouchDB, so its net direction is not known from here).
+- What is left without the log store: the actor system ≈ 4 ms/inv at 1 KiB (W1-T5), still ≈ 6–14×
+  a light platform's whole cp.
+- Open question for a later, pre-registered arm: OW standalone with
+  `-Dwhisk.spi.LogStoreProvider=…DockerToActivationLogStoreProvider` (needs the host's
+  `/var/lib/docker/containers` mounted read-only into the container). Predicted: the child row → ~0.
+  Not run; not part of W1.
+- **Feasibility smoke test (2026-10-04 00:00, unmeasured, no gates).** `DockerToActivationLogStore`
+  needs a file-access docker client (`DockerClientWithFileAccess`, `/containers/<id>/<id>-json.log`),
+  and the standalone uses its own `StandaloneDockerClient`, so that switch is uncertain and was not
+  tried. `LogDriverLogStoreProvider` (collects nothing per activation; logs stay with docker's log
+  driver, as in production setups that ship logs via a driver) is selected with
+  `SAQEF_OW_LOGSTORE=driver` (`platforms/openwhisk.py`; default `cli` = unchanged). Result: 500/500
+  HTTP 204, **0 `docker logs` launches** (only the one `docker run` + `docker inspect`), and
+  throughput unchanged: 77.5 vs 78.5 rps, mean latency 50 ms in both. So the log store is not what
+  caps OW throughput (§27.12 b stays open); it is a CPU cost, not a latency cost. Trace:
+  `saqef-paper/results/ow_logstore_trace_20261003/driver_smoke/`.
+
+**Finding E: W1 energy (§28.4 rule 5, owed since §28.7) is now in Part C (W1-T7).** Probe basis cited,
+calibration basis beside it; disagree beyond the calibration spread in 26 of 37 legs used. Energy does
+not rise strictly with size in 1 of 11 cells (Knative c=1: 23.5 → 26.9 → 24.9 mJ): that leg's probe
+read 1.6 W below its neighbours (one platform's probes span 2.6 W), and at c = 1 the long wall time makes
+the idle basis as large as the size effect. Cite energy per size as a trend at c = 4/8.
+
+**Finding F (post hoc, label it so): cost = fixed + per byte (W1-T9).** cp ms/inv per MiB of payload:
+Fn 1.9–2.0, OpenFaaS 3.0–3.8, Knative 3.1–3.2, OW 50–73. A straight line through 1k and 512k predicts
+64k within +1…+18 % (always under-predicts slightly). Crossover (byte cost = fixed cost) ≈ 90–260 KiB
+for the light platforms, ≈ 280–420 KiB for OW. Whole-host per MiB: Fn 6.9–8.4, Knative 7.6–9.5, OpenFaaS
+16.0–20.6, OW 104–118 ms. Knative P3 sensitivity (kourier as function) is W1-T8: P3 would hold
+(fn Δ +2.08 / +1.86 vs cp Δ +0.78 / +0.71); the pre-registered verdict stays "fails".
+
+**Tooling changes (no measured number changed).**
+1. `tools/idle_crosscheck.py`: `--legs PATTERN` (was hard-wired to `tier1*`), and usable runs from
+   `acceptance.json` (§23 / §28.7 bug class). Part A output reproduces byte-for-byte.
+2. **Gotcha:** `cp_anatomy.py --prefix payload_ --legs '*'` now also matches `payload_amend28_8_*`.
+   For the main session use `--legs '[0-9]*'` (reproduces `payload_analysis/cp_anatomy.json` exactly).
+3. `run_lock_session.sh`: **settle after verify** (default on; `--no-settle` to skip): after deploy +
+   scale + verify, wait until `/proc/stat` ≤ 10 % busy (5 s windows, 180 s cap), then run. Applies from
+   W2 on; W1 is closed. `--drift-two-sided` (default off, Finding C). Every leg's `acceptance.json` now
+   has `stability`: per-run cp and fn ms/inv, their CV and first → last drift (recorded, not gated).
+   Replayed on `payload_amend28_8_512kc8_kn_r2`: all old fields identical; two-sided flag fails it
+   with "42.7 % rise". 187/187 tests pass.
+4. `run_final.sh`: the OW trace records argv (`join(args->argv)`).
+5. `saqef-paper`: `make_payload_tables.py` W1-T7…T10, `payload_analysis/idle_crosscheck*.json`,
+   `cp_anatomy_amend28_8.json`, `ow_logstore_trace_20261003/`. Existing Part C lines unchanged.
+
+**Do not repeat:** the run-length experiment (Finding B), a two-sided throughput drift gate
+(Finding C), `ps %CPU` as current load, citing the bridge's +15 %, re-running W1 cells after the
+settle fix (W1 is closed by §28.4 / §28.8 rules).
+
+**W1 is closed for machine time.** Next: W2 pre-registration (§29), using the settle fix and the
+stability record; decide there whether the OW log-store arm (Finding D) gets its own night.
+
+## 29. OpenWhisk log-collector arm — pre-registration (written 2026-10-04, before any arm data)
+Arm owlog29: pre-registered
+
+**Question.** How much of standalone OpenWhisk's control-plane cost is its activation-log collector?
+§28.9 D showed the standalone runs `docker logs` once per activation (`DockerCliLogStoreProvider`),
+and the image's own non-standalone config does not. `SAQEF_OW_LOGSTORE=driver` selects
+`LogDriverLogStoreProvider` (no per-activation collection; smoke test: 0 `docker logs`, 500/500 OK,
+throughput unchanged). This arm measures the CPU difference. It does not re-measure Part A: Part A's
+OW numbers stay as they are and remain the headline for "OpenWhisk standalone, default config".
+
+**Design (fixed).** One headless session, `sudo bash tools/go.sh --arm owlog29`, prefix `owlog29_`.
+OpenWhisk only, CPU-bound handler (Part A's), TOTAL = 3000, `--repeat 6 --discard-warmup 1`,
+`--cpu-probe 60`, JVM thread sampler, same gates as Part A, idle-w calibration in session, one
+`_r2` retry per leg (now with settle-after-verify, §28.9 fix 3; the two-sided drift flag stays off).
+Each c is measured with both log stores **in the same session**, order alternating so a slow drift
+cannot line up with one arm: c=1 cli → driver, c=4 driver → cli, c=8 cli → driver.
+Legs: `owlog29_tier1ow{1,4,8}_{cli,driver}`. Expected ≈ 1 h (calibration 24 min, 6 legs × ~5 min);
+watchdog 2 h. The comparison is cli vs driver **within this session**, so no cross-day bridge is
+needed. The cli legs are also compared with Part A, descriptively only (not pooled, no rule).
+
+**Anchors (Part A, `final_tier1ow*`, cp_anatomy):** cp 18.43 / 17.70 / 17.85 ms/inv; child-process
+row 12.16 / 11.86 / 11.94; actor system 3.99 / 3.78 / 3.78; fn 5.64 / 5.54 / 5.54; share
+76.6 / 76.2 / 76.3 %; untracked host 10.23 / 9.35 / 9.54 ms/inv; throughput 107 / 111 / 111 rps.
+
+**Predictions (per c, driver vs cli in this session).**
+- **Q1 — the child-process row disappears.** driver ≤ 1.0 ms/inv at every c (cli ≈ 12).
+- **Q2 — cp falls by most of that row.** cp ms/inv(cli) − cp ms/inv(driver) ≥ 9.0 at every c
+  (≈ 75 % of the ~12 ms row; the JVM also spends some actor-thread CPU handling each subprocess,
+  so the drop may exceed the row). Central expectation: driver cp ≈ 6 ms/inv.
+- **Q3 — OW's cp share falls to about half.** driver share in [40, 60] % at every c (central ≈ 52 %;
+  cli ≈ 76 %). OW stays the most expensive platform: driver cp ms/inv > 5× Part A's largest light
+  cp ms/inv at the same c (OpenFaaS/Fn/Knative ≤ 0.72).
+- **Q4 — throughput does not move.** driver rps within ±15 % of cli at every c (smoke test: 77.5 vs
+  78.5 rps). The ~110 rps cap is not the log collector (§27.12 b stays open).
+- **Q5 — host CPU outside every container falls.** untracked host ms/inv lower with driver at every
+  c (dockerd no longer serves a `docker logs` request per activation). Direction only.
+
+**Decision rules.**
+1. Each prediction is judged per c from this session's own legs. A failed prediction is a finding,
+   reported as such; no leg is re-run to rescue one.
+2. A leg that fails twice is recorded as missing; its c is then not evaluable for Q1–Q5.
+3. The cli legs vs Part A (cp, share, child row) are reported side by side with no pooling and no
+   pass/fail; differences are not called a "day shift" (§28.9: n = 5 short runs cannot size one).
+4. Results go into `VERIFIED_RESULTS.md` as their own part, labelled "OpenWhisk standalone,
+   log-driver log store (no per-activation log collection)". Paper wording: Part A stays the
+   default-config headline; this arm is the sensitivity that says how much is the standalone's
+   log collector. Function logs are not collected in the driver arm; say so.
+5. Nothing else is measured under this arm (no light platforms, no payload sizes, no other OW setting).
+6. Energy: RAPL, probe basis, as §27.5/§27.8; reported, no prediction.
+
+W2 (memory-bound) moves to §30.
+
+### 29.1 Session 2026-10-03 (`owlog29_`): outcome
+
+Session `owlog29_`, headless, 2026-10-03 19:20–20:10 UTC, commit `915cec2` (pre-registration
+`d5d6ea7` committed 19:12 UTC, before any arm data). Idle-w calibration in session
+(ow = 6.932 W). Every leg log confirms the intended store (`openwhisk deploy: activation log
+store = cli|driver`). Tables: `VERIFIED_RESULTS.md` Part D (D-T1…D-T3, verdicts computed at emit
+time by `../saqef-paper/figures/make_owlog_tables.py`); analysis JSON in
+`../saqef-paper/results/owlog29_analysis/`.
+
+**Legs.** 5 of 6 gate-passing, each n = 5 usable runs, 3000/3000 successes per run.
+`owlog29_tier1ow8_cli` failed twice on the quiet gate (ambient 16.9 %, then 16.6 % > 15 %; both
+after settle-after-verify had passed at 4.4 % / 6.7 %). Rule 2: missing, so **c = 8 is not
+evaluable** for Q1–Q5. `tier1ow8_driver` is reported without a pair.
+
+**Data (medians over usable runs, cli → driver).**
+
+| c | cp ms/inv | child row | actor system | fn | share % | rps | p50 / p99 ms | untracked host | mJ/inv (probe) |
+|---|---|---|---|---|---|---|---|---|---|
+| 1 | 21.11 → 3.11 | 14.09 → 0.04 | 4.49 → 2.37 | 5.69 → 5.62 | 78.8 → 35.6 | 97 → 135 | 9.7/19.3 → 7.0/10.6 | 12.63 → 8.16 | 85.6 → 41.7 |
+| 4 | 20.87 → 2.94 | 13.91 → 0.02 | 4.21 → 2.18 | 5.60 → 5.65 | 78.9 → 34.2 | 99 → 305 | 38.1/61.7 → 12.7/18.1 | 12.63 → 3.59 | 77.9 → 29.3 (probe flagged) |
+| 8 | — → 3.03 | — → 0.02 | — → 2.10 | — → 5.65 | — → 34.9 | — → 306 | — → 25.4/32.7 | — → 2.56 | — → 26.4 |
+
+**Verdicts (c = 1 and 4).**
+- Q1 (driver child row ≤ 1.0): **holds** (0.035, 0.017).
+- Q2 (cp drop ≥ 9.0): **holds**, and by twice the margin: 18.00 and 17.94 ms/inv. The drop is
+  larger than the child row (14.1) because the actor system also halves (4.49 / 4.21 → 2.37 / 2.18) and the
+  "not in JVM sample" remainder falls (1.59 / 1.73 → 0.25 / 0.37). Central expectation was driver cp ≈ 6;
+  measured ≈ 3.
+- Q3a (driver share in [40, 60] %): **fails**, below the band (35.6, 34.2 %), because cp fell
+  more than predicted.
+- Q3b (driver cp > 5 × largest light cp): **fails** as pre-registered: 3.11 vs 3.48, 2.94 vs 3.28.
+  This is a cross-session ratio, so no precise multiple is cited (corrected §29.4): OpenWhisk stays
+  the most expensive platform per invocation, a few times the light platforms.
+- Q4 (rps within ±15 %): **fails**, strongly: +39 % at c = 1, +209 % at c = 4. The ~100–110 rps
+  cap seen in every OW leg since §27 (§27.12 b) **is the per-activation log collector**: the
+  arms differ only in the log store, in one session, alternating order. The smoke test's
+  "throughput unchanged" (77.5 vs 78.5 rps) did not carry over to the bench protocol; why is
+  not known (smoke test was not on the bench protocol).
+- Q5 (untracked host lower with driver): **holds** on the idle-subtracted metric (5.37 → 2.90,
+  4.53 → 1.44 ms/inv, §29.4). The raw figures first quoted here (12.63 → 8.16, 12.63 → 3.59) carry
+  the idle floor × wall time and must not be cited. Consistent with dockerd no longer serving one
+  `docker logs` per activation.
+- Function CPU is unchanged (≤ 1 % apart), so the handler's work is the same in both arms.
+- Energy (rule 6, no prediction): whole-package mJ/inv roughly halves at c = 1 and falls ~2.7× at
+  c = 4. The c = 4 driver probe is flagged (6.45 W vs calib 6.93 ± 0.44); calibration basis
+  gives 27.7, same conclusion.
+
+**cli legs vs Part A (rule 3, descriptive).** cp 21.11 / 20.87 vs 18.43 / 17.70; child row
+14.09 / 13.91 vs 12.16 / 11.86; share 78.8 / 78.9 vs 76.6 / 76.2; rps 97 / 99 vs 107 / 111.
+Not pooled, not called a day shift.
+
+**Post hoc observations (not pre-registered).**
+1. With the driver store, throughput is flat from c = 4 to c = 8 (305, 306 rps) while latency
+   doubles: a second, higher OW cap at ~305 rps. Its cause is not measured. Open item
+   (replaces §27.12 b).
+2. In every OW leg of this session (both arms), and in the `payload_1kow*` legs, the first
+   usable run's cp is 10–24 % above the rest (e.g. 24.69 then ~21.1). The median absorbs it;
+   the one-run warm-up discard is not quite enough for the JVM. No action; noted so it is not
+   rediscovered.
+3. Quiet-gate ambient readings were higher on cli legs (13.9, 8.6, 16.9, 16.6 %) than on driver
+   legs (8.1, 12.3, 7.2 %). Not diagnosed; n is too small to call it an arm effect.
+
+**Paper wording.** Part A stays the headline for "OpenWhisk standalone, default config". This
+arm says ~85 % of that cp (18 of 21 ms/inv) is the standalone's per-activation log collection,
+which also caps its throughput near 100 rps. With collection off (and so no function logs),
+OW standalone costs ~3 ms/inv of cp, still a few times the light platforms (cross-session, §29.4).
+
+**Do not repeat:** re-running `owlog29_tier1ow8_cli` to rescue c = 8 (rule 1/2; c = 1 and c = 4
+already answer every question); calling the cli-vs-Part-A gap a day shift; quoting the smoke
+test's throughput as the arm's result.
+
+### 29.2 Why OW c=8 cli failed the quiet gate; what really caps OW throughput (2026-10-04, post hoc, from data on disk)
+
+**A. The quiet gate measures the whole box, and the box is never idle.** With every stack deployed
+and no load, a 20 s `/proc/stat` + `pidstat` reading (2026-10-04) gave containerd 0.34, dockerd 0.18,
+k3s server 0.10 of a core: **≈ 0.6 core ≈ 7–8 % of the 8 cores is the stacks' own idle floor**
+(k3s `--docker` with Knative's 21 containers; no docker events in the window, so it is polling,
+not activity). The 15 % gate leaves ≈ 7 pp above that floor. Gate readings over ~70 legs on disk
+range 3–18 %; every failure (Knative c = 8 in `payload_` / `payload_amend28_8_`, OW c = 8 cli
+here) is a leg that starts right after a deploy/restart. `owlog29_tier1ow8_cli`: OW JVM restarted
+~40 s before the gate; settle passed one 5 s window (4.4 %, 6.7 %), and the gate's 20 s window then
+read 16.9 %, 16.6 %. Cause: the 5 s settle can pass on a lull inside a bursty post-start period;
+the gate cannot. Not outside load (the box was headless, interactive applications quit).
+
+**B. The gate's "top CPU processes" list was misleading.** It printed `ps %CPU`, a lifetime
+average (java "51 %", containerd "39 %"), so it could not show what was busy in the window.
+
+**Fixes (tooling only; the 15 % gate and every closed session are unchanged).**
+1. `tools/run_lock_session.sh` settle: back-to-back windows as long as the gate's (`SETTLE_WINDOW_S
+   = 20`), pass at ≤ `SETTLE_MAX_PCT = 12` % (3 pp under the gate), cap 240 s, every reading logged.
+   `--settle-window 5 --settle-max 10` reproduces the §28.9 behaviour; `--no-settle` still skips it.
+2. `saqef_harness.py` quiet gate: the process list is measured over the gate's own window from
+   `/proc/<pid>/stat` deltas (`proc_cpu_ticks`, `window_top_cpu`), in % of one core, own CPU
+   and reaped-children CPU in separate columns (reaped children are counted over their whole
+   lifetime, so they never add into own). A process is matched across snapshots by start time,
+   not name (kworkers rename themselves; the first draft that matched by name reported a kworker
+   at 100 % of a core). Own CPU over all processes sums to the host busy figure (checked live:
+   0.95 vs 0.94 cores). `ps` remains only as a fallback.
+   Tests: `TestQuietGateWindowTop`, `TestSettleMatchesGateWindow`.
+
+**C. Correction to §28.9 D smoke test.** "Throughput unchanged (77.5 vs 78.5 rps), so the log store
+is not what caps OW throughput" was wrong. Under the bench protocol (§29.1 Q4) the driver store
+lifts throughput +39 % (c = 1) and +209 % (c = 4). The smoke test did not use the bench protocol,
+so it should never have been read as a throughput result. **§27.12 b is answered:** with the
+standalone's default store the cap is the log collector (the JVM container runs at ~2.1 cores
+at c = 4 cli while each action container idles at ~0.29 core).
+
+**D. The driver-store cap at ~305 rps is OW's container pool: 2 action containers (post hoc).**
+Every run of every Part A (`final_`), W1 1k/64k and `owlog29_` OW leg ends with exactly **2
+`guest_hello` action containers** (+ 2 nodejs prewarm) in `container_inventory` (214 OW runs on
+disk: 186 show 2; V5 `lock2`–`lock4` runs 3–5 show 3; the 0/1 cases are 512 KiB runs after the JVM
+died and `owab2_baseline`). Per-container CPU samples (`run_3/samples.csv`): with the driver store at c = 4
+and c = 8, each action container runs at a median **88 % of one core**, saturated (a Python action
+handles one activation at a time); at c = 1 they run at ~39 %. 2 containers × (1 / ~6.6 ms) ≈ 305
+rps, the measured plateau, and c = 8 latency doubles over c = 4 (queueing). Why 2: the image's
+`container-pool.user-memory = 1024 m`; the two nodejs prewarm stem cells hold 2 × 256 MB and
+the python action's default limit is 256 MB, so 2 python containers fit. **OpenFaaS and Knative
+are scaled to 16 replicas ("GIL parity", run_lock_session.sh); OpenWhisk has always served with
+2.** This does not explain the cp ms/inv gap (the cli JVM is the bottleneck there), but every OW
+throughput, latency and energy-per-invocation comparison so far is OW-with-2-instances vs
+light-platforms-with-16. Candidate settings, unverified on this image: raise
+`whisk.container-pool.user-memory` (16 × 256 MB + 512 MB prewarm ≈ 4.6 GB; box has 30 GB), or
+set the action's memory limit to 128 MB. A smoke test (unmeasured) must show the container
+count rising before any pre-registration uses it.
+
+**E. Other OW standalone properties that are configuration, not OpenWhisk work.**
+- In-memory activation store (`MemoryArtifactStoreProvider`): the 512 KiB JVM death (§28.7). The
+  image's reference config has `store-blocking-result-level` (STORE_ALWAYS / STORE_FAILURES / …);
+  STORE_FAILURES would stop storing successful activations. Config path and effect unverified.
+- First usable run's cp 10–24 % high (§29.1 post hoc 2): JVM warm-up; the median absorbs it.
+
+**Do not repeat:** reading the gate's old `ps` list as current load; reading a smoke test as a
+throughput result; comparing OW throughput/latency with the light platforms without saying
+"2 action containers vs 16 replicas".
+
+### 29.3 Decision for W2 onward: OpenWhisk runs with the driver log store (2026-10-04, before any W2 data)
+
+The user's decision: W2 (§30) measures OpenWhisk **with the log-driver store only**
+(`SAQEF_OW_LOGSTORE=driver`), not both stores. Reason: §29.1 showed the standalone's per-activation
+`docker logs` adds ~18 ms/inv of cp and caps throughput near 100 rps, so it would contaminate a
+memory-bound comparison. A cli arm would double the OW legs without a new question. Consequences
+for the §30 pre-registration:
+- W2's OW leg sets `SAQEF_OW_LOGSTORE=driver` in its go.sh/run_final wiring, and every leg log must
+  show `activation log store = driver`.
+- Label: "OpenWhisk standalone, log-driver log store (no per-activation log collection)"; function
+  logs are not collected (§29 rule 4).
+- W2's OW numbers are not compared with Part A / W1 OW numbers (different log store); the bridge to
+  them is Part D (same handler, both stores, one session).
+- OW's 2-action-container limit (§29.2 D) is unchanged by this decision: W2 states it wherever OW
+  throughput, latency or energy per invocation is compared.
+
+### 29.4 External review of owlog29 (2026-10-04): what holds, what was corrected
+
+A reviewer read the owlog29 raw runs, the analysis JSON, `cp_anatomy.py` and the harness. Each point
+was checked against the files before acting. **No experiment is re-run.** Every correction is an
+analysis of data already on disk (per-run `host_cpu_sec`, `host_window_s`, the per-leg idle probes).
+
+1. **Untracked host CPU is confounded with wall time. Accepted; the metric is fixed.**
+   `cp_anatomy.py` computes (host − cp − fn) / successes, and host CPU includes the stacks' idle
+   floor (0.5–1.0 core, §29.2 A) × wall. The two driver legs read 8.16 vs 3.59 ms/inv in the ratio
+   of their walls (22.1 vs 9.8 s). New `tools/untracked_dyn.py` subtracts each leg's own idle-probe
+   rate × window per usable run and reports the sensitivity per 0.1 core of probe error. owlog29:
+   cli 5.37 / 4.53 → driver 2.90 / 1.44 ms/inv, so **Q5 still holds** on the corrected metric and
+   the raw magnitudes are withdrawn. The reviewer's alternative "rate in cores" (1.23 → 1.10) is not
+   used: it still contains the floor, and a faster leg does more work per second.
+   **It also reaches W1** (W1-T4, P5, W1-T9 whole-host). New W1-T11: P5 still rises strictly with
+   size in **10 of 11 cells** (Knative c = 1 does not: 0.07 / 0.89 / 0.41), and the whole-host
+   per-MiB figures fall 8–33 % (e.g. OpenWhisk c = 1 104 → 75 ms/MiB, Knative c = 1 9.5 → 6.4). The raw recompute reproduces
+   W1-T9 exactly, so the correction is the floor alone. W1-T11 supersedes W1-T4 and W1-T9's
+   whole-host columns for magnitudes; the original rows stay as emitted.
+   **cp and function CPU are not affected:** idle cp is ≤ 0.01 core on the light platforms and
+   ≈ 0.04–0.05 core for the OW JVM, ≤ 2 % of any cp ms/inv. owlog29 idle-subtracted cp
+   20.70 → 2.77 (c = 1) and 20.45 → 2.79 (c = 4). Part A, W1 and Part D cp claims stand.
+   Energy was already idle-subtracted (RAPL minus probe W × wall).
+2. **Q3b is a cross-session ratio. Accepted for wording; the verdict stands as pre-registered.**
+   The comparison was written into §29 before data, so it is adjudicated as written (fails, by
+   ~10 %). But it divides an owlog29 number by a Part A number, and the cli legs sit +15 % / +18 %
+   above Part A, so the margin is inside the cross-session uncertainty. "4.5 ×" is withdrawn
+   everywhere; the wording is "a few times the light platforms".
+3. **"The actor system also halves is partly the wall artifact." Not accepted; checked.** The whole
+   OW JVM container idles at 0.04–0.05 core in the idle probes, so the wall-time difference between
+   cli and driver legs can account for at most 0.28 ms/inv (c = 4) of the ≈ 2.1 ms/inv actor drop.
+   The driver legs agree: c = 1 and c = 4 differ 2.2× in wall but only 2.37 vs 2.18 in actor ms/inv.
+   Q2 also holds on the child row alone (≥ 13.9 > 9). The decomposition stays.
+4. **git_rev "unknown" in every run. Accepted; fixed.** Under sudo, git refused the user-owned repo
+   ("dubious ownership") and the harness wrote "unknown"; `git_dirty` then read empty output as
+   **clean** (`false`), which was worse. Both calls now pass `-c safe.directory=<repo>`, and a git
+   failure records `null`, never `false`. Checked as root: rev `897831b`, dirty `true` (correct).
+   Session-level provenance was never lost: `owlog29_box_state/box_state_pre.txt` records
+   `915cec2…` and go.sh's pre-flight refuses a dirty measurement path.
+5. **`--verify` reports ~9.8 s/inv. Accepted; fixed.** `verify()` called `sample_totals` with no
+   allowlist and no window, so every non-cp container on the box (all of k3s/Knative) counted as
+   function from its cgroup's birth. It now uses `run_once`'s classification (image/label members
+   from inventories before and after) and the load window. verify gates nothing (it prints only),
+   so no leg was affected; its "OVER budget" line just alarmed every pre-flight.
+6. **cli vs Part A differ ~15 % (cp 21.1 vs 18.4, child row 14.1 vs 12.2). Accepted as a stated
+   residual.** It is not the idle floor (cp idle is < 2 %). It sits mostly in the per-activation
+   `docker logs` row. It is reported (D-T2) and not explained. Part A's absolute OW cp should be
+   quoted as session-specific, ±15 % across sessions.
+
+Tests: `tests/test_review_29_4.py` (git provenance as root path, verify members + window,
+idle-floor subtraction on a synthetic leg). VERIFIED_RESULTS: Part D rows/notes revised; Part C
+gains W1-T11 (additions only).
+
+**Do not repeat:** quoting raw untracked host ms/inv across legs of different wall time; quoting
+cross-session multiples as precise numbers; trusting `git_rev`/`git_dirty` in run JSON before this
+fix (use the session's `box_state_pre.txt`).
+
+
+## 30. W2 memory-bound workload — pre-registration (written 2026-10-04, before any W2 data)
+Workload memory: pre-registered
+
+### 30.1 Question
+Roadmap §26 step 5: **does memory pressure in the function inflate the control plane's CPU cost?**
+The function and the control plane share one 8 MiB L3 and one memory bus. A function that streams
+through DRAM evicts the control plane's working set and queues its cache misses behind its own, so
+each request may cost the control plane more CPU time. That cost is billed to nobody. No data on
+disk answers this: every corpus so far used a cache-resident handler (spin, echo).
+
+### 30.2 Design (fixed)
+- **Handler, two arms, one variable.** Each call copies 256 KiB chunks from one resident buffer to
+  another for **5 ms of wall time**, the same budget as Part A's spin, so the function's CPU per
+  call is matched by design; only the memory traffic differs.
+  - `mem_cache`: SAQEF_MEM_KIB = 256 (src + dst = 512 KiB, fits one core's 1.25 MiB L2).
+  - `mem_dram`: SAQEF_MEM_KIB = 65536 (128 MiB resident, 16 × the 8 MiB L3; every pass goes to DRAM).
+  Files: `workloads/mem_cache/`, `workloads/mem_dram/`; the arms differ in that one line only
+  (unit test). memoryview slicing, so there is no allocation per chunk (musl would mmap/munmap 256 KiB).
+  Reply names the arm (`kib`). Requests are bare GETs, as in the CPU workload.
+- **Offline check (host python, 2026-10-04, not a measurement):** both arms 5.01 / 5.02 ms CPU per
+  call, 0 ms system time; `perf stat` LLC load misses over 3 s: 71 k (cache) vs 165 M of 178 M loads
+  (dram, 93 %); RSS 10 vs 138 MB, inside Fn's and OW's 256 MB function limits. Eight DRAM-arm copies
+  in parallel saturate the bus (~1.4 GB/s each vs 8 GB/s alone); eight cache-arm copies do not.
+- **Legs:** all four platforms × c = 1, 4, 8 × two arms = **24 legs**, prefix `mem_`, stamps
+  `mem_c<c>_<of|fn|kn|ow>_<cache|dram>`. Order: for each c, platforms of, fn, kn, ow; a platform's two
+  arms run **back to back**, and which arm goes first alternates with platform and c (c = 1: of
+  cache→dram, fn dram→cache, kn cache→dram, ow dram→cache; c = 4 the reverse; c = 8 as c = 1).
+- **Protocol: as Part A.** TOTAL = 3000; light `--repeat 5`; OW `--repeat 6 --discard-warmup 1`,
+  `--ow-duration` 420/300 s, JVM thread sampler; `--cpu-probe 60`; idle-w calibration in session;
+  one `_r2` retry; settle after verify (20 s windows, §29.2); same gates; two-sided drift off
+  (§28.9 C), per-leg stability recorded. OF and Kn at 16 replicas as always.
+- **OpenWhisk: driver log store** (`SAQEF_OW_LOGSTORE=driver`, §29.3) on every OW leg and in the
+  probe; label "OpenWhisk standalone, log-driver log store". It serves with **2 action containers**
+  (§29.2 D), so at c = 4/8 only two OW functions stream memory at once, against up to 8 on the
+  light platforms. Stated wherever OW is compared.
+- **Guard rails.** Before any leg, each arm is swapped in, OF/Kn images rebuilt, and every platform
+  deployed and probed: a 2xx whose reply names that arm's kib, or the session aborts (exit 7).
+  Before each leg the handlers are swapped (and OF/Kn rebuilt) if the arm differs, then
+  `workload.sh variant` must equal the leg's arm or the session aborts. Every run records
+  `env.workload_variant`; `box_state` records handler sha256s; handlers restored on exit.
+- **Run:** `sudo bash tools/go.sh --workload memory`. Expected ≈ 3–3.5 h (calibration 24 min, probe
+  8 deploys ~20 min, 24 legs × ~5.5 min, swaps ~6 min); watchdog 6 h.
+
+### 30.3 Anchors
+The comparison is **within this session, dram vs cache, same platform and c**. Noise: run-to-run
+cp CV over usable runs in W1 and owlog29 is median 2.4 % (Fn), 3.0 % (OF), 4.3 % (OW cli), 6.7 %
+(Kn), 7.1 % (OW driver); max 10.5 %. A leg median over 5 runs is therefore good to ~2–4 %, and the
+difference of two adjacent legs to ~3–5 %; hence 10 % as the effect threshold. Context only (other
+handler, other session, not compared): Part A T2 cp 0.29–0.40 (OF), 0.50–0.52 (Fn), 0.66–0.72
+(Kn) ms/inv; owlog29 driver cp 2.94–3.11 ms/inv; function CPU 5.3–6.5 ms/inv (T3).
+
+### 30.4 Predictions (per platform; ratio = dram / cache at the same c)
+- **M0 — the arms do the same function work (design check).** fn ms/inv ratio within **±15 %** at
+  every evaluable platform/c, and throughput ratio within **±15 %**.
+- **M1 — memory pressure inflates control-plane CPU under load.** At c = 8, cp ms/inv ratio
+  **≥ 1.10** on **≥ 3 of 4** platforms.
+- **M2 — the inflation grows with concurrency.** cp ratio at c = 8 **>** cp ratio at c = 1 on
+  **≥ 3 of 4** platforms (more streaming functions, more contention).
+- **M3 — the kernel side moves the same way.** Idle-subtracted untracked host CPU (§29.4,
+  `tools/untracked_dyn.py`) per invocation is higher with dram at c = 8 on ≥ 3 of 4 platforms.
+  Direction only.
+- No prediction for c = 1 magnitude, for the cp share (it follows cp, since fn is matched), or for
+  energy (DRAM traffic raises uncore power, stalls lower core power; the sign is not known).
+
+### 30.5 Decision rules
+1. Each prediction is judged per platform/c from this session's own legs. A failed prediction is a
+   **finding**, reported as such. No leg is re-run to rescue one.
+2. A leg that fails twice is missing; a platform/c with either arm missing is not evaluable, and
+   M1/M2 are then judged over the evaluable platforms only (the "≥ 3 of 4" becomes "all but one").
+3. Where M0 fails for a platform/c, its M1/M2/M3 values are reported but flagged "function work not
+   matched"; they do not count toward the "≥ 3 of 4".
+4. Nothing is pooled with Part A, W1 or owlog29. OW (driver) is never compared with Part A/W1 OW
+   (cli store). The cache arm is shown beside Part A T2 descriptively only.
+5. Untracked host CPU: idle-subtracted only (§29.4). Raw untracked is not cited.
+6. Energy: RAPL, probe basis (§27.8), reported per arm, no prediction.
+7. `host_saturated` legs: QoS not cited; CPU and energy cited if the other gates pass.
+8. A probe failure aborts the night before measuring; the buffer sizes are not changed silently.
+9. Results go to VERIFIED_RESULTS.md **Part E** (generator `figures/make_mem_tables.py`, verdicts
+   computed at emit time), analysis JSON under `results/mem_analysis/`.
+
+### 30.6 Tooling for W2 (no measured number changed)
+- `tools/workload.sh`: `probe-mem KIB [P]` (deploy, GET, reply must name the arm's kib) and
+  `variant` (prints the swapped-in SAQEF_MEM_KIB, or `cpu`). **Bug fixed:** `swap` ignored a
+  failed `cp` and returned 0. Found 2026-10-04 when an unprivileged swap hit the root-owned
+  handlers; a session as root would not have hit it, but a silent wrong handler is the worst failure
+  this study can have. `swap` now dies on a failed copy and `cmp`s every file after copying.
+- `tools/run_final.sh --workload memory`: the 24 legs of §30.2, the two-arm probe, per-leg
+  swap + `variant` check, `SAQEF_WORKLOAD_VARIANT` and `SAQEF_OW_LOGSTORE=driver` per leg, and
+  pre-flight check 7 for the line `Workload memory: pre-registered`.
+- `tools/go.sh --workload memory` (watchdog 6 h, session `mem_session`, `--status` glob); the
+  leftover-handler restore now recognises any `workloads/*` handler, not only payload.
+- `saqef_harness.py`: `env.workload_variant` in every run (None unless set).
+- **Smoke test (2026-10-04, unmeasured, desktop up, not citable).** `mem_dram` swapped in, OF/Kn
+  rebuilt, each platform deployed (OW with the driver store): every reply named `kib 65536`;
+  500 GETs at c = 8 all 2xx on Fn/Kn/OW (OF at 1 replica lost 4 to timeouts; at its protocol's 16
+  replicas 3000/3000 OK). The fixed `--verify` (§29.4 item 5) now reads OF 6.85, Kn 6.76, OW 10.07,
+  Fn 21.55 ms/inv. **Fn's (and OW's) first verify includes container start-up, in both arms:**
+  Fn verify ×3 read 21.27 → 5.95 → 4.84 (cache) and 21.78 → 12.69 → 5.18 (dram); after 3000 GETs
+  at c = 8, 5.02 (cache) vs 5.49 (dram), inside M0's ±15 %. Fn starts ~10 hot containers at c = 8;
+  those started inside run_1 put their start-up in run_1's fn CPU in both arms, as in every earlier
+  Fn leg; the leg median absorbs it (no rule changed). Handlers restored and images rebuilt after.
+- **Developer review (2026-10-04) and two bugs it led to, both before any W2 data.** The review
+  confirmed the arms differ in one constant, the 24-leg order, the OW driver store, and asked that
+  the per-leg guard rails be rechecked: `SAQEF_WORKLOAD_VARIANT` exported per leg, OF/Kn rebuilt on
+  every swap, `variant` checked right before each leg. All three were in place. One gap was not: the
+  check read the handler **files**, not what the deployed function serves, and both arms burn
+  5 ms, so a stale image serving the other arm would leave no trace in the data. Added: after
+  verify, `run_lock_session.sh` sends 20 GETs and every reply must name `SAQEF_EXPECT_KIB`, or the leg
+  fails before measuring (run_final exports it per W2 leg; unset elsewhere, so no other workload
+  changes). Testing that check live found two bugs that would each have **aborted the W2 night at
+  the probe**:
+  1. Fn's fdk returns `str(dict)`, single quotes (`'kib': 65536`); the regex accepted only `"`.
+     Now `kib["']?\s*[:=]\s*(\d+)`, the same in `workload.sh` and `run_lock_session.sh` (test).
+  2. An OpenWhisk web action's dict result without `body` is served as **HTTP 204, empty** (as the
+     CPU handler always was), so OW could not name its arm. The W2 OW handler now returns
+     `{"body": "ok kib=N"}` (HTTP 200), in both arms.
+  Live, attended, unmeasured: `probe-mem` passes for both arms on OF (`Hello kib=…`), Kn (JSON),
+  OW (`ok kib=…`) and for Fn (`{'message': …, 'kib': …}`; cache arm live, dram arm in the smoke
+  test). Handlers restored and images rebuilt afterwards. Tests: `TestW2DeployedArmCheck`.
+
+### 30.7 Session 2026-10-03/04 (`mem_`): outcome
+
+**Legs.** 24 legs, 8 passed, **16 failed twice**, and every failure was the **quiet gate** (ambient
+15.2–25.8 % against 15 %; no DRIFT, INCOMPLETE or arm-check failures). The deployed-arm check passed on
+every leg that reached it (20/20 replies), every run records the intended `env.workload_variant`, and
+every OW leg log shows `activation log store = driver`.
+Passed: OF c1 cache+dram, OF c4 cache+dram, OW c4 cache + dram (`_r2`), OW c1 cache, Kn c1 cache.
+Missing: **all Fn legs, all c = 8 legs**, Kn c1 dram, all Kn c4, OW c1 dram.
+
+**A. Verdicts (rule 2: a platform/c with either arm missing is not evaluable).** Evaluable cells:
+OF c1, OF c4, OW c4. Medians over usable runs (`acceptance.json`), ratio = dram / cache:
+
+| cell | cp ms/inv cache → dram | cp ratio | fn ratio | rps ratio |
+|---|---|---|---|---|
+| OF c1 | 0.473 → 0.493 | 1.04 | 1.01 | 0.98 |
+| OF c4 | 0.547 → 0.567 | 1.04 | 1.01 | 0.96 |
+| OW c4 (driver) | 3.56 → 4.38 | 1.23 | 1.01 | 0.96 |
+
+- **M0 holds** in all three evaluable cells (fn and throughput within ±15 %).
+- **M1, M2, M3: not evaluable.** No c = 8 cell has both arms; M2 needs c = 8 too. The session does
+  not answer §30.1.
+- Descriptive only: OF's cp ratio (1.04) is inside the 3–5 % noise of two adjacent legs (§30.3).
+  OW c4's 1.23 rests on one high first usable run (dram runs 5.71, 4.42, 3.70, 3.59, 4.38 vs cache
+  3.38–3.75; cp CV 19.4 %). The ranges overlap, so the 1.23 is not read as an effect.
+
+**B. Why the gate failed: the stacks' idle floor roughly doubled (post hoc, cause unconfirmed).**
+- In every failed leg the gate's window list is containerd 0.67–1.18 + dockerd 0.44–0.74 cores
+  (k3s ≈ 0.1). Nothing from outside the stacks appears. Gate % tracks containerd + dockerd leg by
+  leg. §29.2 A measured 0.34 + 0.18 cores.
+- Settle passed (≤ 12 %) right before most failing gates (e.g. `mem_c1_fn_dram`: settle 6.5 %, gate
+  16.4 %; nothing runs between them). Settle readings alternate high/low (Kn c1 dram `_r2`: 13.1 21.7
+  14.1 20.4 15.0 20.1 …), so the load is periodic and settle passes on a trough.
+- Live after the session (2026-10-04 05:02Z, no session, only k3s/Kn up): busy 10.5 / 18.5 / 8.3 %
+  over three 20 s windows; containerd 0.78, dockerd 0.54 cores; **zero docker events in 60 s**, so
+  this is polling, not container lifecycle.
+- Gate medians rise across sessions: final 6.2 %, payload 8.3 %, amend28_8 16.3 %, owlog29 12.3 %,
+  mem 16.8 %. Images on the box (`docker images -a`, lower bound by creation time) rise with them:
+  ≈ 430 → 510–560 → 575 → 590 → 660–730. Now 235 images (`docker system df`), 153 of them dangling, and 172 volumes;
+  every W2 arm swap rebuilds the OF/Kn images (legacy builder), adding dangling images.
+  **Suspected:** cri-dockerd/kubelet and dockerd listing and stat-ing every image and volume
+  periodically, so their cost grows with leftovers. Not confirmed. The test is a box change (prune
+  dangling images/volumes, then re-measure the idle floor), not yet done.
+
+**C. Consequences.** No gate is changed (§30.5; frozen). Part E is not emitted: no prediction is
+evaluable, and the three M0 cells alone do not need a table. These legs stay on disk and in
+`../saqef-paper/results/` as the record.
+
+**Do not repeat:** reading gate failures as outside load (the window list shows only the stacks'
+daemons); starting a W2 rerun before the idle floor is back near §29.2's 0.5 core.
+
+**D. Cause confirmed (2026-10-04 05:30Z, same box state, nothing else changed).** Removed: 21 exited
+containers, 48 old Fn function images (`hello:0.0.6`–`0.0.53`; Fn deploys with `--no-bump` now, so
+these were historical), 153 dangling local-build images, 171 unused anonymous volumes (734.8 MB).
+Kept: every tagged platform/runtime image, the Knative system images (referenced by digest, checked
+not dangling), the 22 running containers, the swarm and the registry. Result, idle, only k3s/Kn up:
+
+| | before | after |
+|---|---|---|
+| busy, 20 s windows | 10.5, 18.5, 8.3 % | 6.2, 5.5, 4.9, 5.2, 5.5, 5.4 % |
+| containerd / dockerd / k3s (cores, 60 s) | 0.78 / 0.54 / 0.09 | 0.11 / 0.11 / 0.09 |
+
+The floor is flat again and below §29.2's 0.52 core, which was itself probably inflated. Where the
+leftovers come from (image `Config.Volumes`): `fnserver` (`/var/lib/docker`, a new anonymous volume
+per Fn deploy), OpenFaaS `prometheus` and `alertmanager` (one each per OF deploy), `registry` (once);
+dangling images from every OF/Kn handler rebuild and every Fn deploy. A W2 night adds dozens of each.
+
+**E. Tooling (default off; no closed session's behaviour changes).** `run_final.sh --hygiene`:
+`box_hygiene` runs `docker volume prune -f` (unused anonymous volumes only) and `docker image prune -f`
+(dangling only; never `-a`, never `system prune`) before calibration and before every leg attempt,
+logging counts to `session.log`; the leg's own settle and quiet gate come after it. `snapshot_box`
+now records image/dangling/volume/container counts (provenance only). `--rerun N` (W2 only, N = 2–9)
+runs the whole W2 session under prefix `mem<N>_`, implies `--hygiene`, and needs its own
+pre-registration line; `go.sh --workload memory --rerun N`. Tests: `TestW2RerunHygiene`.
+
+**Do not repeat:** letting docker leftovers accumulate across sessions; a blind `docker system prune -a`
+(would delete the untagged-by-digest Knative images only if they were dangling; check first).
+
+### 30.8 W2 rerun 2 — pre-registration (written 2026-10-04, before any `mem2_` data)
+Workload memory rerun 2: pre-registered
+
+- **Why a rerun is allowed.** `mem_` evaluated no prediction (M1–M3 need c = 8; none had both arms).
+  The legs were lost to a box defect (§30.7 B/D), now fixed and confirmed; no prediction failed and
+  none is being rescued. The 15 % gate and every §30 element are unchanged.
+- **Protocol: §30.2–§30.5 verbatim** (handler arms, 24 legs and their order, TOTAL, repeats, OW
+  driver log store, settle, one `_r2` retry, gates, predictions M0–M3, decision rules 1–9), plus the
+  `--hygiene` step of §30.7 E. Prefix `mem2_`, session `mem2_session`; run with
+  `sudo bash tools/go.sh --workload memory --rerun 2`, bare shell / text mode, interactive applications quit.
+- **No pooling.** `mem2_` is adjudicated on its own. `mem_` legs stay on disk as the record of the
+  failed night and are not pooled with `mem2_` or used to fill its missing cells. If `mem2_` again
+  leaves a c = 8 cell without both arms, rule 2 applies as written.
+- **Recorded per leg (new, provenance only):** hygiene counts in `session.log`; docker object counts
+  in `box_state_pre/post`. If containerd + dockerd in a failing gate's window list exceed 0.5 core,
+  §30.7 is the first suspect.
+- Part E of VERIFIED_RESULTS.md and `results/mem_analysis/` (rule 9) are built from `mem2_`.
+
+### 30.9 Pre-flight "W2 is not pre-registered" although the line is committed (2026-10-04)
+**Symptom.** `sudo bash tools/go.sh --workload memory --rerun 2` stopped in pre-flight with
+`W2 is not pre-registered in the committed runbook`, though `Workload memory: pre-registered` is in
+HEAD (§30). No data was taken.
+
+**Cause.** Check 7 piped `git show HEAD:TROUBLESHOOTING_RUNBOOK.md | grep -qF ...` under
+`set -o pipefail`. `grep -q` exits on the first match; `git show` still has the rest of the file
+(~16 KB after §30's line) to write, gets SIGPIPE, and the pipeline returns 141, so a registered line
+reads as missing. Racy: 118/200 failures as root, 0/300 as the user. The rerun line sits near the
+file's end, so it rarely lost the race. Every new section appended to the runbook made the earlier
+lines more exposed.
+
+**Fix.** `run_final.sh` reads the committed runbook once into a variable and greps it via a
+here-string (0/200 failures as root). An unreadable runbook is now its own pre-flight problem.
+Check logic, protocol and gates unchanged.
+
+**Do not repeat:** `producer | grep -q` under pipefail when the producer writes more than one pipe
+buffer after the match.
+
+### 30.10 Session 2026-10-04 (`mem2_`, rerun 2): outcome
+Commit `68d658b`, headless, 06:07–09:00 UTC, `--hygiene`. Tables: VERIFIED_RESULTS.md **Part E**
+(`figures/make_mem_tables.py`, verdicts computed at emit time); analysis JSON `results/mem_analysis/`.
+
+**Legs.** 24 of 24 passed on the first attempt; no `_r2`. Quiet gate 1.8–5.1 % on every leg (§30.7's
+failing night: 15.2–25.8 %); the docker-leftover fix of §30.7 D held: hygiene removed 56 dangling
+layers before calibration and 0–26 per leg after, image count 40–41 throughout. Deployed-arm check 20/20 on every leg; every run records its `env.workload_variant`; all 6 OW leg
+logs show `activation log store = driver`. `host_saturated` on most c = 8 light-platform runs
+(rule 7: latency not cited for them).
+
+**A. Verdicts (§30.4, rules §30.5 applied literally; ratios dram / cache, medians over usable runs).**
+
+| c = 8 | cp ms/inv cache → dram | cp | fn | rps | M0 |
+|---|---|---|---|---|---|
+| OpenFaaS | 0.463 → 0.480 | 1.04 | 1.02 | 0.96 | ok |
+| Fn | 0.600 → 0.880 | 1.47 | 1.07 | 0.86 | ok |
+| Knative | 0.743 → 1.157 | 1.56 | 1.15 (1.145) | **0.77** | fails |
+| OW (driver) | 2.750 → 2.863 | 1.04 | 1.01 | 0.99 | ok |
+
+- **M0 fails in 1 of 12 cells**: Knative c = 8, throughput −23 % (fn 1.145, just inside). The
+  other 11 hold. Knative c = 8 is flagged (rule 3) and not counted below.
+- **M1 fails** (1 of 3 counted: Fn; with Knative 2 of 4, still fails).
+- **M2 fails** (1 of 3 counted: Fn 1.47 > 1.12; OF 1.04 vs 1.06, OW 1.04 vs 1.04; with Knative 2 of 4).
+- **M3 fails on rule 3** (2 of 3 counted: Fn 0.67 → 1.04, OW 1.05 → 1.17; OF 0.50 → 0.50). With
+  Knative (0.42 → 0.68) it would be 3 of 4. OW's step is inside its ±0.32 idle-probe sensitivity.
+- c = 1 and c = 4 (no prediction on magnitude): Fn 1.12 / 1.08, Knative 1.19 / 1.13, OW 1.04 / 1.11,
+  OF 1.06 / 0.99.
+
+**B. Finding.** Memory pressure in the function does **not** inflate control-plane CPU in general.
+At c = 8 it does on Fn (+47 %) and Knative (+56 %), and not on OpenFaaS (+4 %, inside the 3–5 % noise
+of two adjacent legs, §30.3) or OpenWhisk (+4 %). Knative and Fn also already show +12–19 % at c = 1.
+
+**C. Post hoc (not pre-registered; tested on these legs only, `cp_anatomy.py`).**
+1. Where it lands, c = 8: Fn's whole cp is fnserver (0.60 → 0.88). Knative: kourier 0.38 → 0.62,
+   activator 0.35 → 0.52, and the queue-proxy sidecar (counted as function) 0.83 → 1.19. So part of
+   Knative's +0.92 ms function rise is its own request path (+0.35), not the handler.
+2. OpenWhisk's flat ratio is expected from §30.2: only 2 action containers stream memory at once.
+   OpenFaaS at 16 replicas runs 8 streaming functions too, and its gateway moves 4 %. Why the OF gateway
+   is insensitive and fnserver / kourier / activator are not is **not answered** by this data.
+3. Knative c = 8 M0 failure: the host is at 83–89 % busy; the dram leg needs +1.3 ms CPU per call
+   (fn + cp), so throughput falls. The design check fails because of the effect, not a mismatched
+   handler (fn ratio 1.145 includes the +0.35 queue-proxy).
+4. Energy (no prediction): dram costs more per call at c = 8 on every platform (probe basis: OF +9 %,
+   Fn +10 %, Kn +20 %, OW +4 %).
+
+**D. Corrections / caveats.** OW cp CV 16–43 %: the first usable run is high in every OW leg, both
+arms (§29.1 post hoc 2); medians used. The idle probe sits 0.7–1.5 W above the session calibration on
+all 18 light-platform legs (‡ in E-T1), both arms alike, so the within-session ratios are unaffected;
+energy is cited on the probe basis (§27.8).
+
+**E. Provenance gotchas (no number affected).**
+- Run JSON says `git_dirty = true` on every leg. Since the §29.4 item 4 fix the flag is real, and a
+  W1/W2 session swaps the arm's handler into the tracked paths (`hello/func.py`, `OF_FUNCTION/`,
+  `KNATIVE_FUNCTION/`, `OW_FUNCTION/`). Checked: box_state_pre handler hashes = `workloads/mem_dram/`,
+  box_state_post = `workloads/mem_cache/` (the last leg's arm); tree clean before (pre-flight) and
+  after (handlers restored). For workload sessions, read box_state, not the flag.
+- 18/24 idle-crosscheck flags: see D.
+
+**Tooling.** `figures/make_mem_tables.py` (new), Part E in `tools/emit_verified_results.py`
+(existing lines unchanged). No measurement code changed.
+
+**Do not repeat:** reading Knative's c = 8 M1 value as counted (rule 3 flags it); reading M3 as
+"holds" by counting Knative; quoting W2 cp ratios as a property of FaaS in general (two of four
+platforms move).
+
+### 30.11 Post hoc checks after §30.10 (2026-10-04; existing legs only, no new data)
+Reviewed by the developer (2026-10-04): mem2_ adjudication accepted, go for W3 after its
+pre-registration. Two questions were then tested on disk. Nothing below was pre-registered.
+
+**A. Why Fn and Knative, not OpenFaaS or OpenWhisk (M1–M3 failures).**
+- *Ruled out, container start-up:* function containers per run are equal across arms (Fn 9–10 vs 10,
+  Kn 16 vs 16, OF 16 vs 16), and the extra cp is flat over runs 1–5 (Fn dram 0.85–0.88 every run).
+- *Ruled out, CPU saturation alone:* the cache arm loads the host as much at c = 8 (~7 of 8 cores,
+  `host_saturated`) without the inflation; Kn dram used *less* host CPU (6.63 vs 7.12 cores).
+- *Ruled out, pinning:* nothing is pinned (no cpuset/taskset anywhere in the stack).
+- *Inferred, not measured:* the dram arm flushes the shared L3 and saturates the bus, so the same
+  request-path code costs more CPU. It fits: (1) at c = 1 (no bus contention) the order is already
+  Kn +19 % > Fn +12 % > OF +6 %; (2) at c = 8 every core runs a streaming handler, so the proxies run on
+  cores a dram handler just left (Fn 1.08 → 1.47, Kn 1.13 → 1.56 from c = 4 to 8); (3) OW has 2 action
+  containers, so ~5 cores stay free, and it moves 1.04; (4) cp resident memory orders the light
+  platforms the same way (`cp_peak_mem_mb` c = 8: OF 23–24, Fn 35, Kn 87–112; n = 3, a hint only).
+  Proof would need per-process hardware counters (LLC misses, IPC) on the cp processes: a new
+  experiment, worth it only if the paper needs the mechanism rather than the effect.
+- *Knative c = 8 M0 failure:* hey is closed-loop (8 in flight), so rps ≈ 8 / latency. p50 8.4 → 10.0
+  ms through three slower proxies; rps falls 23 %. The handler's own CPU outside the copy loop rises
+  ~0.57 ms by the same mechanism.
+
+**B. Did docker leftovers bias earlier sessions? No for Part A and W1; yes for `mem_`.**
+Idle floor = median host cores during each leg's post-bench 60 s idle probe (`idle_probe_*`), light
+platforms (OF / Fn / Kn; OW):
+
+| session | OF | Fn | Kn | OW |
+|---|---|---|---|---|
+| remeasure_shares_ | 0.54 | 0.45 | 0.76 | 0.47 |
+| final_ (Part A) | 0.52 | 0.53 | 0.78 | 0.55 |
+| payload_ (W1) | 0.59 | 0.52 | 0.85 | 0.54 |
+| payload_amend28_8_ | | | 1.01 | |
+| owlog29_ | | | | 0.75 |
+| mem_ (failed night) | 0.97 | | 1.36 | 0.93 |
+| mem2_ (after prune) | 0.22 | 0.22 | 0.39 | 0.24 |
+
+1. **Corrected by §31.14 D:** `mem_` also ran with the CPU capped (32–35 % battery), so the cp gap
+   below is not separable from the leftovers. Text kept as written.
+   *Dirty vs clean, same protocol and handlers (`mem_` vs `mem2_`, the 8 cells both nights passed):*
+   cp ms/inv 34–78 % higher on the dirty night in every cell (OF c1 cache 0.473 vs 0.273; OF gateway
+   alone 0.453 vs 0.261; OW c4 dram 4.38 vs 2.95), function CPU 3–14 % higher, throughput 2–14 % lower.
+   Cross-session (working rule 6), but the effect is large and one-signed in all 8 cells. The
+   leftovers did not only fail the gate; containerd/dockerd polling slowed every process (likely the
+   same interference as A). **The `mem_` numbers in §30.7 A are biased; they were never cited or
+   pooled.**
+2. *Part A vs the clean box (descriptive, different handler: spin vs 256 KiB copy, both 5 ms,
+   cache-resident):* cp OF 0.29/0.39/0.40 vs 0.27/0.41/0.46 (c = 1/4/8), Fn 0.52/0.52/0.52 vs
+   0.50/0.52/0.60, Kn 0.70/0.66/0.72 vs 0.53/0.60/0.74; function CPU OF 5.87 vs 5.87, Fn 5.32 vs
+   5.31; c = 1 rps 170/173 vs 170/174. No systematic inflation at Part A's floor (~0.3 core above
+   clean); the dirty-night effect appears at ~0.75 core above clean. One exception: **Kn c = 1 cp
+   0.70 vs 0.53** (+33 %), Kn's floor being the highest (0.78). Stated as a caveat on Part A's Kn c = 1
+   cell; not corrected (different handler and session).
+3. *W1 (`payload_`):* floor ≈ Part A's; within-session slopes (P2–P5) compare legs at a common floor.
+   No action.
+4. *Candidate causes for two earlier unexplained residuals:* OW cli owlog29 vs Part A +15 % (§29.4
+   item 6; floor 0.75 vs 0.55), and the §28.8 Knative c = 8 bridge outside ±10 % (§28.9; floor 1.01
+   vs 0.85). Both were already reported unexplained and not pooled; nothing changes, the cause is now
+   a candidate (not proven).
+5. *Within-session comparisons* (W1 slopes, owlog29 cli vs driver, W2 ratios) are unaffected in kind:
+   each compares legs at one floor.
+
+**Decision: no re-run.** Part A and W1 are near the clean box; the biased night (`mem_`) was already
+excluded; owlog29's and the amendment's residuals were never used as numbers. From now on every
+session runs with `--hygiene`.
+
+**Do not repeat:** running any session without `--hygiene` (W3 and later default it on in their
+pre-registration); comparing absolute ms/inv across sessions without the idle-floor table above.
+
+
+## 31. W3 bursty arrivals — pre-registration (written 2026-10-04, before any W3 data)
+Workload burst: pre-registered
+
+### 31.1 Question
+Roadmap §26 step 6 and the supervisor's success-rate question (§25.3): **when requests arrive in
+bursts instead of a steady closed loop, do the platforms still answer every request, how long do
+they take to drain a burst, and does the control plane cost more per invocation?** No data on disk
+answers it: all 680 measured runs are closed-loop (at most c in flight), so overload and queueing
+were unreachable by construction (§25.5) and every one reads availability 1.0.
+
+### 31.2 Design (fixed)
+- **Handler:** Part A's CPU-bound handler (5 ms spin, working tree, no swap). Only the arrival
+  pattern changes.
+- **Three arms per platform, same session:**
+  - `steady`: closed loop, `hey -n 3000 -c 8`, exactly Part A's c = 8 protocol (in-session reference).
+  - `b100`: 30 bursts of **100 simultaneous** requests (`hey -n 100 -c 100` each), **1 s idle** after
+    each burst but the last (`SAQEF_BURST=100:1`).
+  - `b500`: 6 bursts of **500 simultaneous** requests, 1 s idle after each (`SAQEF_BURST=500:1`).
+  TOTAL = 3000 per run in every arm. A burst starts when the previous one has fully drained and the
+  gap has passed, so this is on/off load with each burst open (all N fired at once), not a
+  closed loop of 100 or 500.
+- **Why these sizes:** at c = 8 the light platforms retire ~900–1060 rps and OW (driver) ~306 rps
+  (Part A T5; Part D). A 100-burst is ~0.1 s of light-platform work, a 500-burst ~0.5 s, and 1.6 s
+  for OW. Knative's queue capacity is 16 pods × (cc 4 + queue depth 40) = 704 > 500, OW's concurrent
+  limit is set to 1000 (platforms/openwhisk.py), hey's per-request timeout is 30 s.
+- **Gap:** 1 s, shorter than Fn's hot-container idle timeout (30 s) and every other platform's
+  keep-alive, so **this tests queueing under bursts, not cold start** (that is W4). Platform
+  configs are unchanged: OF and Kn 16 static replicas, Fn dynamic hot containers, OW standalone with
+  the **driver log store** (§29.3) and its 2 action containers (§29.2 D).
+- **Legs:** 4 platforms × 3 arms = **12 legs**, prefix `burst_`, stamps `burst_<of|fn|kn|ow>_<arm>`.
+  Order (no arm always first): of steady, b100, b500; fn b500, b100, steady; kn steady, b100, b500;
+  ow b500, b100, steady.
+- **Protocol: as Part A** otherwise: light `--repeat 5`; OW `--repeat 6 --discard-warmup 1`,
+  `--ow-duration 300`, JVM thread sampler; `--cpu-probe 60`; idle-w calibration in session; one `_r2`
+  retry; settle after verify; same quiet gate (15 %). **`--hygiene` always on** (§30.11: leftovers
+  bias cp by up to +78 %).
+- **Run:** `sudo bash tools/go.sh --workload burst`. Expected ≈ 1.5–2 h (calibration 24 min,
+  12 legs × ~5–6 min); watchdog 4 h.
+
+### 31.3 Metrics (fixed before data)
+- **availability** = 2xx / requests **attempted** (§31.6), per run, then median over usable runs;
+  also the worst run. Failures split into HTTP (non-2xx: 429, 502, 503, ...) and transport (timeout,
+  refused, reset). Recorded per run in `summary.json` `burst`.
+- **drain time** of a burst = last completion − first start; per run the median over its bursts,
+  then the median over usable runs.
+- **cp ms/inv, idle-subtracted** (`tools/untracked_dyn.py` `cp_dyn`): burst windows include ~29 s
+  (b100) or ~5 s (b500) of idle gaps, so the idle cp rate × window is subtracted, per run, from the
+  leg's own 60 s idle probe. Primary cp metric for every arm. Raw cp reported beside it. Sensitivity
+  stated per leg (± per 0.01 core of idle-probe error). Per *successful* invocation.
+- latency p50 / p99 over completed requests; throughput = 2xx / window (includes gaps; descriptive
+  only).
+
+### 31.4 Anchors (other sessions; context only, not compared numerically)
+Closed loop, c = 8: Part A T5 rps OF 933, Fn 1062, Kn 905; T6 p99 OF 17.7, Fn 13.2, Kn 15.0 ms.
+OW driver c = 8 (owlog29): 306 rps, p99 32.7 ms, cp 3.03 (idle-subtracted 2.86) ms/inv. Clean-box
+light cp at c = 8 (mem2_ cache arm, idle-subtracted): OF 0.46, Fn 0.60, Kn 0.73 ms/inv. Idle cp rate
+(probe): light 0.002–0.009 core, OW ~0.05 core. Every one of the 680 closed-loop runs: availability
+1.0. Run-to-run cp CV over usable runs: median 2–7 %, max 10.5 % (§30.3).
+
+### 31.5 Predictions (per platform; judged against this session's steady arm)
+- **B0 — regime check.** `steady` availability = 1.0 on every platform (as all 680 closed-loop runs).
+- **B1 — bursts are absorbed.** availability ≥ **0.999** in b100 and in b500 on **all four**
+  platforms (each queues: OF gateway → 16 replicas, Kn queue depth 704 > 500, OW limit 1000,
+  loopback, 30 s timeout). Least certain for Fn, whose hot-container pool must grow inside a burst.
+  A failure here is the answer to the supervisor's question, not a defect.
+- **B2 — bursts drain at steady capacity.** median drain time within **[0.67, 1.5] × N / rps_steady**
+  (same platform, this session) for b500 on all four platforms. (b100 drain is reported, not judged:
+  at ~0.1 s it is dominated by connection set-up.)
+- **B3 — arrival pattern does not change cp cost.** idle-subtracted cp ms/inv in b100 and b500
+  within **±15 %** of steady on **OpenFaaS, Knative and OpenWhisk** (static replicas or a fixed
+  2-container pool: no new per-request work). **Fn: no prediction** (its pool size depends on the
+  burst); its function-container count per run is reported.
+- **B4 — bursts move the tail.** p99 in b500 ≥ **5 ×** steady p99 on all four platforms
+  (a 500-burst queues ≥ 0.5 s of work).
+- No prediction for energy, for throughput (it includes the gaps), or for b100 vs b500 ordering.
+
+### 31.6 Measurement change for W3 (behind the flag; closed-loop runs unchanged)
+- **Found while designing W3 (2026-10-04), tested live:** hey leaves requests that fail at the
+  transport level (timeout, connection refused/reset) **out of its CSV**; only completed responses,
+  2xx or not, appear. The harness computed `availability = 2xx / CSV rows`, so dropped requests could
+  never count as failures. In the closed-loop corpus this never reached a cited number: such a run
+  has rows < 3000, which the INCOMPLETE gate already rejects (8 of 680 runs, all OW, all excluded).
+  Under bursts it would hide exactly the failures W3 measures.
+- `SAQEF_BURST=N:GAP_S` (saqef_harness.py `run_burst`/`merge_bursts`): `requests` = attempted,
+  `availability` = 2xx / attempted, `summary.json` `burst` = {n_bursts, attempted, completed_rows,
+  transport_errors, http_errors, drain_s per burst, drain_s_median}; `hey.csv` = merged rows with
+  offsets shifted to the run start and a `burst` column; `env.burst_size`, `env.burst_gap_s`
+  (None on every closed-loop run). A burst whose requests all fail is recorded (0 rows), not crashed.
+- **Gate in burst mode** (run_lock_session.sh): the 99 % SUCCESSES rule does not apply (failures are
+  the measurement); a run with **zero** successes is unusable (platform down). INCOMPLETE,
+  LOADGEN FALLBACK, sampling, drift and the quiet gate apply unchanged.
+- `tools/run_final.sh --workload burst` (12 legs of §31.2, `--hygiene` forced, pre-flight line
+  `Workload burst: pre-registered`, OW driver store per leg); `tools/go.sh --workload burst`
+  (session `burst_session`, watchdog 4 h). Tests: `TestW3BurstMode`. Smoke test (unmeasured, a local
+  dummy server, no platform): 1100 requests in bursts of 500 with 2 % 503s → 3 bursts, 30 HTTP
+  errors counted; 200 requests at a closed port → 200 transport errors, 0 ok, no crash.
+- Burst legs pass `--concurrency` = N (provenance). It reaches only unmeasured steps: the 10-request
+  warm-up (10 threads instead of 8) and `--verify` (its 100 calls fired at once); neither gates or
+  enters a measured window. Dry run 2026-10-04: exactly the 12 legs of §31.2; pre-flight problems only
+  "graphical session" and "interactive application running".
+
+### 31.7 Decision rules
+1. Each prediction is judged per platform from this session's own legs. A failed prediction is a
+   **finding**, reported as such. No leg is re-run to rescue one.
+2. A leg that fails twice is missing. A platform whose `steady` leg is missing has B2–B4 not
+   evaluable; "all four" then becomes "all evaluable".
+3. Nothing is pooled with Part A, W1, W2 or owlog29; anchors are context only. OW is "OpenWhisk
+   standalone, log-driver log store, 2 action containers" wherever compared.
+4. cp is cited idle-subtracted (§31.3). Raw untracked host CPU is not cited (§29.4).
+5. Latency: in `steady`, `host_saturated` legs do not cite QoS (Part A rule). In the burst arms the
+   tail **is** the result and is cited with the leg's saturation stated.
+6. Energy: RAPL, probe basis, per arm, no prediction.
+7. Results go to VERIFIED_RESULTS.md **Part F** (generator `figures/make_burst_tables.py`, verdicts
+   at emit time), analysis JSON under `results/burst_analysis/`.
+
+### 31.8 Audit: did hey's missing transport failures mask anything in earlier data? No (2026-10-04)
+Checked every run with request counts in `../saqef-paper/results/` (765 runs), before any W3 data.
+- **A dropped request always shows.** hey `-n 3000` attempts exactly 3000, so any transport failure
+  leaves `requests` (CSV rows) < 3000, and the INCOMPLETE gate rejects that run. 748 of 765 runs have
+  3000 rows, so zero transport failures.
+- **The 17 short runs, none cited:** 6 `payload_512kow*` run_3 (JVM heap death, §28.7; gated out,
+  `usable = false`); 2 `owab2_baseline` runs (pre-final OW diagnostic, no acceptance file, not in
+  VERIFIED_RESULTS); 9 `conc16_quick` runs at 2992 = 16 × 187. That last case is a **second hey quirk**,
+  not a failure: hey gives each of `-c` workers `n / c` requests (integer division) and drops the
+  remainder. W3 is immune: steady is 3000 / 8, and each burst is `-n m -c m`.
+- **Non-2xx responses are in the CSV and were counted all along.** Two cited runs carry one each:
+  `payload_1kc8_of` run_5 and `payload_64kc4_of` run_4, 2999 / 3000 (availability 0.9997, inside the
+  99 % rule, cp/fn per successful invocation). 18 other full-count runs with non-2xx are in gated-out
+  legs and 4 in uncited quick legs.
+
+- **`mem2_` (Part E), raw files (expert review, 2026-10-04):** all 120 usable runs in all 24 legs have
+  exactly 3000 data rows in `hey.csv`, all 3000 with a 2xx status, matching `requests` and `successes`
+  in `summary.json`. No transport failure was masked; M0–M3 verdicts unchanged.
+
+**Decision: no re-run** (agreed by the expert review). The bug could hide failures only in runs the
+INCOMPLETE gate already rejects.
+It matters only for W3, where failed requests are the measurement (§31.6 fix).
+
+### 31.9 Session 2026-10-04 (`burst_`): outcome
+
+**Legs.** 12 legs, 11:21–13:08 UTC, commit `94780c5` (`git_dirty = false` on every run), `--hygiene`
+on, idle-w calibration in session (`lock_burst_calib`: of 5.54, fn 5.51, kn 6.77, ow 6.89 W).
+**10 passed; Fn b100 and Fn b500 failed twice** (rule 2: missing). Every OW leg log shows
+`activation log store = driver`; every burst run records `env.burst_size` 100/500, gap 1.0 s; steady
+runs record none. Tables: VERIFIED_RESULTS.md **Part F** (`figures/make_burst_tables.py`), analysis
+JSON `../saqef-paper/results/burst_analysis/`.
+
+**Why Fn's burst legs failed.** All four attempts failed on **run_1 only**: `SAMPLING GAP` 1.77 /
+2.21 s (b100) and 3.05 / 3.28 s (b500), limit 1 s. Runs 2–5 of every attempt pass every gate
+(`acceptance.json` usable = run_2..run_5). In run_1 the function CPU is ~2× the later runs (b500
+22.6 vs 11.7–11.9 s) and b500's host saturation is 83 % vs 46–49 %. The function-container count is
+99 (b500) / 68–69 (b100) in every run, vs 9–10 in steady. Inference (not measured directly): run_1
+is where Fn's hot-container pool grows from ~10 to 68–99 containers; the container starts load the
+host and stall the sampler. The pool then persists (1 s gaps < Fn's 30 s idle timeout), so later runs
+are clean. Not a box problem: the box was quiet before each retry (2.0–2.5 % busy), and every other
+leg's worst gap was ≤ 0.21 s (all runs, incl. OW's discarded run_1).
+
+**A. Verdicts** (per platform, this session's legs; B1 on the median over usable runs, §31.3):
+| | OpenFaaS | Fn | Knative | OW (driver) |
+|---|---|---|---|---|
+| B0 steady availability 1.0 | holds | holds | holds | holds |
+| B1 availability ≥ 0.999 in b100, b500 | holds (b100 worst run 0.9963) | not evaluable | holds | holds |
+| B2 b500 drain in [0.67, 1.5] × 500/rps_steady | **fails** ×2.72 | not evaluable | **fails** ×0.57 | holds ×1.27 |
+| B3 cp idle-sub within ±15 % of steady | **fails** b100 ×1.22, b500 ×1.23 | no prediction | holds ×0.92, ×0.97 | **fails** b100 ×1.16; b500 ×1.08 |
+| B4 b500 p99 ≥ 5 × steady | not citable (rule 5; ×77 descriptive) | not evaluable | holds ×15.5 | holds ×82.6 |
+
+- **B1: bursts are absorbed.** 90,000 attempted requests over the 30 usable runs of the six evaluable
+  burst legs; 0 transport errors. The only failures are **12 HTTP 502** from OpenFaaS b100: 1 in
+  run_4, **11 in run_5, all in burst 12**, answered in 34–50 ms. That is a fast gateway rejection, not
+  a timeout. That run's availability is 0.9963, below 0.999; the leg median is 1.0, so B1 holds as
+  registered. Report the worst run beside it.
+- **B2 fails on OpenFaaS:** a 500-burst drains in 1.39 s (median; runs 1.36–1.45), so ~361 rps,
+  against 981 rps in steady. The host is **not** busy while it drains (host saturation 18–20 % in
+  b500 vs 86–89 % in steady), so the limit is queueing in the gateway / watchdog path, not CPU.
+  Cause not examined. **B2 fails on Knative the other way:** 0.41 s, faster than 500/702 rps. Post
+  hoc: steady c = 8 does not saturate Knative (host saturation not flagged, 702 rps), so the steady
+  rate understates its capacity; a burst fills more of the 16 × cc 4 slots. B2's reference
+  (rps_steady as capacity) is valid only where steady saturates. That is a design limit of the
+  prediction, recorded, not re-judged.
+- **B3 fails on OpenFaaS, robustly:** 0.391 → 0.477 / 0.481 ms/inv idle-subtracted (raw 0.393 →
+  0.504 / 0.493). Run CVs are 0.7–4.6 %. To erase b500's +0.09 ms/inv, the idle probe would have to be
+  wrong by ~0.019 core, 8× its own value (0.0025). **OW b100 fails by a hair:** 3.040 vs threshold
+  3.008 (2.616 × 1.15). The margin, 0.03 ms/inv, is 0.0025 core of idle-probe error (sensitivity
+  ±0.13 per 0.01 core). OW's first usable run is high in all three arms (steady 3.26, b100 6.04, b500
+  5.70 raw, vs ~2.7 / 3.6 / 3.0 for the rest), as in W2 (§30.10); the medians absorb it. A finding as
+  registered, but fragile; do not lean on it.
+- **B4 holds** where citable: Knative ×15.5, OW ×82.6. OpenFaaS's steady leg is host-saturated in 5/5
+  runs, so its steady p99 is not cited (rule 5); descriptively ×77.
+- **Energy** (RAPL, probe basis, no prediction, F-T1): OF 23.8 / 29.4 / 24.8, Kn 28.8 / 28.2 / 24.4,
+  OW 36.9 / 40.8 / 49.5 mJ/inv (steady / b100 / b500). The idle probe sits outside the calibration
+  spread on all 14 legs (‡), as in W2 (§30.10 E).
+
+**B. Post hoc (not pre-registered, not citable for B1): Fn fails requests while its pool grows.**
+Fn's gate-failed run_1s had **HTTP 500s in all four attempts**: b500 70 and 66 (availability 0.977,
+0.978), b100 17 and 13 (0.994, 0.996). All of them fall in **the first 2–4 bursts**. Runs 2–5, with
+the pool already grown, have 0 errors (1.0). The sampling gap affects CPU attribution only; hey's
+counts are independent of it. Same pattern in both attempts of both legs. Under rule 2 Fn's B1 is
+**not evaluable**. The descriptive answer to §31.1 for Fn is: bursts that force the hot pool to grow
+lose ~0.5–2 % of requests to HTTP 500, and bursts into an existing pool lose none. This is
+start-up behaviour, which belongs to W4 (cold start), not a queueing result. Fn's usable runs 2–5
+(F-T3, not citable): drain b100 0.17 s, b500 0.46–0.47 s; cp idle-sub 1.13 (b100) and 0.79 (b500) vs
+0.54 steady.
+
+**C. Tooling.** `idle_crosscheck.py --calib` takes `lock_<prefix>calib` (here `lock_burst_calib`,
+not `lock_session_burst_calib`). Fn's function containers are named by ID, not `hello*`. The Part F
+generator counts them as the leg gate table does (not fnserver, not `k8s_`).
+
+**Decision.** No re-run (rule 1). Fn b100/b500 stay missing. Recommended for the W4 pre-registration:
+make "first burst into a cold or small Fn pool" an explicit arm, measuring availability and 500s per
+burst. Do not discard run_1 retroactively here.
+
+**Do not repeat:** reading Fn's burst usable runs (F-T3) as a B1–B4 verdict (rule 2); citing
+OpenFaaS's B4 ratio (steady saturated); using steady c = 8 throughput as "capacity" for a platform
+whose steady leg does not saturate (Knative); quoting OW's B3 b100 failure without its 0.0025-core
+margin.
+
+## 31.10 W3 amendment: Fn with a discarded warm-up run — WITHDRAWN 2026-10-04, before any data
+Amendment 31.10: withdrawn before any data (superseded by §31.13)
+
+**Withdrawn** the same day, never run. It re-ran Fn steady, which had already passed (repetition),
+and it would have run with the sampler that §31.11 shows blinds itself during container creation.
+§31.13 replaces it: only the two missing legs, with the §31.12 sampler fix. Text kept as written.
+
+**Question.** Is Fn's B0–B2 and B4 (§31.5) answered when its bursts hit an already-grown pool?
+That is the regime §31.2 meant to test ("queueing under bursts, not cold start"). In `burst_` Fn's
+b100/b500 legs are missing (§31.9). Run_1 of every attempt grew the hot pool from ~10 to 68–99
+containers and failed the sampling-gap gate; runs 2–5 were clean. **This design choice was prompted
+by §31.9's data**, and is stated as such. It changes no gate. It uses the protocol OpenWhisk already
+runs under (`--discard-warmup 1`, run_lock_session.sh: the first run is dropped before gating and
+from every statistic).
+
+**Design (fixed).**
+- Fn only, three legs in one session, prefix `burst_amend31_10_`, run order **b500, b100, steady**
+  (as Fn's order in `burst_`): `burst_amend31_10_fn_b500`, `_fn_b100`, `_fn_steady`.
+- Arms exactly as §31.2 (steady = hey -n 3000 -c 8; b100 = `SAQEF_BURST=100:1`; b500 =
+  `SAQEF_BURST=500:1`), Part A's CPU-bound handler, Fn dynamic hot containers, unchanged config.
+- **All three legs `--repeat 6 --discard-warmup 1`** (steady too, so the arms share one protocol):
+  5 usable runs per leg. Each leg starts from Fn's fresh-session reset (fnserver + function
+  containers removed), so each leg's run_1 grows its own pool.
+- Otherwise as §31.2: `--cpu-probe 60`, idle-w calibration in session (5 states × 3 × 60 s,
+  unchanged), one `_r2` retry, `--hygiene` on, quiet gate 15 %, burst-mode gate (§31.6).
+- **Run:** `sudo bash tools/go.sh --workload burst --amend 31.10`. Expected ≈ 45 min (calibration
+  25 min + legs ~15 min, from `burst_` timings); ~1 h with retries. Watchdog 2 h.
+
+**Anchors (context only, not compared, rule 3):** `burst_` Fn steady: availability 1.0, 1063 rps,
+p99 13.7 ms, cp idle-sub 0.535 ms/inv, 9–10 function containers. `burst_` Fn b100/b500 runs 2–5
+(F-T3, not citable): availability 1.0, drain 0.17 / 0.46–0.47 s, p99 178–180 / 490–552 ms, cp
+idle-sub 1.13 / 0.79 ms/inv, 68–69 / 99 containers.
+
+**Predictions (Fn, judged against this session's own steady leg; thresholds as §31.5).**
+- **B0** steady availability = 1.0.
+- **B1** availability ≥ 0.999 (median over usable runs; worst run reported) in b100 and in b500.
+- **B2** b500 median drain within [0.67, 1.5] × 500 / rps_steady. Caveat fixed now (from §31.9 A):
+  Fn's steady c = 8 leg saturated the host in `burst_`, so rps_steady is a fair capacity reference.
+  If this session's steady leg has no `host_saturated` run, B2 is reported but marked "reference not
+  at capacity".
+- **B3** no prediction (as §31.5); cp idle-subtracted and container count reported per arm.
+- **B4** b500 p99 ≥ 5 × steady p99. If steady is `host_saturated` (expected, as in `burst_`), steady
+  p99 is not cited (rule 5) and B4 is "not citable", ratio descriptive. Fixed now so it can't be
+  argued afterwards.
+- **R1 (replication of the post hoc §31.9 B, descriptive, not counted toward B1).** In each burst
+  leg's discarded run_1, availability < 1.0 with every non-2xx an HTTP 500 in the first 4 bursts;
+  usable runs 2–6 have 0 errors. Read from the discarded run's own `summary.json` / `hey.csv` (its
+  CPU numbers are not used).
+
+**Decision rules.**
+1. A failed prediction is a finding; no leg is re-run to rescue one.
+2. A leg that fails twice is missing. If steady is missing, B2 and B4 are not evaluable.
+3. **Nothing is pooled with `burst_`** (different session, different repeat protocol). Fn's row in
+   Part F comes only from this amendment, labelled "amendment 31.10, warm pool, run_1 discarded".
+   Fn's original `burst_` steady leg stays in F-T1 as recorded.
+4. cp idle-subtracted (§31.3); energy RAPL probe basis, no prediction.
+5. Results: VERIFIED_RESULTS.md Part F, new table F-T4 (generator `figures/make_burst_tables.py`),
+   analysis JSON `results/burst_amend31_10_analysis/`; outcome as §31.11 (withdrawn; see §31.13).
+
+**Do not repeat:** discarding run_1 in any `burst_` leg retroactively (§31.9); reading R1 as B1.
+
+### 31.11 Correction to §31.9: why Fn's sampling gap fired, what the 500s are (expert review, checked on disk, 2026-10-04)
+Verdicts unchanged: Fn b100/b500 stay **missing** (rule 2), B1 is not re-judged from runs 2–5, W3
+is not re-run. Corrections to §31.9's text:
+- **The sampler blinded itself.** For each new container, `cgroup_sampler.scan()` ran one `docker
+  inspect` (`container_name`) **serially on the sampling thread** (saqef_harness.py:1163, :1222).
+  One inspect costs 14 ms on an idle box (measured here, median of 20). The expert measured ~35–45 ms
+  per new container under churn, not re-measured here, which would account for ~60 % of the 3.05 s gap.
+  Run_1 created **48–49 (b100) and 79 (b500)** Fn containers in the window. §31.9's "the container
+  starts load the host and stall the sampler" is incomplete: our own instrument is a main cause;
+  host load may explain the rest. Fix: §31.12.
+- **The gap costs time resolution, not CPU totals.** §31.9 had it backwards. CPU comes from
+  differencing cumulative cgroup counters, so totals don't depend on cadence. Run_1's cp cross-check
+  against /proc (`cp_sampler_vs_delta_pct`) is −0.65 / −0.69 % (b100) and −1.54 / −1.38 % (b500).
+  Runs 2–5 are −0.98 … −2.25 %. The gate stays as registered; it fired for a reason that matters
+  for W4.
+- **The pool was never cold.** The legs' unmeasured `--verify` (100 calls, at `min(concurrency,
+  100)` in flight, saqef_harness.py:2250) pre-grows Fn's pool. At run_1's window start ~**20** Fn
+  containers already existed, from first appearance in `samples.csv`. The expert's "42" also counted
+  fnserver and 21 Knative system containers. §31.6's "[--concurrency] reaches only unmeasured steps"
+  is true for gating, but the verify step sets Fn's starting pool: 100-wide in burst legs, 8-wide in
+  steady.
+- **The 500s are fast rejections.** b100: 30 of 30 answered in 22–78 ms, all faster than the
+  median success (94 ms). b500: 133 of 136 faster than the median success (326 ms). 3, in one
+  attempt, took up to 453 ms. All fall in the bursts where containers are being created (0–1 for
+  b100, 0–3 for b500). That is consistent with Fn refusing requests while it starts containers.
+  Cause not read from Fn's logs (none were kept).
+- **Sample size for pool growth: 2 per arm, not 5.** Runs 2–5 reuse run_1's pool and create none.
+  Independent growth observations: 17 / 13 errors (b100), 70 / 66 (b500).
+- **W4 context (post hoc):** run_1's extra function CPU is 21.0 − ~14.25 = 6.8 s over 48 containers
+  (b100) and 22.6 − ~11.8 = 10.8 s over 79 (b500). That's ≈ **0.14 s of function CPU per hot
+  container created**, both arms.
+- Not checked here, so not recorded as findings: the expert's OpenFaaS ~1 s single-request stalls
+  and OpenWhisk's first-window effect. W4's per-burst split is meant to cover them.
+
+### 31.12 Sampler fix: container names resolved off the sampling thread (flag, default off)
+`SAQEF_SAMPLER_DEFER_NAMES=1`: during the window the cgroup sampler keys samples by container ID.
+A separate thread runs the `docker inspect` for each new ID, and after stop every sample is re-keyed
+to its name, with the birth time filled for the birth-slice recovery. A container that vanished
+before it could be named is dropped, as before. The sampling loop now spawns no subprocess. Default
+off: every closed session ran without it. Each run records `env.sampler_defer_names`. Tests
+`TestSamplerDeferNames`: with 6 new containers and 50 ms inspects, the old path's max gap is
+≥ 0.25 s and the flagged path's < 0.15 s, with names and birth times restored. Discovery (a cgroup
+filesystem walk) is still on the sampling thread. If W4 shows residual gaps from host load, the next
+step is a sampler in its own process.
+
+## 31.13 W3 amendment: only Fn's missing legs, warm pool, fixed sampler — pre-registration (written 2026-10-04, before any data)
+Amendment 31.13: pre-registered
+
+**Question.** In `burst_`, did Fn absorb bursts of 100 and 500 into a pool that is already grown?
+That is §31.2's intended regime and the B1 question for the only platform without an answer. No
+repetition: **only the two missing legs** (`fn b100`, `fn b500`). Steady already passed and is not
+re-run.
+
+**Design (fixed).**
+- Legs, in order: `burst_amend31_13_fn_b500`, `burst_amend31_13_fn_b100` (Fn's order in `burst_`).
+  Arms exactly as §31.2 (`SAQEF_BURST=500:1` / `100:1`), CPU-bound handler, Fn config unchanged,
+  `--verify` unchanged (~20 containers pre-warmed, as in `burst_`, §31.11).
+- **`--repeat 6 --discard-warmup 1`**: run_1 grows the pool and is dropped before gating and from
+  every statistic (the mechanism OW uses). 5 usable runs, all into the grown pool. Each leg starts
+  from Fn's fresh-session reset.
+- **`SAQEF_SAMPLER_DEFER_NAMES=1`** (§31.12) on both legs. CPU totals don't depend on it
+  (§31.11); it removes the self-inflicted blind interval.
+- Otherwise as §31.2: `--cpu-probe 60`, in-session idle-w calibration (5 states × 3 × 60 s,
+  unchanged), `--hygiene`, quiet gate 15 %, burst-mode gate (§31.6), one `_r2` retry.
+- **Run:** `sudo bash tools/go.sh --workload burst --amend 31.13`. Expected ≈ 40 min (calibration
+  25 + legs ~13); ~55 min with retries. Watchdog 2 h.
+
+**Predictions (Fn).**
+- **B1** availability ≥ 0.999 (median over usable runs; worst run reported) in b100 and in b500.
+- **B2, B4: not evaluable**, fixed now. They need a steady leg from the same session (§31.5) and
+  steady is deliberately not repeated. Drain and p99 are reported **descriptively**, next to
+  `burst_`'s Fn steady (1063 rps, p99 13.7 ms) labelled cross-session context, not a verdict.
+- **B3** no prediction (§31.5); cp idle-subtracted and container count reported.
+- **R1 (replicates §31.9 B / §31.11; descriptive, not counted toward B1).** In each leg's discarded
+  run_1, availability < 1.0, every non-2xx an HTTP 500 in the first 4 bursts; usable runs 0 errors.
+  Read from run_1's own files.
+- **S1 (instrument check, descriptive).** Run_1's max sampling gap with the fix, against `burst_`'s
+  1.77–3.28 s. Below 1 s would mean the self-inflicted part was most of it; above 1 s, host load
+  remains (§31.12 next step).
+
+**Decision rules.** (1) A failed prediction is a finding, nothing re-run. (2) A leg failing twice
+is missing. (3) Not pooled with `burst_`: Part F gets a separate table F-T4, "amendment 31.13, warm
+pool, run_1 discarded, sampler fix", and F-T1 and F-T3 stay as recorded. (4) cp idle-subtracted,
+energy RAPL probe basis, no prediction. (5) Outcome as §31.14, analysis JSON
+`results/burst_amend31_13_analysis/`.
+
+**Do not repeat:** re-running Fn steady or any passed leg; reading R1 or S1 as B1; comparing
+F-T4's drain/p99 to `burst_` steady as a verdict.
+
+### 31.14 Session 2026-10-04 (`burst_amend31_13_`): outcome, and a CPU clock cap from the power supply
+Adjudicated 2026-10-04 against §31.13. **B1 is answered. cp, drain, latency and energy from this
+session are not citable: the CPU was held at its base clock (~2.5 GHz, turbo 4.4) by the laptop's
+power state.** That cap also confounds §30.11 B.1 (correction below).
+
+**Legs.** Calibration + 2 legs, 14:30–15:05 UTC, commit `0c4da2b` (`git_dirty = false`), `--hygiene`
+on, idle-w in session (`lock_burst_amend31_13_calib`: bare 3.84, of 4.01, fn 3.97, kn 4.72, ow 5.01 W).
+**Both legs passed on attempt 1**, no `_r2`. Every run records `env.sampler_defer_names = true`,
+`burst_size` 500/100, gap 1.0 s. Usable runs = run_2..run_6 (run_1 discarded as registered).
+
+**A. Verdicts (§31.13; Fn only).**
+| | b100 | b500 |
+|---|---|---|
+| **B1** availability ≥ 0.999 (median; worst run) | **holds** 1.0; worst 1.0 | **holds** 1.0; worst 1.0 |
+| B2, B4 | not evaluable (fixed in §31.13) | not evaluable |
+| B3 | no prediction | no prediction |
+| R1 (descriptive) run_1 errors, all HTTP 500, per burst | 20: 8 / 12 in bursts 1–2 | 98: 53 / 28 / 14 / 2 / 1 in bursts 1–5 |
+| S1 (descriptive) run_1 max sampling gap | **0.25 s** (`burst_` 1.77 / 2.21) | **0.64 s** (`burst_` 3.05 / 3.28) |
+| Fn function containers (leg-gate count; all 6 runs) | 68 | 99 |
+
+- **B1: Fn absorbs bursts into a grown pool.** 30,000 attempted requests over the 10 usable runs,
+  0 HTTP and 0 transport errors. The pool run_1 grows is the same size as `burst_`'s (68 / 99), and
+  bursts into it lose nothing. So §31.9 B's 0.4–2.3 % loss is a **pool-growth cost, not a
+  burst-queueing cost**; it belongs to W4 (cold / small pool). A slower CPU makes B1 harder, not
+  easier, so the cap below does not weaken this verdict.
+- **R1 replicates the pattern:** every error is a 500, the count decays to zero as the pool
+  fills, none in usable runs. b100 20 / 20 and b500 76 / 98 errors faster than the run's median
+  success (§31.11's fast-rejection signature). As registered ("first 4 bursts") b500 exceeds the
+  boundary by **1 of 98** requests (burst 5). The boundary came from where errors stopped in
+  `burst_`, not from a mechanism; report the per-burst counts, not a pass/fail.
+- **S1:** below 1 s in both legs. The sampler's own serial `docker inspect` was most of `burst_`'s
+  gaps (§31.11, fixed in §31.12). The CPU was slower here, which if anything favours larger gaps.
+- b500 run_1 (discarded) was `host_saturated` (94 %); usable runs 53–56 %. The b500 cp CV (10.95 %)
+  is over the **usable** runs (1.13, 0.92, 1.19, 0.98, 0.98 ms/inv), not caused by run_1.
+
+**B. Descriptive (not citable; CPU capped, see C).** b100 / b500: drain 0.216 / 0.522 s, p50
+114.6 / 385.8 ms, p99 227.4 / 752.2 ms, throughput 83.3 / 344.6 rps, cp idle-subtracted
+1.476 / 0.947 ms/inv (raw 1.570 / 0.980; ± 0.120 / 0.029 per 0.01 core of idle-probe error),
+fn 4.99 / 4.04 ms/inv. Energy: idle probe ‡ on both legs (5.38 / 6.51 W vs calib 3.97 W), RAPL FIT
+> 15 % on all b100 usable runs and b500 runs 5–6. Next to `burst_`'s usable Fn runs (F-T3, on mains,
+also not citable): cp +32 % (b100) and +20 % (b500), drain +27 % / +12 %, function CPU only +5 % / +3 %.
+
+**C. Finding: the box ran with its CPU capped near base clock.**
+- `env.freq_mhz_after` is **2400–2600 MHz in 12 / 12 runs** (max 2587). A scan of every committed run:
+  no other session shows that pinned pattern; `burst_`'s Fn legs read 3.0–3.6 GHz.
+- Calibration idle power is **~1.5 W lower in every state** than `burst_` that morning (fn 5.51 → 3.97 W).
+- Battery history (`/var/lib/upower/history-*-DELL_*.dat`, kept since 2026-09-28): on battery from
+  18:47 to 19:41 PKT (calibration began 19:30), then AC connected but the battery stayed at 50 %
+  in `pending-charge` (rate 0.015 W) through the end of the legs at 20:05.
+- **Reproduced live (2026-10-04 ~20:45 PKT):** with 4 cores spinning, all 8 cores read 2.37–2.49 GHz
+  on battery (39 %), and 2.40–2.50 GHz (1 core busy: 2.46 GHz) **with the charger plugged in**, AC
+  `online = 1`, battery 25 % `Not charging`. OS settings were unchanged throughout: `scaling_max_freq`
+  4.4 GHz, power profile and EPP `performance`, `no_turbo = 0`; the thermal-throttle counters did not
+  move. So the limit is the laptop firmware's, and the OS checks of pre-flight 3 cannot see it.
+- **Why the charger does not charge is not known.** Battery health is 63 % of design (2.29 of
+  3.6 Ah), `charge_types` = Adaptive. Every cap episode on disk is at low battery (31.13 at 50 %, `mem_`
+  at 32–35 %); the battery-powered legs at 86–100 % (`burst_ow_b100`, `burst_ow_steady`,
+  `payload_64kow8`, `payload_512kc1_{of,fn,kn}`, part of `payload_512kc4_of`) read up to 3.1–4.0 GHz, no
+  sign of the cap. Inference, not established: the firmware caps when the battery is low and the
+  adapter does not charge it.
+- **Why cp rises but the function does not:** the handler spins 5 ms of *wall* time
+  (`hello/func.py`, `perf_counter`), so its CPU per invocation does not depend on the clock. The
+  control plane executes a fixed amount of work per request, so its CPU-seconds scale with 1/clock
+  (3.4 → 2.5 GHz predicts up to +36 %; seen +20–32 %). Energy per invocation went **down**.
+
+**D. Correction to §30.11 B.1 (post hoc).** The 8 `mem_` cells compared with `mem2_` ran at
+**32–35 % battery, `pending-charge`**; in their 43 runs the clock reading never exceeded 3.12 GHz
+(12 runs at 2.4–2.6 GHz). The `mem2_` cells ran charging or full (59–100 %) and reached 2.8–4.0 GHz.
+The +34–78 % cp on the "dirty night" therefore has **two** differences behind it, docker leftovers
+and a capped clock, and this data cannot separate them. The mem handlers also run for 5 ms of wall
+time, so a clock cap alone predicts flat function CPU; the +3–14 % there is not explained by the
+clock and may be the leftovers' share. Unchanged: the leftovers' effect on the idle floor
+and the quiet gate (§30.7 D–E, measured within session: containerd + dockerd 1.3 → 0.2 core after
+prune), and `--hygiene`. No cited number changes: the `mem_` numbers were never cited or pooled.
+
+**E. Comments from a second reviewer (checked on disk).** Agreed: B1, S1, the pool-growth reading,
+the container-count trap (68 / 99, not 90 / 121 with fnserver and `k8s_`), energy not citable.
+Refuted: (1) "run_1 causes the b500 cp CV" (the CV is over runs 2–6); (2) "31.13 reset Fn before each
+leg, `burst_` did not" (both sessions' leg logs show the fresh-session reset before each leg);
+(3) "same box, difference unexplained" (C).
+
+**F. Tooling: power gate (`tools/run_final.sh`, tests `TestPowerGate`).**
+- Pre-flight check 8: AC online; battery not `Discharging`; median core clock while 4 cores spin
+  for 3 s ≥ **3200 MHz** (capped: 2440–2660 measured; i5-1145G7 base 2.6, turbo 4.4). A failed
+  probe counts as 0 MHz. Blocks `go.sh` like any other pre-flight problem.
+- Before every leg attempt: the power state is logged; off mains or discharging → the session stops
+  (exit 8) before measuring anything more, legs already done are kept.
+- Box snapshot records `power:` (AC, battery status/level) and `charge_types`.
+- `SAQEF_POWER_PROBE_S=0` and `SAQEF_PSU_DIR` (test fixtures) are refused outside `--check`/`--dry-run`.
+- This is a pre-flight/session guard; no run gate changes, so closed sessions are unaffected.
+- Dry-run 2026-10-04 on this charger: `PROBLEM: CPU held at 2653 MHz under load (need >= 3200)`.
+
+**Decision.** B1 for Fn is recorded (Part F, F-T4). Fn's burst cp, drain, latency and energy remain
+without a citable value. Recommended next: a §31.15 pre-registration that re-runs the same two legs
+once the power gate passes (a box fault found by an objective check, not a failed prediction), then W4.
+Fix the charging first: try the original adapter, set `charge_types` / BIOS charging to Standard.
+
+**Do not repeat:** comparing 31.13's cp, drain, latency or energy with `burst_`; citing §30.11 B.1's
++34–78 % as a leftovers effect; reading R1 or S1 as B1; running a session without the power gate.
+
+## 31.15 W3 amendment: §31.13's two Fn legs again, power gate passing — pre-registration (written 2026-10-04, before any data)
+Amendment 31.15: pre-registered
+
+**Question.** What are Fn's burst cp, drain, latency and energy in b100 and b500 when the CPU is
+not capped? §31.14 answered B1 but left these without a citable value, because a box fault
+(firmware clock cap, found by an objective check) affected every run. This is not a re-run after a
+failed prediction: the design is §31.13's, and the only change is that pre-flight check 8 must pass.
+No repetition beyond the same two legs; Fn steady is not re-run.
+
+**Design (fixed).** As §31.13, word for word, except the prefix:
+- Legs, in order: `burst_amend31_15_fn_b500`, `burst_amend31_15_fn_b100`. `SAQEF_BURST=500:1` /
+  `100:1`, CPU-bound handler, Fn config and `--verify` unchanged, `--repeat 6 --discard-warmup 1`,
+  `SAQEF_SAMPLER_DEFER_NAMES=1`, `--cpu-probe 60`, in-session idle-w calibration, `--hygiene`, quiet
+  gate 15 %, burst-mode gate (§31.6), one `_r2` retry.
+- Power: pre-flight check 8 (§31.14 F) must pass; per-leg power guard as committed. Start with the
+  battery at ≥ 80 % and charging (advice from §31.14 C, not a gate).
+- §31.13 is retired in `run_final.sh` (`--amend 31.13` is refused) so its directories cannot be
+  overwritten.
+- **Run:** `sudo bash tools/go.sh --workload burst --amend 31.15`. Expected ≈ 40 min; ~55 min with
+  retries. Watchdog 2 h.
+
+**Anchors** (all Fn, idle-subtracted cp, median over usable runs).
+- §31.14 B (capped, 31.13): cp 1.476 / 0.947 ms/inv (b100 / b500), function 4.99 / 4.04 ms/inv,
+  drain 0.216 / 0.522 s, p99 227.4 / 752.2 ms.
+- F-T3 (`burst_`, runs 2–5, post hoc, not citable): cp 1.125 / 0.790 ms/inv, drain 0.170 / 0.468 s,
+  p99 ~179 / 490–552 ms.
+- `freq_mhz_after` (one reading after each run, box mostly idle): in uncapped legs it scatters
+  (e.g. 400–2600 MHz within one leg); in both capped 31.13 legs it is 2400–2600 in **every** run.
+
+**Predictions (Fn).**
+- **P0 (citability, checked first).** For each leg: (a) the session's pre-flight check 8 passed;
+  (b) every attempt's logged power state is AC online and battery `Charging` or `Full` (or
+  `Not charging` at ≥ 80 %, a charge threshold); (c) the pinned signature is absent: **not all six
+  runs** read `freq_mhz_after` in 2350–2700 MHz. A leg that fails P0 keeps its B1 and R1/S1
+  readings, but its cp, drain, latency and energy are not citable. That is recorded and not re-run.
+- **B1 (replication)** availability ≥ 0.999 (median over usable runs; worst run reported) in b100
+  and in b500.
+- **K1 (tests §31.14 C's mechanism; cross-session, n = 5 vs 5, predicted effect 20–35 %).** cp
+  idle-subtracted ≤ 0.90 × §31.14's (b100 ≤ 1.328, b500 ≤ 0.852 ms/inv) **and** function CPU within
+  ±10 % of §31.14's (b100 4.49–5.49, b500 3.64–4.44 ms/inv). Holds for a leg only if both parts hold.
+- **K2 (reproducibility of `burst_`'s uncapped values; cross-session).** cp idle-subtracted within
+  ±15 % of F-T3 (b100 0.956–1.294, b500 0.672–0.909 ms/inv) and drain within ±20 % (b100
+  0.136–0.204, b500 0.374–0.562 s).
+- **B2, B4: not evaluable** (no in-session steady, as §31.13). **B3:** no prediction; cp
+  idle-subtracted and container count reported.
+- **R1, S1 (descriptive, as §31.13).** Run_1 errors: per-burst counts and status codes, no burst
+  boundary (§31.14 A). S1: run_1's max sampling gap.
+
+**Decision rules.** (1) A failed prediction is a finding, nothing re-run. (2) A leg failing twice
+is missing. (3) This is the last session for these two legs, whatever the outcome; W4 comes next.
+(4) Not pooled with `burst_` or 31.13: Part F gets F-T5, "amendment 31.15, uncapped, warm pool,
+run_1 discarded, sampler fix". F-T3 and F-T4 stay as recorded. If P0 holds for a leg, F-T5 gives
+Fn's citable burst cp, drain, latency and energy for it, labelled "own session, no in-session
+steady". (5) If B1 fails here, both sessions are reported side by side and neither overrides the
+other. (6) K1 and K2 are cross-session comparisons with n = 5 (working rule 6). They are
+pre-registered with wide bands for large effects only, and are not used to size a day shift.
+(7) cp idle-subtracted, energy RAPL probe basis (§25 rules for ‡). (8) A session stopped by the
+power guard before a leg was measured has no data for that leg. The same command may be run again
+and that is not a re-run. (9) Outcome as §31.16, analysis JSON `results/burst_amend31_15_analysis/`.
+
+**Do not repeat:** re-running Fn steady or 31.13; citing a leg's cp/drain/latency/energy when its P0
+fails; reading K1 or K2 as within-session effects; using `freq_mhz_after` thresholds per run (it is
+an idle reading; only the all-runs-pinned pattern means anything).
+
+### 31.16 Session 2026-10-04 (`burst_amend31_15_`): outcome
+Adjudicated 2026-10-04 against §31.15. **Every prediction holds on both legs. P0 holds, so Fn's
+burst cp, drain, latency and energy are citable from this session (F-T5, "own session, no
+in-session steady").** This closes W3 for Fn (§31.15 rule 3).
+
+**Legs.** Calibration 17:58–18:23 UTC, legs 18:23–18:33 UTC, measurement code at commit `3501612`
+(pre-flight's measurement-path check passed; see the `git_dirty` note below), `--hygiene` on,
+idle-w in session (`lock_burst_amend31_15_calib`: bare 5.74, of 5.95, fn 5.93, kn 7.31, ow 7.42 W).
+**Both legs passed on attempt 1**, no `_r2`. Every run records `sampler_defer_names = true`,
+`burst_size` 500/100. Usable runs = run_2..run_6 (run_1 discarded as registered).
+
+**A. Verdicts (§31.15; Fn only).**
+| | b100 | b500 |
+|---|---|---|
+| **P0 (a)** pre-flight check 8 | passed: AC online, `Charging/74%`, 3429 MHz under 4-core load | (same session) |
+| **P0 (b)** power state at the attempt | `Charging/92%` | `Charging/91%` |
+| **P0 (c)** all six runs `freq_mhz_after` in 2350–2700? | no: 2800–3200 | no: 2778–3000 |
+| **P0** | **holds** | **holds** |
+| **B1** availability ≥ 0.999 (median; worst run) | **holds** 1.0; worst 1.0 | **holds** 1.0; worst 1.0 |
+| **K1** cp ≤ 0.90 × §31.14 and fn within ±10 % | **holds**: cp 1.220 ≤ 1.328 (×0.83); fn 4.84 (−3.0 %) | **holds**: cp 0.827 ≤ 0.852 (×0.87); fn 3.98 (−1.6 %) |
+| **K2** cp ±15 % and drain ±20 % of F-T3 | **holds**: cp 1.220 (+8.4 %); drain 0.185 s (+8.8 %) | **holds**: cp 0.827 (+4.7 %); drain 0.493 s (+5.4 %) |
+| B2, B4 | not evaluable (fixed in §31.15) | not evaluable |
+| B3 | no prediction | no prediction |
+| R1 (descriptive) run_1 errors, all HTTP 500, per burst | 15: 9 / 6 in bursts 1–2 | 92: 35 / 35 / 16 / 4 / 2 in bursts 1–5 |
+| S1 (descriptive) run_1 max sampling gap | 0.32 s | 0.60 s |
+| Fn function containers (leg-gate count) | 68 | 103 |
+
+- **B1 replicates §31.14:** 30,000 attempted requests over the 10 usable runs, 0 HTTP and 0
+  transport errors. Two sessions now agree that bursts into a grown Fn pool lose nothing; the loss
+  is in pool growth (run_1), which W4 takes up.
+- **K1: the clock mechanism of §31.14 C is supported.** Uncapped, cp falls 13–17 % against the
+  capped session while function CPU moves only 1.6–3.0 %, the pattern a fixed amount of
+  control-plane work per request and a 5 ms wall-time handler predict. The fall is smaller than the
+  20–35 % effect size written in §31.15 (the threshold, ≤ 0.90×, is what was registered and it
+  holds). b500's margin is 0.025 ms/inv, about one idle-probe sensitivity step (±0.028 ms/inv per
+  0.01 core): K1 holds there, but narrowly. Cross-session, n = 5 vs 5 (rule 6).
+- **K2: `burst_`'s uncapped values reproduce** within +5 to +9 % on cp and drain, well inside the
+  bands. Cross-session; not a day-shift estimate.
+- **R1** replicates the pattern again: all errors HTTP 500, decaying to zero as the pool fills,
+  none in usable runs. b500 92 / 92 errors are faster than run_1's median success (fast
+  rejections, §31.11); b100 only 7 / 15 (31.13: 20 / 20). Descriptive, not examined further.
+- **S1** below 1 s in both legs again (§31.14: 0.25 / 0.64 s).
+- b500 run_1 (discarded) was `host_saturated` again; usable runs not.
+
+**B. Citable values (F-T5; usable-run medians, cp idle-subtracted).** b100 / b500: throughput
+85.7 / 358.3 rps, drain 0.185 / 0.493 s, p50 95.6 / 341.8 ms, p99 190.7 / 538.1 ms, cp 1.220 / 0.827
+ms/inv (raw 1.280 / 0.847; ± 0.117 / 0.028 per 0.01 core of idle-probe error; CV over runs 0.8 /
+5.2 %), function 4.84 / 3.98 ms/inv, untracked host (idle-subtracted) 11.8 / 4.2 ms/inv. Energy, RAPL
+probe basis: 43.6 / 20.3 mJ/inv; idle probe ‡ on both legs (8.46 / 9.94 W vs calib 5.93 W), the
+usual light-platform pattern (§30.10 E), so probe basis is the value cited. RAPL FIT warnings
+expected (§25.1). b500's cp drifts 12.5 % across the five runs (0.827 → 0.930); the median is cited.
+
+**C. Notes (post hoc, descriptive).**
+- **`git_dirty = true` in every run** (31.13: false). Cause: the untracked folder `drafts/`
+  (created 17:22 UTC, before the session; a W4 draft). `harness_git_dirty()` counts any
+  `git status --porcelain` line; pre-flight's check counts only the measurement path, which was
+  clean, and `git diff 3501612 HEAD` is empty. Not a protocol deviation; index row added.
+- Idle-w calibration is ~2 W above 31.13's (fn 5.93 vs 3.97 W) and ~0.4 W above `burst_`'s morning
+  calibration (5.51 W): the uncapped clock raises idle power too. Energy per invocation is
+  therefore higher than in the capped session (b100 43.6 vs 33.2 mJ/inv); the capped values stay
+  not citable (§31.14).
+- `freq_mhz_after` here sits at 2.8–3.2 GHz in every run, above the scatter seen in other uncapped
+  legs (400–2600). It is outside P0 (c)'s pinned band; it is one idle reading, not interpreted.
+
+**Decision.** Fn's W3 burst values come from F-T5 (cite as "own session, no in-session steady";
+B2/B4 for Fn remain not evaluable). F-T3 and F-T4 stay as recorded. W3 is closed; next is W4
+(cold start / small pool), which also inherits the run_1 pool-growth 500s.
+
+**Do not repeat:** re-running Fn b100/b500 (rule 3, last session); pooling F-T5 with F-T3 or F-T4;
+reading K1/K2 as within-session effects or as a day shift; treating `git_dirty` as a deviation
+without checking `git status` for untracked non-measurement files.
+
+### 31.17 After §31.16: review notes, power history of every session, what the missing cells are, W4 scope (2026-10-05, checked on disk)
+Written for a reviewer who arrives cold. Nothing here changes a verdict or a cited number.
+
+**A. Second expert review of §31.16 (each point checked on disk).**
+- "60,000 requests is 2× the real count": **refuted.** Each session is 2 legs × 5 usable runs × 3000
+  = 30,000 (b100 = 30 bursts × 100, b500 = 6 bursts × 500, per run). 31.13 + 31.15 = 60,000, all 2xx;
+  the 60,000 was stated as the two sessions together.
+- "cp is partly paid per burst" is not identified: **agreed** (already marked post hoc in §31.16).
+  cp totals over the same 3000 requests are 3.84 CPU-s (b100, 30 bursts) and 2.54 CPU-s (b500,
+  6 bursts); pure per-request predicts 1:1, pure per-burst 5:1. Neither fits; mechanism open.
+- K1's b500 margin (0.025 ms/inv ≈ one idle-probe step) is a hold not to build on: **agreed**.
+- Fn steady 1063 rps (`burst_`): confirmed (`throughput_rps` 1062.75).
+
+**B. OpenFaaS in W4: the draft's evidence was wrong; the exclusion stands for a better reason.**
+- `drafts/W4_cold_start_DRAFT.md` said the 0.8.3 gateway has "neither `scale_from_zero` nor the
+  `/system/scale-function` API". Binaries extracted 2026-10-05 (`docker export`, `strings`):
+  `functions/gateway:0.8.3` contains `system/scale-function/%s` and
+  `plugin.ExternalServiceQuery.SetReplicas`; `functions/faas-swarm:0.3.3` serves
+  `/system/scale-function/{name:[-a-zA-Z_0-9]+}` and logs `Scaling %s to %d replicas`. Absent:
+  `scale_from_zero` and any scaling handler (only `MakeAlertHandler`). So the **scaling API exists;
+  the request path that holds a call while a zero pool scales up does not.**
+- Why OF cannot scale from zero on this stack (`OPENFAAS_DEPLOY/prometheus/`): the only scale
+  trigger is the alert `rate(gateway_function_invocation_total{code="200"}[10s]) > 5` for 5 s. At
+  0 replicas no request returns 200, so the alert cannot fire. Even warm, scrape 5 s + evaluation
+  15 s + `[10s]` + `for: 5s` + alertmanager `group_wait: 5s` ≈ 30–40 s before any scale-up,
+  against a ~35 s b100 window. §32 states this reason, not the binary one.
+- Harness-scaled OF arm (`docker service scale hello` 0 → N at the first burst): **feasible,
+  cp-blind, deferred.** Swarm starts tasks in dockerd, so the start-up cost is outside OF's cp
+  containers but inside the idle-subtracted untracked bucket (`tools/untracked_dyn.py`), where
+  Fn's and Knative's container starts also land. Comparable only as cp + untracked per created
+  container, and the scale-up is timed by the harness, not the platform.
+- **W4b (OpenFaaS CE on k8s), reviewer-reported, not verified here:** the CE gateway is under the
+  OpenFaaS CE EULA (not Apache/MIT) with limits on commercial use and no academic carve-out;
+  waivers only in writing. Get written confirmation from OpenFaaS before any setup work. The
+  existing 2018 Swarm stack predates that EULA. Also for W4b: CE caps at 5 replicas (Parts A–F use
+  16), CE scale-from-zero is documented inconsistently (smoke test needed), and CE in this k3s
+  cluster would land in Knative's cp bucket (`platforms/knative.py` treats k3s as Knative's
+  substrate), so it needs its own cluster. Pro (paid, k8s-only) adds scale-*to*-zero, which W4
+  does not need.
+
+**C. Battery state during every session (`/var/lib/upower/history-charge-DELL_*.dat`, kept since
+2026-09-28) against the cap's fingerprint (`freq_mhz_after` in 2350–2700 MHz).**
+| session | battery during it | runs in the capped band | legs mostly in band |
+|---|---|---|---|
+| `final_` (Part A) | 100 %, full | 2 / 78 | 0 |
+| `payload_` (W1) | 66–100 %, charging / full / briefly on battery | 8 / 191 | 0 |
+| `payload_amend28_8_` | 84–90 % | counted in the `payload_` row | 0 |
+| `owlog29_` | 71–76 %, `pending-charge` | 2 / 25 | 0 |
+| `mem_` (never cited) | **30–38 %, discharging / `pending-charge`** | 10 / 40 | partly capped (§31.14 D) |
+| `mem2_` (W2) | charging throughout (calibration at 30–50 %, legs from ~58 %) | 4 / 120 | 0 |
+| `burst_` (W3) | 94–100 % | 2 / 66 | 0 |
+| `burst_amend31_13_` | **50–56 %, discharging** | 10 / 10 | 2 / 2 |
+| `burst_amend31_15_` | 72–94 %, charging | 0 / 10 | 0 |
+The cap appears only in the two sessions run at low battery without charging, and neither feeds a
+cited number. **No closed session needs a re-run.**
+
+**D. AC vs battery: can the box perform the same on both? (post hoc, 2026-10-05.)** The OS-visible
+package power limits do not explain it (read uncapped, on mains at 100 %: RAPL long-term 200 W,
+short-term 51 W; `scaling_max_freq` 4.4 GHz; `platform_profile` performance; §31.14 C found the OS
+settings unchanged while capped). The ~2.5 GHz
+cap is applied by the laptop's embedded controller, out of the OS's reach. The only OS-level way to
+make AC and battery identical is to pin every session to a clock below the cap (turbo off, max
+~2.4 GHz). That would change the box under W4 relative to Parts A–F, and §31.14–31.16 show cp
+scales with the clock (K1), so W4's cp could not sit next to the earlier parts. **Decision:
+keep turbo, keep the power gate, stop on battery.** A long session on battery would also drain it
+into the low-battery cap. Gap found: the power check runs before each leg attempt, not during one,
+so a leg the outage interrupts mid-way is not marked. W4's tooling adds a power check at leg end
+(see §32).
+
+**E. The cells still missing, in plain terms, and whether a retry would recover them.**
+| cell | what it measures | why it is missing | retry would… | changes a verdict? |
+|---|---|---|---|---|
+| W1 Knative 64k c=8 | Knative cp when 8 clients send 64 KiB bodies | quiet gate failed 4× over two sessions, each right after scaling to 16 pods (§28.9 A) | probably pass now (settle fix §29.2, `--hygiene` §30.7) | no: a third session cannot pool with the main one (bridge +15 %, outside ±10 %); P2 2/2 and P3 "fails" stand |
+| W1 OpenWhisk 512k (n = 2 per cell) | OW cp for 512 KiB bodies | standalone OW keeps every activation in memory (~1 MB each), dies after ~7,000 activations (§28.7) | fail the same way | no: the death is the finding ("standalone OW, in-memory store") |
+| OW log-collector arm, c=8 cli | the `docker logs` collector's cost at 8 clients | quiet gate ~40 s after the OW JVM restart (§29.2 A) | probably pass (settle fix) | no: answered at c=1 and c=4 (Q2 by 2× margin); the cli store is retired (§29.3) |
+| Fn B2/B4 (W3) | Fn's burst drain and burst-1 latency vs its own steady leg, same session | by design: 31.13/31.15 did not repeat Fn steady | — | **added to W4 (§32) as one Fn steady leg next to Fn warm b100**; decided by the user 2026-10-05 |
+
+**F. Timing of W4.** At 00:10 PKT 2026-10-05, with a power outage expected at 02:00–03:00: W4
+tooling is estimated at 2–3 h (draft) before smoke tests, and the session at ~2 h. W4 is
+pre-registered and built tonight (no measurement; coding works on battery) and run on mains with
+the power gate passing.
+
+**Do not repeat:** "the 0.8.3 gateway has no scale API" (it has one; the alert rule is the reason);
+retrying the cells in E to fill tables; pinning the clock to make battery runs comparable without
+re-measuring every part.
+
+### 31.18 Third and fourth expert reviews (2026-10-05, post hoc, checked on disk; written before any W4 data)
+Nothing below changes a verdict or a cited cp value. It qualifies what §31.16 reports beside cp.
+
+**A. Verified.**
+- **Untracked host CPU is mostly not the platform.** 31.15 usable runs (`runs.json`): host = cp + fn +
+  untracked with untracked **75 %** of host in b100 (54.2–56.1 of 72.5–74.5 CPU-s, ~1.6 cores) and
+  **55–67 %** in b500 (17.7–30.9 CPU-s, 2.2–3.1 cores). The leg's idle probe accounts for ~0.6–0.8
+  core. The rest is load-induced CPU outside every container: the load generator (`hey` runs on the
+  host), the harness's sampler, dockerd/containerd, and the kernel network stack. It rises with
+  concurrency (1.6 cores at c = 100, 2.3 at c = 500, same 3000 requests), a load-generator/network
+  signature. **So §31.16's "untracked host (idle-subtracted) 11.8 / 4.2 ms/inv" is not an
+  orchestration cost and is not cited as one.** It was never measured how much of it is the
+  instrument. From W4 on, each run records the harness's own and its children's CPU
+  (`instrument_cpu_s`, §32).
+- **cp is unaffected:** the independent cgroup delta check agrees with the sampler within −0.96 to
+  −2.91 % in every usable run of both legs.
+- **b500 host CPU drifts more than cp:** 31.84 → 45.92 CPU-s over the five usable runs (run_6 has a
+  10.0 s window against 8.2–8.6 s); cp 2.48–2.79 CPU-s. Descriptive.
+- **b100 vs b500 differ in pool size too** (68 vs 103 containers), so every b100-vs-b500 statement,
+  including "bigger bursts cost less cp per request", confounds burst size with pool size. With two
+  burst sizes, a per-request + per-burst split has zero degrees of freedom. Stays descriptive.
+- **`acceptance.json` writes "RAPL FIT x % (>15 %, NOT citable)"** on most gate-ok legs. It refers to
+  the retired 3.5 W/core *model* fit (§25.1); RAPL-measured energy (probe basis) is unaffected. The
+  string is not changed (committed acceptance files must regenerate byte-identically); read it
+  as "model fit, warn only".
+
+**B. Instrument limit, stated once.** The cgroup sampler reads at ~19 Hz (median gap ~53 ms), so
+**timing features shorter than ~100 ms are not resolvable**, and no sub-100 ms phase argument
+(e.g. CPU onset vs first response) is admissible. This limits *timing*, not CPU *totals*: totals
+are differences of cumulative counters (§31.11), so cp CPU-s per run, and margins such as
+K1's 0.025 ms/inv on b500, are not affected by it. K1's b500 margin is narrow for a different
+reason: it is about one step of idle-probe error (±0.028 ms/inv per 0.01 core).
+
+**C. Not adopted, with reasons.**
+- "Run a host-attribution session (W4a) before W4": W4's C1, C2 and C4 do not involve attribution;
+  C3 is now scoped to the platform's own containers, and C3u takes the cold − warm difference within
+  a block, in which the load generator and sampler (same load, similar pools) cancel to first order,
+  with the instrument's measured CPU beside it. A full split of the remainder (dockerd vs kernel) is
+  still open and is a candidate later session, not a precondition.
+- "W4 is largely answered by `burst_`/31.x run_1": those pools started at ~20 containers (verify,
+  §31.11), never at zero, and Knative/OpenWhisk had static or fixed pools. A post hoc analysis of
+  run_1 container births (lag from burst to first birth, 500s before the first birth) is worth doing
+  without machine time, and will be marked post hoc. Fn's cold arm costs ~11 min.
+- "In-session steady is missing for all four platforms": `burst_` had one for OpenFaaS, Knative and
+  OpenWhisk (their B2/B4 were judged, §31.9). Only Fn lacked it; W4 adds Fn b500 + steady (§32).
+
+**D. Process.** Numbers in outcome sections are copied from the tool output they come from (the
+analysis JSON under `results/*_analysis/`), not retyped; where prose and a generated table
+disagree, the generated table is right (31.16: 43.65 rounds to 43.6 in the table, prose said 43.7,
+fixed). Candidate later sessions from these reviews, not pre-registered: a fixed-N burst-size ladder
+at a fixed pool size (identifies per-request vs per-burst), and energy validation against a
+wall-plug meter (needs the meter).
+**Test added 2026-10-08:** `tests/test_runbook_numbers.py` checks key quoted claims (§29.2 cli → driver
+table, §33.2 c = 8 pair, §32.1 verdict table and F-T6) against `../saqef-paper/results/*_analysis/*.json`:
+the quote must still be in the runbook and each JSON value, formatted as printed, must appear in it.
+Add a claim there when an outcome section quotes a new key number.
+
+## 32. W4 cold start — pre-registration (written 2026-10-05, before any W4 data)
+Workload cold: pre-registered
+
+**Question.** What does a burst cost a platform, in control-plane CPU, function CPU, availability
+and latency, when it arrives at an **empty** function pool instead of a grown one? Paper claim:
+"cp cost per cold start" (§26 step 7), plus W3's open end: Fn loses requests (fast HTTP 500s) only
+while its pool grows (§31.9 B, §31.14 A, §31.16). Second question, carried over from W3 (user,
+2026-10-05): W3's B2 and B4 for Fn, judged within one session (31.13/31.15 had no Fn steady leg).
+
+**Platforms.** Fn, Knative, OpenWhisk standalone (driver log store, §29.3). **OpenFaaS is not in
+W4:** its only scale trigger on this stack is the Prometheus alert
+`rate(gateway_function_invocation_total{code="200"}[10s]) > 5` for 5 s, which cannot fire while
+0 replicas return no 200s, and even warm takes ~30–40 s, longer than a b100 window (§31.17 B). The
+gateway has the scale API but no scale-from-zero path. A harness-scaled OF arm is feasible but
+cp-blind and harness-timed; deferred. OpenFaaS CE on k8s (W4b) needs written licence confirmation
+first (§31.17 B).
+
+**Design (fixed).** One session, prefix `cold_`, `sudo bash tools/go.sh --workload cold`.
+- **Blocks and legs, in run order** (a block = one platform; every within-platform comparison
+  stays inside its block; cold/warm order alternates by platform):
+  1. Fn: `cold_fn_cold`, `cold_fn_warm`, `cold_fn_b500`, `cold_fn_steady`
+  2. OpenWhisk: `cold_ow_warm`, `cold_ow_cold`
+  3. Knative: `cold_kn_cold`, `cold_kn_warm`
+- **cold** = b100 (`SAQEF_BURST=100:1`, 30 bursts × 100, c = 100, TOTAL 3000), the pool emptied
+  before **every** run (`SAQEF_POOL_RESET=1`, `tools/pool.sh`), `--warmup 0` (no request before
+  the window). Light platforms `--repeat 5`; OW `--repeat 6 --discard-warmup 1` (JVM run_1 rule).
+- **warm** = the same b100 load into the pool the previous run grew; `--repeat 6
+  --discard-warmup 1` (run_1 grows the pool, as §31.13); default warm-up (20 requests).
+- **Fn b500** = W3's b500 into a grown pool, exactly as §31.15 (`SAQEF_BURST=500:1`, c = 500,
+  `--repeat 6 --discard-warmup 1`). **Fn steady** = W3's steady arm (closed loop c = 8, `--repeat 5`).
+- **Pool reset** (between runs, outside every window; smoke-tested unmeasured 2026-10-05):
+  Fn — its own 30 s idle timeout, wait for 0 hello containers (observed 30–35 s);
+  Knative — `minScale 0`, `maxScale 16`, cc 4 (`SAQEF_KN_SCALE_FROM_ZERO=1`, **W4 only**, both
+  arms; Parts A–F keep 16 static replicas): wait for 0 live pods (observed ~65 s), then for the
+  pods' 300 s termination grace to run out (PID-1 server ignores SIGTERM; same as every Knative
+  teardown since Part A), i.e. ~6 min per cold run; the old revision's pods are also waited out
+  before verify; OpenWhisk — re-PUT the action (new revision, same code) and remove the 2 stale
+  action containers (harness action; without it the invoker removes them inside the next window,
+  which would charge the replacement, not a cold start, to it), then wait for 0.
+- **Recorded per run, new for W4 and every later session:** `instrument_cpu_s` = CPU-s over the
+  window of the harness process (sampler threads) and of its reaped children (hey, docker CLI).
+  This is host CPU outside every container, i.e. part of "untracked" (review 2026-10-05: untracked
+  is 75 % of host CPU in 31.15 b100, 55–67 % in b500; §31.18).
+- **Recorded per run** (`summary.json` `pool`): reset rc / duration / log, function containers at
+  window start and end; control-plane logs since the run start (`platform_logs.txt.gz`: fnserver,
+  activator + autoscaler, openwhisk). Per-burst latency and status in `hey.csv` (`burst` column).
+- **Gate added for W4 only** (absent `pool` record = unchanged): a cold run whose reset failed or
+  whose pool was not empty at window start is unusable.
+- Otherwise as W3: `SAQEF_SAMPLER_DEFER_NAMES=1`, `--cpu-probe 60`, in-session idle-w
+  calibration, `--hygiene`, quiet gate 15 %, burst-mode success rule (§31.6), one `_r2` retry,
+  power gate (§31.14 F) and, new for every session, a 5 s power poll during each leg: power lost
+  during a leg stops the session (exit 8) and that leg does not count.
+- **Expected:** calibration 25 min; Fn ~30 min; OW ~20 min; Knative ~60 min; ≈ 2.3 h. Watchdog 4 h.
+
+**Metrics (fixed now).** First burst = `burst` 0 in `hey.csv`; later bursts = 1–29.
+availability = 2xx / attempted (§31.3); latency p50 per burst group over completed requests, per
+run, then median over usable runs. Containers created in a cold run = `pool.at_end − pool.at_start`
+(`at_start` = 0 by the gate). cp CPU-s per run, idle-subtracted = cp CPU-s − leg probe cp rate ×
+window (as `tools/untracked_dyn.py`). Function CPU-s per run likewise from the harness's fn bucket.
+Drain, p99, cp ms/inv for B2/B4 as §31.3.
+
+**Anchors (on disk; post hoc; none of these pools was empty).** W3 run_1 (pool growing from ~20,
+§31.11): Fn b100 burst 1 p50 99–101 ms, errors 7–8 in burst 1; Kn b100 burst 1 p50 66 ms; OW b100
+burst 1 p50 565 ms. Fn function CPU per created container ~0.14 s (§31.11). Fn steady `burst_`
+1063 rps, p99 13.7 ms; Fn b500 uncapped (F-T5) drain 0.493 s, p99 538 ms.
+**Disclosure:** the unmeasured smoke tests that checked each reset (2026-10-05, 00:00–00:40 PKT,
+single hey bursts, desktop up, no sampler) showed: Fn burst into an empty pool 68–71 % 2xx; Knative
+100 % 2xx, 4.0–5.1 s latency; OpenWhisk 100 % 2xx, 0.5–2.8 s. The predictions below are the
+draft's (`drafts/W4_cold_start_DRAFT.md`, written before the smoke tests) with thresholds as drafted;
+none was changed after the smoke tests.
+
+**Predictions.**
+- **P0 (citability, per block, as §31.15 P0):** pre-flight check 8 passed; every attempt's power
+  state AC online and `Charging`/`Full` (or `Not charging` ≥ 80 %); not all runs of a leg read
+  `freq_mhz_after` in 2350–2700 MHz; no power-poll line off mains. A block failing P0 keeps
+  availability verdicts; its cp, latency and energy are not citable.
+- **C1 availability, first burst, cold:** Fn < 0.99; Knative ≥ 0.999; OpenWhisk ≥ 0.999 (median
+  over usable cold runs).
+- **C2 first-burst latency:** p50 cold / p50 warm ≥ 2 on Knative and OpenWhisk. Fn: reported, no
+  prediction (its rejections are fast and hide latency).
+- **C3 cp cost per cold start:** (cold-run cp CPU-s − median warm-run cp CPU-s) / containers
+  created, median over cold runs, **> 0** on every platform, reported in ms per container. **C3b:**
+  OpenWhisk's value is the highest of the three (docker CLI per container, §28.9 D). **Scope:** cp
+  is the platform's own containers only. On Fn and OpenWhisk the container is created by
+  dockerd/containerd/runc on the host, outside every container, so most of a cold start's CPU
+  is expected in the untracked bucket, not in cp (on Knative, kubelet/k3s, also host). C3 is
+  reported as "platform cp per cold start", never as "cost of a cold start".
+- **C3u (descriptive, no threshold):** the same difference for host CPU outside all containers,
+  idle-subtracted (untracked, `tools/untracked_dyn.py` definition), per created container. The
+  load generator and sampler are the same in both arms (same load, final pools of similar size),
+  so they cancel to first order in cold − warm; what remains is container creation plus any
+  change in the instrument's own cost, which each run now records (`instrument_cpu_s`:
+  harness process incl. sampler threads, and its reaped children incl. hey). Reported with that
+  residual instrument difference beside it.
+- **Decision rule for C3 and C3u (amendment 2026-10-05 01:20 PKT, before any W4 data; review 5):**
+  each holds for a platform only if **every** usable cold run's quantity exceeds **every** usable
+  warm run's (complete separation; with 5 vs 5 runs the chance probability of that ordering is
+  1/252 ≈ 0.004). "> 0" on the median alone is not enough: run-to-run noise would pass it. C3u is
+  judged on untracked CPU-s **minus that run's `instrument_cpu_s`**, and also reported without the
+  subtraction. The value reported is the median per created container, as defined above.
+- **C3u is a prediction now** (it was descriptive): separation holds on every platform. Reason: if
+  cold-start work is mostly outside the platform's containers (C3's scope note), C3u is where the
+  signal is, and it needs a decision rule fixed before data.
+- **Interpretation fixed before data:** C3 failing while C3u holds is recorded as "C3 fails:
+  container creation is done outside the platform's own containers on this platform", never as
+  "cold starts cost no control-plane CPU". Both failing means no cold-start CPU cost is resolvable
+  above run-to-run noise with this instrument.
+- **Instrument terms that differ between arms (sign not predicted):** (a) the cgroup sampler's
+  reads scale with live containers, and a cold run has fewer for most of its window (biases C3u
+  down; inside `instrument_cpu_s`, so removed by the subtraction); (b) the sampler resolves each
+  new container's name with one `docker inspect` (§31.12), ~one per created container in a cold run
+  and ~none in a warm run. The CLI's own CPU is in `instrument_cpu_s`, but dockerd's work for those
+  calls is not, so it stays in C3u and biases it **up**, by at most one inspect's dockerd cost per
+  container. The sampler is therefore not a passive observer of dockerd during container churn;
+  stated as a limitation, with the count of inspects (= containers created) reported.
+- **Leg order unchanged:** a power cut inside the Fn block makes the whole block incomplete and
+  rule 3 runs it again whole, so moving `cold_fn_steady` earlier would not protect B2/B4.
+- **C4 recovery:** later-burst p50 of cold runs within **±15 %** of the warm arm's later-burst
+  p50, every platform (the cold cost is a first-burst effect).
+- **C5 (descriptive):** function CPU-s per created container, against Fn's 0.14 s anchor.
+- **Fn, W3 within session (§31.5 definitions, unchanged):** **B1** b500 availability ≥ 0.999;
+  **B2** b500 median drain within [0.67, 1.5] × 500 / rps(steady); **B4** b500 p99 ≥ 5 × steady
+  p99; B0 steady availability 1.0. B3: no prediction (as §31.5).
+
+**Decision rules.** (1) A failed prediction is a finding; nothing is re-run. (2) A leg failing
+twice is missing; its comparisons are not evaluable. (3) **Power cut:** blocks completed in the
+session stand. A block in progress when the power guard stops the session is incomplete; none of
+its data is used, and `sudo bash tools/go.sh --workload cold --part 2` runs only the incomplete and
+unstarted blocks, under prefix `cold_p2_`, with its own calibration. That is the registered
+continuation, not a re-run (no data of the block is kept or compared). Comparisons across
+platforms that end up in different parts (C3b) are labelled cross-session. (4) Not pooled with
+W3: Fn's B1/B2/B4 here are W3's within-session answer for Fn, reported as F-T6 next to F-T3–F-T5,
+which stay as recorded. (5) cp idle-subtracted; energy RAPL probe basis, ‡ rules as §30.10 E; no
+energy prediction. (6) Labels: "Knative minScale 0 (W4 only)", "OpenWhisk standalone, driver log
+store; cold = new action revision, 2 stale containers removed by the harness", "Fn: native idle
+expiry". (7) The analysis tool (`tools/cold_analysis.py`) implements the metrics above as written;
+it is written before the outcome is adjudicated and committed with it. (8) Outcome as §32.1,
+analysis JSON `results/cold_analysis/`, VERIFIED_RESULTS Part G.
+
+**Do not repeat:** OpenFaaS in W4 on the 0.8.3 stack; comparing W4 Knative numbers with Parts A–F
+(different scaling config); using a cold run whose pool was not empty; judging B2/B4 at b100.
+
+### 32.1 outcome (2026-10-05, `cold_`): W4 cold start
+
+**Run.** One launch, 04:25–06:28 UTC (2 h 03 min, watchdog 4 h): calibration (idle-w of 5.95, fn 5.66,
+kn 7.09, ow 7.05, bare 5.64 W), then Fn, OpenWhisk, Knative blocks. 8 of 8 legs passed on the first
+attempt (no `_r2`); every cold run started with 0 function containers (W4 gate); 5 usable runs per
+leg. OpenWhisk legs log `activation log store = driver`. Numbers: `tools/cold_analysis.py --prefix
+cold_` (committed before the data, 8fe8234), `cp_anatomy.py`, `idle_crosscheck.py`; JSON in
+`../saqef-paper/results/cold_analysis/`; tables VERIFIED_RESULTS Part G (G-T0–G-T2, F-T6).
+
+**P0 holds on every block.** Pre-flight check 8: 3500 MHz under load, AC online, Charging 96 %;
+1,145 power polls during the legs, all on mains, battery `Full`; no leg has every run's
+`freq_mhz_after` in 2350–2700 MHz. cp, latency and energy are citable.
+
+**Verdicts (medians over usable runs; cold − median warm, per created container).**
+
+| | Fn | OpenWhisk standalone | Knative minScale 0 |
+|---|---|---|---|
+| containers created per cold run | 71 (68–72) | 2 | 16 |
+| C1 first-burst availability, cold | 0.68 (every run) — holds (< 0.99) | 1.00 — holds | 1.00 — holds |
+| C2 first-burst p50 cold / warm | 1286 / 99 ms, 13× (no prediction) | 607 / 174 ms, 3.5× — holds | 2066 / 73 ms, 28× — holds |
+| C3 cp per container; separation | 5.5 ms; holds | 436 ms; **fails** | 10.9 ms; **fails** |
+| C3u (untracked − instrument) per container; separation | 234 ms; holds | −961 ms; **fails** | 724 ms; holds |
+| C4 later-burst p50 cold vs warm | +6.3 % — holds | −0.3 % — holds | **−17.5 % — fails** |
+| C5 function CPU per container | 0.131 s (anchor 0.14) | 0.165 s | 0.224 s |
+
+- **C3b** (OpenWhisk highest): holds on the reported median (436 vs 10.9 vs 5.5 ms) but is not a
+  supported finding, because OpenWhisk's own C3 fails: per-run cp cold 16.44, 11.38, 8.77, 7.88, 7.82 s
+  vs warm 13.16, 7.98, 7.81, 7.75, 7.90 s. Runs 4–6 of both arms are equal within 0.15 s; the median
+  is carried by each arm's run_2/run_3, which are high in both arms (cause not examined). Two
+  containers per cold run cannot resolve a per-container cost against that noise.
+- **OpenWhisk: C3 and C3u both fail** (the only platform where both do), so §32's pre-registered
+  clause applies: no cold-start CPU cost is resolvable above run-to-run noise with this instrument
+  (OpenWhisk standalone; 2 containers per cold run). Raw untracked CPU-s: cold 13.60–14.75, warm
+  12.77–15.34 (cold not higher). Added 2026-10-08 from the review below (item 2).
+- **Fn.** C3 and C3u hold with full separation (cp 3.55–3.78 vs 3.31–3.40 s; untracked − instrument
+  38.2–46.3 vs 26.5–28.7 s). Per the pre-registered interpretation, a cold start's CPU on Fn is
+  mostly outside the platform's containers: 234 ms host vs 5.5 ms cp per container (function CPU
+  0.13 s, matching the W3 anchor). The 32 % first-burst loss is identical in every cold run (32 of
+  100: fast HTTP 500s, as §31.11/§34.1); later bursts lose nothing.
+- **Knative.** C3 fails, C3u holds: recorded, as fixed before data, as "C3 fails: container
+  creation is done outside the platform's own containers on this platform" (kubelet/k3s,
+  containerd on the host). Per-run cp cold 2.34–2.48 s vs warm 2.00–2.61 s; the overlap is warm
+  run_4 (2.61 s), which created 5 pods inside its window (next point).
+- **Knative C4 fails in the opposite direction:** cold runs' later bursts are 17.5 % *faster* than
+  warm (79.0 vs 95.8 ms). A failed prediction, recorded as a finding; cause not examined.
+
+**Post hoc (not pre-registered): the Knative warm arm was not a full pool.** Pods at window start,
+warm runs 2–6: 9, 9, 11, 16, 16; at end 9, 11, 16, 16, 18. Every cold run went 0 → 16 at once (the
+activator path from zero), but from a small pool (4 after verify + warm-up) the autoscaler added
+pods over ~4 runs. So warm runs 3, 4 and 6 contained pod creation. Checked on disk: (a) runs are
+~37 s apart, so this is growth, not scale-down; (b) restricted to the warm runs that created no
+pod (run_2 2.00 s, run_5 2.01 s), every cold run's cp exceeds them (post hoc; C3 stays failed);
+(c) the pool does **not** explain C4: warm runs that started at 16 pods (run_5, run_6) have later
+p50 98.9 and 95.8 ms, still > 15 % above cold's 79.0 ms. `at_end` 18 > maxScale 16 in run_6 is most
+likely terminating pods counted by `pool.sh`; not examined. Fn's and OpenWhisk's warm pools were
+steady (68 and 2 at every warm start).
+
+**Fn W3 within one session (F-T6, rule 4).** B0 1.000; B1 1.000 (worst run 1.000); B2 drain 0.474 s
+vs 500 / 1033 rps = 0.484 s (0.98×) — holds; B4 p99 502.6 vs 14.2 ms (35×) — holds. Fn steady
+1033 rps, p99 14.2 ms (W3 anchor 1063 rps, 13.7 ms). F-T3–F-T5 stay as recorded.
+
+**Other.** OpenWhisk cp 3.1–3.4 ms/inv (driver store; §29.1 ~3); docker CLI children 1.7–2.2 % of
+the JVM. Idle cross-check: probe above calibration on all light-platform legs (‡, §30.10 E; Fn
+b500 +4.5 W, likely its ~100-container pool idling inside the probe, not checked); no energy prediction.
+
+**Corrections / tooling.** No code changed. New in the paper repo: `figures/make_cold_tables.py`
+(Part G); `cold_analysis.py` unchanged and its output reproduces byte-for-byte from the backup.
+
+**Do not repeat:** reading Knative "warm" in W4 as the cold arm's final pool (it was 9–16 pods);
+quoting OpenWhisk's 436 ms cp per cold start or C3b as a finding; reading C3's failure on Knative as
+"no cp cost" (§32 interpretation rule). Any later Knative cold-vs-warm comparison should pre-grow
+the warm pool to the cold arm's final size before the first usable run.
+
+**Review of §32.1 (2026-10-05, after commit; checked on disk). Items 1–2 closed 2026-10-08** (item 1 needed no text change; item 2 added to §32.1, G-T1 and the Part G index bullet).
+The reviewer reproduced every verdict and number of §32.1 from the raw run files; no data defect.
+1. *Overstatement, B3.* Commit 75702f4's message says "Fn B0–B4 hold". B3 has
+   no prediction (§32, as §31.5), so it cannot hold. Correct: **B0, B1, B2, B4 hold; B3 not predicted.**
+   The body of §32.1, F-T6 and the Part G index bullet already say this. The pushed commit message
+   stays (no history rewrite); this note is the correction.
+2. *OpenWhisk C3u failure unlabelled.* OpenWhisk is the only platform where C3 and C3u both fail, so
+   §32's pre-registered clause applies: **"no cold-start CPU cost is resolvable above run-to-run noise
+   with this instrument"** (OpenWhisk standalone; 2 containers per cold run). Raw untracked CPU-s:
+   cold 13.60–14.75, warm 12.77–15.34 (cold not higher). To do: add this sentence to §32.1's verdict
+   list and to G-T1 / the Part G index bullet (`../saqef-paper/figures/make_cold_tables.py`,
+   `tools/emit_verified_results.py`); re-emit, additions only.
+3. *Slip in the review itself (no action).* Its C3 example "OW warm run4 2.99 s raw overlaps cold
+   2.82–2.98" quotes Knative's raw cp (`runs.json`: kn warm run_4 2.99; kn cold 2.82–2.98).
+   OpenWhisk's overlap is raw cold 9.30–17.93 vs warm 9.12–14.55 s. Verdicts unchanged.
+4. *Not an issue:* "RAPL FIT 44–45 % NOT citable" in every acceptance.json is the standing convention
+   (working rule 7, §25.1); energy is cited on probe basis with the ‡ caveat (§30.10 E).
+
+## 33. Revisiting two missing cells — pre-registration (written 2026-10-05, before any data)
+Amendment 33.1: pre-registered
+Amendment 33.2: pre-registered
+
+**Why (user decision, 2026-10-05).** Two cells failed only on the quiet gate, for causes fixed
+since: W1 Knative 64k c=8 (4 attempts over `payload_` and `payload_amend28_8_`, each right after a
+16-pod scale-up, §28.9 A) and the OpenWhisk log-collector arm's cli leg at c=8 (twice, ~40 s after a
+JVM restart, §29.2 A). The fixes are the 20 s settle windows (§29.2) and `--hygiene` (§30.7). The
+user prefers revisiting them in a new, disclosed session to a third same-session attempt. Not a
+rescue: no verdict depends on either cell (§31.17 E), and the original attempts stay on record.
+Not revisited: W1 OpenWhisk 512k (the standalone's in-memory store crashes the same way, §28.7).
+
+**Reporting rule (fixed now).** Each result goes into the **same table** as the cell it fills, in
+its own column or row marked with one footnote: "measured in a later session (amendment 33.x,
+date); not pooled with the original session" — unless the pooling rule below allows pooling.
+Never merged silently.
+
+**33.1 — W1 Knative 64k c=8 (`sudo bash tools/go.sh --workload payload --amend 33.1`, ~1 h).**
+- Legs: `payload_amend33_1_64kc8_kn`, then `payload_amend33_1_512kc8_kn` (bridge, as 28.8's).
+- Protocol identical to §28.2 / §28.8 (handler swap, bodies, TOTAL 3000, REPEAT 5, `--cpu-probe 60`,
+  same gates incl. the one-sided 20 % drift gate, payload probe, in-session calibration, one `_r2`),
+  plus today's session guards: `--hygiene`, 20 s settle windows, power gate and in-leg power poll.
+- Pooling rule (28.8 rule 1, unchanged): the 64k cell may be shown as Part C's 64k c=8 value only
+  if the bridge's cp **and** fn ms/inv are both within ±10 % of the main session's 512k c=8 cell
+  (cp 2.220, fn 2.627 ms/inv). Otherwise it is reported in its own column next to 28.8's 1k c=8.
+- Descriptive (no verdict changes): Knative 64k c=8 cp, fn, activator + kourier ms/inv; P2's
+  ordering at c=8 for Knative is shown across sessions only, labelled so.
+
+**33.2 — OpenWhisk log stores at c=8 (`sudo bash tools/go.sh --arm owlog29 --amend 33.2`, ~50 min).**
+- Legs: `owlog29_amend33_2_tier1ow8_cli`, then `owlog29_amend33_2_tier1ow8_driver`, protocol
+  identical to §29 (CPU-bound handler, `--repeat 6 --discard-warmup 1`, JVM thread sampler,
+  in-session calibration), plus `--hygiene`, 20 s settle windows and the power guards.
+- Both stores run in this one session, so **Q1–Q5 are judged at c = 8 from this pair**, with §29's
+  thresholds unchanged (Q1 driver child row ≤ 1.0 ms/inv; Q2 cli − driver cp ≥ 9.0 ms/inv; Q3 driver
+  share in [40, 60] % and driver cp > 5 × 0.72; Q4 driver rps within ±15 % of cli; Q5 untracked
+  lower with driver). The driver leg also bridges to `owlog29_tier1ow8_driver` (cp 3.03 ms/inv),
+  reported side by side, not pooled.
+
+**Decision rules.** (1) A failed prediction is a finding; nothing is re-run. (2) A leg failing twice
+is missing and stays missing; no third revisit. (3) Outcome as §33.1-outcome / §33.2-outcome,
+analysis JSON `results/<prefix>analysis/`, tables in VERIFIED_RESULTS Parts C and D with the
+footnote. (4) Run after W4, on mains with the power gate passing; never before W4 in the same night.
+(5) **Power cut or any stop (added 2026-10-05 01:58 PKT, before any 33.x data):** a 33.x session
+that stops before finishing (no `DONE` file) is moved whole to `results/aborted_<UTC>/` by the next
+launch of the same command, and nothing from it is used, not even a completed leg (33.2's value is
+the pair; 33.1's pooling needs its bridge). The command then runs the amendment from the start.
+A finished session cannot be run again (pre-flight refuses its prefix). (6) The user may run 33.x
+before W4; rule (4)'s order is a preference, not a condition. (7) Both may run back to back in one unattended launch,
+`sudo bash tools/go.sh --revisit 33` (33.1, then 33.2, ~2 h, watchdog 4 h). They remain two sessions
+with their own calibration, prefix and outcome; only the launch is shared. If the power guard stops
+33.1, 33.2's pre-flight refuses to start on battery; rerunning the same command archives the stopped
+attempt(s) (rule 5) and runs both again.
+
+**Do not repeat:** revisiting W1 OpenWhisk 512k; merging these cells into the original columns
+without the footnote; a third attempt at either cell.
+
+### 33.1 outcome (2026-10-04, `payload_amend33_1_`): Knative 64k c=8 filled, pooled
+
+Launched with 33.2 by `go.sh --revisit 33`, headless, 22:11–23:04 UTC, commit `cad29a4`, rc = 0,
+DONE written. Power gate passed (AC, battery full, 3478 MHz under 4-core load); the in-leg power poll
+shows AC throughout. Tables: `VERIFIED_RESULTS.md` W1-T12 and the ¹ cells of W1-T1…T4; analysis JSON
+`../saqef-paper/results/payload_amend33_1_analysis/`.
+
+**Legs.** Both passed every gate on attempt 1, n = 5 usable runs each, 3000/3000 successes per run.
+64k c=8 drift +4.5 %, 512k c=8 bridge drift −4.3 %. The quiet gate that failed this cell four times
+(§28.9 A) passed first time with the 20 s settle windows and `--hygiene`.
+
+**Pooling rule (28.8 rule 1): pooled.** Bridge cp 2.237 vs 2.220 ms/inv (+0.8 %), fn 2.773 vs 2.627
+(+5.6 %), both within ±10 %. So the 64k c=8 cell is shown in Part C's grid with footnote ¹ ("measured in
+a later session (amendment 33.1, 2026-10-04)"): cp **0.91**, fn **1.77**, activator + kourier 0.91
+ms/inv (activator 0.42, kourier 0.48), untracked host idle-subtracted 0.38 ±0.07. The bridge's run 5
+is high (cp 2.61, +17 % over its leg's median); runs 1–4 are within 4 % of the main median. The median
+absorbs it; the drift gate (one-sided, last vs first) passed.
+
+**Verdicts: none change.** No W1-T6 prediction uses this cell (P2/P4/P5 need the 1k c=8 cell, which
+has no Part C value; P3 is 1k → 512k). Descriptive, across sessions only: Knative's request-path
+component at c=8 rises 1k 0.58 (28.8) < 64k 0.91 (33.1) < 512k 2.19 (main), the P2 ordering.
+The main session's DRIFT-failed 64k c=8 attempt had cp 0.893 / fn 1.770, within 2 % of today's.
+
+**Post hoc (not pre-registered).** Energy does not bridge across sessions even when CPU does: the
+512k c=8 bridge is 22.4 mJ/inv (probe) vs 28.0 in the main session with cp within 1 %. Both 33.1
+probes are flagged (+1.2 W above a calibration of 5.83 W, spread 0.03): use the calib basis
+(15.4 / 24.3 mJ/inv). Energy stays a within-session quantity (see 33.2).
+
+**Do not repeat:** comparing W1 energy across sessions; citing the 64k c=8 cell without ¹.
+
+### 33.2 outcome (2026-10-04, `owlog29_amend33_2_`): OpenWhisk log stores at c=8
+
+Same launch, 23:04–23:38 UTC, commit `cad29a4`, rc = 0, DONE written. Power gate passed (AC,
+3400 MHz under load); the power poll reads "Not charging" at 90–94 % with AC online throughout, and
+upower's history logs the battery as `fully-charged` with ~0 W flow (neither feeding nor charging).
+Not the low-battery cap of §31.14: the clock check passed and cp is not raised.
+Leg logs confirm `activation log store = cli` and `= driver`. Tables: `VERIFIED_RESULTS.md` D-T4;
+analysis JSON `../saqef-paper/results/owlog29_amend33_2_analysis/`.
+
+**Legs.** Both passed every gate on attempt 1 (the cli leg failed the quiet gate twice in `owlog29_`),
+n = 5 usable runs after the discarded warm-up, 3000/3000 successes per run.
+
+**Data (medians over usable runs, cli → driver).** cp 18.99 → 2.87 ms/inv; child row 12.64 → 0.016;
+actor system 3.90 → 2.12; fn 5.56 → 5.61; share 77.3 → 33.9 %; 108 → 310 rps; p50/p99 72.5/113.0 →
+25.1/30.0 ms; untracked host idle-subtracted 3.68 → 1.01 ms/inv; energy 96.2 → 37.0 mJ/inv (probe,
+neither flagged).
+
+**Verdicts at c = 8 (§29 thresholds).** Q1 **holds** (0.016 ≤ 1.0). Q2 **holds** (18.99 − 2.87 =
+16.12 ≥ 9.0). Q3a **fails** (33.9 %, below [40, 60]). Q3b **fails** (2.87 vs 5 × 0.72 = 3.60;
+cross-session ratio, cite as "a few times"). Q4 **fails** (+187 %: the collector caps cli at ~108 rps,
+the driver sits at the ~305 rps plateau of §29.2 D). Q5 **holds** (3.68 → 1.01). Exactly the c = 1 and
+c = 4 pattern, so §29.1's findings now hold at every c.
+
+**Bridge to `owlog29_tier1ow8_driver` (side by side, not pooled).** cp 2.87 vs 3.03, share 33.9 vs
+34.9 %, 310 vs 306 rps, p50 25.1 vs 25.4 ms: reproduced. cli vs Part A (descriptive): cp 18.99 vs
+17.85, child row 12.64 vs 11.94, share 77.3 vs 76.3 %, 108 vs 111 rps.
+
+**Per run.** cp ms/inv cli 22.58, 19.46, 18.88, 18.77, 18.99 (first usable run high, as §29.1 post hoc
+2); driver 3.39, 4.21, 2.84, 2.77, 2.87 (CV 19 %, run 3 highest). Medians are robust to both.
+
+**Post hoc (not pre-registered).** Energy again does not bridge: driver 37.0 mJ/inv here vs 26.4 in
+`owlog29_` with cp, rps and latency within 5 %. The idle baseline differs (probe 6.17 vs 6.72 W), but
+that explains ~5 J of the ~31 J/run gap; the package simply drew more under the same load. Together
+with 33.1 (−20 % on Knative), cross-session energy for the same cell moves −20 % to +40 %. Cause not
+measured. Within-session ratios stand (cli/driver 2.6× here, 2.7× at c = 4 in `owlog29_`).
+
+**Do not repeat:** a third c = 8 cli attempt (done, passed); comparing per-invocation energy across
+sessions, even for a reproduced CPU bridge.
+
+## 34. Post hoc analyses on data already on disk (2026-10-05, §34.3 2026-10-14; no machine time; descriptive)
+Both are post hoc. Neither changes a verdict. JSON in `../saqef-paper/results/*_analysis/`.
+
+### 34.1 How Fn's pool grows in a burst run (`tools/fn_pool_growth.py`, `fn_pool_growth_analysis/`)
+Every Fn burst leg on disk (`burst_` b100/b500 incl. `_r2`, 31.13, 31.15): 8 first runs, 36 later
+runs. Birth = docker's own container creation time; request times from hey. Neither depends on
+the sampler's ~100 ms resolution (§31.18 B). Function containers = Fn's ULID-named ones only.
+- **Every first run starts with 20 function containers** (left by `--verify`, §31.11) and **every
+  later run with the full pool** (b100 68–69, b500 99–103) and **no birth inside its window**
+  (36/36). So the usable runs measure a grown, stable pool, as §31.14 said.
+- **The first container is created 0.24–0.33 s after the window opens at b100 and 0.56–0.61 s at
+  b500** (all 8 first runs, both clock states). A review figure of "~1.1 s" does not reproduce
+  from docker's creation times; it is likely the sampler's first sighting, which lags creation by
+  container start + rescan.
+- **Burst 0 creates exactly 48 containers in all 8 first runs** (20 + 48 = 68, the b100 pool),
+  all within **21–41 ms** of each other (b100 first runs: 21, 26, 33, 41 ms): one tight wave.
+  b500 adds its remaining 31–33 over bursts 2–4 (last birth 7.1–8.1 s). Why 48 per wave is not
+  known (not examined; Fn's own scheduling).
+- **The HTTP 500s come first:** at b100 every burst-0 error (7–9 per run) completed before the
+  first container was created; at b500, 27–41 of each first run's errors did. All errors are HTTP
+  500. So Fn rejects the requests it cannot place while it starts creating containers, rather than
+  queueing them; this confirms §31.11's fast-rejection reading with timestamps, not latency alone.
+- For W4: these pools were never empty (20 at start), so this is a lower bound on Fn's cold
+  behaviour; W4's cold arm starts at 0.
+
+### 34.2 Is dynamic power linear in load? (`tools/energy_linearity.py`, `energy_linearity_analysis/final_.json`)
+§25.6 pre-registered a **within-run** check (1 Hz power against host busy cores per interval). It
+**cannot be done on any session so far**: `energy_trace.csv` never recorded host CPU per interval,
+and the per-interval CPU in `samples_raw.csv` is container-only, missing the 55–75 % untracked
+share (§31.18 A). Fixed for W4 on: every trace row now carries `host_busy_ticks` (cumulative
+/proc/stat busy ticks), checked live 2026-10-05.
+**Run-level substitute (post hoc), Part A (`final_`, 75 usable runs), fitted within each platform
+across its own concurrency legs** (review 2026-10-05: a fit pooled over all legs mixes platforms
+and is kept as a descriptive line only). Dynamic W (RAPL, probe basis) ∝ busy cores^α:
+| platform | α (r, runs) | W per busy core, from c = 1 to c = 8 (leg medians) |
+|---|---|---|
+| OpenFaaS | 0.56 (0.97, 20) | 5.76 → 4.84 → 4.09 → 3.24 (1.6 → 7.4 busy cores) |
+| Fn | 0.64 (0.98, 20) | 5.27 → 4.33 → 3.74 → 3.10 (1.6 → 7.0) |
+| Knative | 0.79 (0.97, 20) | 4.39 → 4.02 → 3.80 → 3.19 (2.1 → 7.1) |
+| OpenWhisk | not fitted: its three legs all sit at 3.6–3.7 busy cores | 3.30 / 3.34 / 3.27 |
+On each light platform, with the platform held fixed, every step up in load adds less power per
+busy core: power is **sublinear** in load (α 0.56–0.79). Pooled over everything, α = 0.64 (r = 0.92;
+descriptive). Consequence, worded to what the data shows: **no single W-per-core constant holds
+across this corpus's load range (3.1–5.8 W per busy core here), and none extrapolates to zero load**.
+A constant calibrated for a narrow load range could hold inside that range; 3.5 W was never
+calibrated on this box at all (§25.1). Energy is cited from RAPL directly (§25.2, §27.5).
+
+**B. Correction (2026-10-14): idle floor out of the denominator too.** The dynamic W above is
+idle-subtracted, but busy cores were total host busy cores, which include the stacks' own idle
+floor (~0.5 core, §29.2 A). Numerator and denominator therefore had different baselines, and
+light-load values read low. `tools/energy_linearity.py --subtract-idle-cores` subtracts each leg's
+idle-probe busy cores (host CPU-s / wall of the same 60 s probe) from every run's busy cores;
+without the flag the tool reproduces `final_.json` byte for byte. Output
+`energy_linearity_analysis/final_idle_cores_subtracted.json`, VERIFIED_RESULTS H-T2b:
+
+| platform | α (r, runs) | W per busy core, c = 1 → 8 |
+|---|---|---|
+| OpenFaaS | 0.45 (0.97, 20) | 8.56 → 6.14 → 4.55 → 3.44 |
+| Fn | 0.52 (0.98, 20) | 7.86 → 5.54 → 4.16 → 3.35 |
+| Knative | 0.64 (0.96, 20) | 6.59 → 5.55 → 4.49 → 3.64 |
+| OpenWhisk | not fitted (span 0.08 cores) | 3.97 / 3.94 / 3.81 |
+
+Range over the corpus 3.4–8.6 W per busy core (was 3.1–5.8); c = 1 6.6–8.6 W (was 4.4–5.8),
+c = 8 3.4–3.6 W (was 3.1–3.2). The reading holds and is stronger: no constant fits, the fall is
+steeper. The paper cites B and states the earlier denominator as the alternative.
+
+### 34.3 The platform's fee as added latency, beside its fee as CPU (2026-10-14; post hoc; descriptive)
+`tools/latency_overhead.py --res ../saqef-paper/results --session final_ --session owlog29_`,
+output `latency_overhead_analysis/final_owlog29.json`, table VERIFIED_RESULTS H-T3. Prompted by
+Ilúvatar (HPDC '23), which reports control-plane overhead as latency; this study reports CPU. Per
+usable run, added latency = client p50 − the handler's 5 ms; cp CPU as Part A T2. Added latency
+is an upper bound (it also holds the load generator and loopback path, the same for all
+platforms); hey resolves 0.1 ms. c = 1 only (no queueing; no host_saturated run).
+
+| c = 1 | added latency (ms) | cp CPU (ms/inv) |
+|---|---|---|
+| OpenFaaS | 0.8 | 0.29 |
+| Fn | 0.7 | 0.52 |
+| Knative | 1.2 | 0.70 |
+| OpenWhisk standalone, Part A | 3.8 | 18.43 |
+| OpenWhisk, `owlog29_` cli / driver (same session) | 4.7 / 2.0 | 21.11 / 3.11 |
+
+Reading: Knative carries the largest light-platform fee in both views; OpenFaaS (smallest CPU) and
+Fn (smallest latency) swap, 0.1 ms apart, at the instrument's resolution. On OpenWhisk standalone
+the views part: the log collector costs 18.0 ms of cp CPU per request but only 2.7 ms of latency,
+so most of it runs off the request's critical path (it still caps throughput, §29.2 D). Not
+pre-registered; no verdict depends on it.
+
+## 35. W5 I/O workload: preparation (2026-10-15)
+
+Why W5 exists, its design and what was deferred: NEXT_STEPS "I/O-bound gap". Handlers
+`workloads/io_sleep/`, `workloads/io_disk/` (identical except `SAQEF_IO`); unmeasured check
+`tools/workload.sh probe-io sleep|disk [platforms]`.
+
+### 35.1 Unmeasured probe (2026-10-15, not a measurement; laptop on battery, desktop up)
+300 GETs at c = 1, then 300 at c = 8, per platform; the handler reports its own wait.
+
+| arm | platform | fs | wait c = 1 median / p99 (µs) | wait c = 8 median / p99 (µs) |
+|---|---|---|---|---|
+| disk | OpenFaaS | overlay | 738 / 1670 | 1101 / 2436 |
+| disk | Fn (`FN_DISABLE_READONLY_ROOTFS=1`) | overlay | 719 / 913 | 1058 / 4775 |
+| disk | Knative | overlay | 754 / 1134 | 1044 / 1821 |
+| disk | OpenWhisk (driver log store) | overlay | 771 / 1578 | 1445 / 8788 |
+| sleep | all four | — | 5078–5085 / ≤ 5656 | 5066–5077 / ≤ 6671 |
+
+Host ext4 reference (same 4 KiB write + fsync, outside containers): median 636 µs.
+Findings:
+- **Fn's function containers have a read-only root and a tmpfs `/tmp`** (`docker inspect`:
+  `ReadonlyRootfs=true`, `Tmpfs={"/tmp":""}`; agent `DisableReadOnlyRootFs:false`). A first
+  probe writing `/tmp` gave Fn 6 µs per write + fsync, fs tmpfs: memory, not disk. Fix: the
+  disk handler writes `/var/tmp` on every platform (overlay in all four images), and Fn runs
+  with `FN_DISABLE_READONLY_ROOTFS=1`, passed by `run_saqef.sh` only when set (default off,
+  closed sessions unchanged). With Fn's default root the handler cannot open its file and the
+  deploy fails, so a missing setting cannot produce silent no-op data.
+- The disk wait is ~0.75 ms at c = 1 on every platform, 1.0–1.4 ms at c = 8 (journal
+  queueing), not 5 ms: arms differ in wall time and so in rps (pre-registration must fix
+  cross-arm per-invocation comparisons as idle-subtracted).
+- OpenWhisk disk c = 1 showed p90 31.6 ms in the first probe and 0.87 ms in the second; not
+  examined (desktop up, unmeasured).
+- Probe bug, fixed: after a failed deploy the probe skipped teardown, fnserver kept :8080 and
+  the next OpenFaaS and OpenWhisk deploys failed. The first OpenWhisk sleep deploy also failed
+  with an `openwhisk` container still up from the previous teardown; a retry passed.
+
+
+## 36. W5 I/O and mixed functions — pre-registration (written 2026-10-19, before any W5 data)
+
+Workload io: pre-registered
+
+**Question.** Is control-plane CPU per request a property of the platform, or does it change
+with what the function does? W1 (§28) moved data through the request path; W2 (§30) loaded the
+memory system; no closed session has a function that waits. The paper's Limitations name this
+gap (NEXT_STEPS "I/O-bound gap"; supervisor meeting: I/O-bound and mixed functions first). Data
+on disk cannot answer it: the only sleep measurement is the 2026-08-15 quick tier (Part B §10,
+3 runs, old sampler), not citable. Paper wording, fixed now: "waiting versus file-system I/O",
+never "I/O-bound functions in general"; network I/O to a backend service stays future work.
+
+### 36.1 Anchors (existing numbers, quoted before data)
+- Part A (VERIFIED_RESULTS T2, T3; 5 ms spin, OW default log store): cp ms/inv c = 1/4/8
+  OpenFaaS 0.29 / 0.39 / 0.40, Fn 0.52 / 0.52 / 0.52, Knative 0.70 / 0.66 / 0.72, OpenWhisk
+  18.43 / 17.70 / 17.85; function ms/inv 5.3–6.4. Cross-session: context only (n = 5 cannot size a day shift, §28.9);
+  every W5 comparison is against the spin arm of this session.
+- OpenWhisk with the driver log store (§29, owlog29_): cp 3.11 / 2.94 / 2.87 ms/inv; 2 action
+  containers, ~305 rps ceiling at c ≥ 4 (§29.2 D).
+- Idle cp rate (final_ idle probes): OpenFaaS 0.0025, Fn 0.0018, Knative 0.009, OpenWhisk
+  0.036 cores. At the disk arm's higher rps the recorded m is diluted, at equal rps not: so all
+  cross-arm comparisons use idle-subtracted values (rule 4).
+- §35.1 probe (unmeasured): disk write + fsync 0.72–0.77 ms at c = 1, 1.04–1.45 ms at c = 8, on
+  overlay on every platform; sleep 5.07–5.09 ms.
+- Function CPU with a near-empty handler (W1 1 KiB echo, payload_): OpenFaaS 0.72–1.49, Fn
+  0.25–0.57, Knative 1.07–1.42 (incl. queue-proxy), OpenWhisk 0.61–0.63 ms/inv. Expected order
+  of magnitude for the sleep arm's function CPU (HTTP handling + per-replica proxy, no work).
+- Smoke test of `tools/plain_docker.py` (2026-10-19, desktop up, 400 requests × 2, not data):
+  mixed arm, one plain container, c = 1: function 3.03 ms/inv, p50 5.75 ms.
+
+### 36.2 Design (fixed)
+- One session, `sudo bash tools/go.sh --workload io`, prefix `io_`, `--hygiene`, in-session
+  idle-W calibration, Part A protocol: TOTAL = 3000, light `--repeat 5`, OpenWhisk `--repeat 6
+  --discard-warmup 1`, `--cpu-probe 60`, one `_r2` retry, settle after verify.
+- Arms (workloads/io_<arm>, one handler file per platform, identical except `SAQEF_IO`; test
+  `TestW5IoWorkload`): **spin** 5 ms CPU loop (the in-session baseline); **sleep** 5 ms
+  `time.sleep`; **disk** overwrite the same 4 KiB at offset 0 of one file per process under
+  `/var/tmp` + `fsync` (fixed operation, ~0.75 ms, not tuned); **mixed** 2.5 ms CPU loop then
+  2.5 ms `time.sleep`. Every reply names the arm and the handler's own wait.
+- Platforms: all four, c = 1, 4, 8: 48 legs. For each c and platform the four arms run back to
+  back, order rotated (each arm first, second, third and last 3 times; `run_final.sh` IO_LEGS).
+  OpenWhisk standalone with `SAQEF_OW_LOGSTORE=driver`, 2 action containers (labelled so). Fn with
+  `FN_DISABLE_READONLY_ROOTFS=1` for the whole session, all arms (non-default, stated in the paper).
+- Before any leg: swap + build + `probe-io` of the disk and mixed arms on every platform, one
+  platform at a time (8 deploys). Every leg: after verify, 20 GETs must name `io=<arm>`
+  (`SAQEF_EXPECT_IO`), else the leg fails before measuring.
+- Plain-Docker target (descriptive, §36.4): after all 48 legs, the spin and sleep handlers in ONE
+  plain container (the Knative handler image, no platform) driven by hey at c = 1, 5 runs × 3000
+  requests, then a 60 s idle probe (`tools/plain_docker.py`). c = 1 only: one Python process
+  serves one request at a time.
+- Expected duration ~5–5.5 h (W1: 44 leg attempts in 3 h 36 min; W2: 24 legs in 2 h 01 min;
+  plus 8 probe deploys, per-leg swaps and ~15 min of plain target). Watchdog 8 h.
+- **Revision (2026-10-19, before any W5 data): two slots instead of one night**, because the
+  laptop cannot be on mains for 5–6 h at a stretch. Same arms, legs, order, protocol, predictions
+  and rules; the 48 legs are split by platform:
+  **slot A** `sudo bash tools/go.sh --workload io --block A` = OpenFaaS + Fn (24 legs, prefix
+  `io_a_`, ~2.7 h); **slot B** `--block B` = Knative + OpenWhisk (24 legs, prefix `io_b_`, ~3 h).
+  Each slot is its own session: calibration of bare + its two platforms only
+  (`SAQEF_CALIB_STATES`, ~12 min instead of 24), probe of its two platforms, its own plain-Docker
+  target at the end (spin, sleep, c = 1). Watchdog 4 h per slot; plain target skipped past
+  210 min (rule 6). Every prediction in §36.3 compares arms of one platform at one c, so every
+  judged comparison stays within one session. Not made in W5: absolute comparisons between
+  platforms of different slots (Part A covers cross-platform cost; cross-session n = 5 cannot size a day shift). The
+  platform − plain fee (§36.4) uses the plain target of the platform's own slot. The slots may
+  run on different days, in either order; a slot stopped by a power cut is repeated whole under
+  a new pre-registered amendment, never pooled with its partial run.
+
+### 36.3 Predictions (numeric, judged per platform × c cell on usable runs)
+Values: per usable run, then the median over the leg. cp and host CPU outside containers
+idle-subtracted with the leg's own 60 s probe (paper Eqs. 3 and 5); function CPU recorded.
+- **D1 (design check, not a prediction).** Function ms/inv: spin ≥ 4.5; sleep ≤ spin − 3.5;
+  mixed strictly between sleep and spin. A platform × c cell failing D1 is reported, flagged and
+  not counted for P1–P3 (as W2's M0).
+- **P1 — cp per request does not depend on the function type.** For sleep, disk and mixed, cp
+  ms/inv (idle-subtracted) within ±15 % of the spin arm, same platform and c. Holds for an arm if
+  it holds in ≥ 10 of its 12 counted cells (fewer cells if excluded: ≥ 5/6 of them).
+- **P2 — the share rises as CPU work falls.** cp share of container CPU (paper Eq. 4) ordered
+  sleep > mixed > spin in ≥ 11 of 12 counted cells.
+- **P3 — mixed sits on the line between spin and sleep.** Function ms/inv of mixed within ±15 %
+  of (spin + sleep) / 2 in ≥ 10 of 12 counted cells. With P1, the mixed share is then predicted
+  from the two endpoints alone.
+- **P4 — disk is a wait for the function, a cost for the host.** (a) Function ms/inv of disk
+  ≤ sleep + 0.3 ms in ≥ 10 of 12 cells. (b) Host CPU outside all containers (idle-subtracted)
+  per request higher for disk than for sleep in ≥ 9 of 12 cells (direction only).
+- **Descriptive, no prediction:** throughput and latency per arm; energy per request (probe
+  basis) for spin, sleep and mixed; OpenWhisk JVM thread breakdown; disk wait reported by the
+  handler; the plain-Docker fee (§36.4).
+
+### 36.4 Plain-Docker target (descriptive)
+Per arm at c = 1: platform − plain for (cp + function) CPU per request = the platform fee
+without any container classification; platform p50 − plain p50 = the latency each platform
+adds over hey + loopback + the same Python server. Reported beside the platform legs, never
+gated, never pooled. If it ran, the paper's c = 1 "upper bound" latency figures (0.8 / 0.7 /
+1.2 / 3.8 ms, §34.3) are replaced by in-session differences; if not, they stay upper bounds.
+
+### 36.5 Decision rules (frozen from here)
+1. A failed prediction is a finding. No leg is re-run to rescue one.
+2. A leg that fails twice is missing (recorded with its reason). A later fill needs its own
+   pre-registered amendment with a bridge leg (as §28.8).
+3. Disk exclusion: a platform whose in-session `probe-io disk` shows tmpfs or a median handler
+   wait under 50 µs is excluded from the disk arm (`disk_excluded.txt`), not re-run.
+4. Cross-arm comparisons use idle-subtracted values; ratios are ratios of leg medians (arms are
+   different legs, runs cannot be paired). The recorded (not subtracted) values are reported
+   beside them.
+5. Gates are Part A's, unchanged (incl. ≥ 99 % success). Fn's fast 500s while its pool grows
+   at c = 8 count against that gate, as everywhere.
+6. The plain-Docker target runs only if the session is within 7 h (one night) or 210 min (a
+   slot) of its start when it is reached; otherwise it is skipped and the paper keeps "upper
+   bounds" for that slot's platforms. A failed plain target is not retried.
+7. Energy: within this session only, probe basis; no energy claim for the disk arm (the SSD is
+   outside RAPL's package domain).
+8. Results: outcome in §36.x of this runbook, tables in VERIFIED_RESULTS Part I, backup to
+   `../saqef-paper/results/`.
+9. Analysis (written 2026-10-19, before any data; tests `TestW5IoAnalysis`):
+   `python3 tools/io_analysis.py --prefix io_a_` (and `io_b_`) computes D1, P1–P4 with the
+   counting rules above and the plain-Docker fee. Its per-leg values reproduce the committed W2
+   analyses on `mem2_` legs exactly (cp 0.52 / 2.75 ms, host outside 0.47 ms, energy 33.63 /
+   50.08 mJ for `mem2_c4_fn_cache` / `mem2_c8_ow_cache`).
+
+### 36.6 Slot A outcome (io_a_, OpenFaaS + Fn, 2026-10-19; interim, slot B still to run)
+
+**Run.** Started 17:20 UTC, done 19:36 UTC (2 h 16 min). 24 of 24 legs passed on attempt 1, 5 of 5
+usable runs each; probe of disk and mixed OK on both platforms (overlay, disk wait median
+0.70–0.73 ms at c = 1, 0.86–1.05 ms at c = 8), `disk_excluded.txt` = none; plain-Docker target ran
+(spin and sleep, c = 1). Mains on for every leg (battery 66 % charging at pre-flight, 3500 MHz under
+load; Full/100 % later). Numbers: `python3 tools/io_analysis.py --prefix io_a_`, copy in
+`../saqef-paper/results/io_a_analysis/`.
+
+**Slot A verdicts (6 cells; final verdicts count 12 cells, after slot B).** D1 holds in 6 of 6.
+| prediction | slot A | effect on the 12-cell verdict |
+|---|---|---|
+| P1 sleep (cp within ±15 % of spin) | 3 / 6 | **fails** whatever slot B shows (≤ 9 of 12, need 10) |
+| P1 disk | 2 / 6 | **fails** (≤ 8 of 12) |
+| P1 mixed | 5 / 6 | open: needs ≥ 5 of 6 in slot B |
+| P2 share sleep > mixed > spin | 6 / 6 | open: needs ≥ 5 of 6 in slot B |
+| P3 mixed fn at midpoint ±15 % | 6 / 6 (ratios 0.96–1.04) | open: needs ≥ 4 of 6 in slot B |
+| P4a disk fn ≤ sleep + 0.3 ms | 6 / 6 | open: needs ≥ 4 of 6 in slot B |
+| P4b disk host-outside > sleep | 2 / 6 | **fails** (≤ 8 of 12, need 9) |
+
+**What the data shows.** (1) Where P1 fails, the other arms cost the control plane *less* per request
+than spin, never more: cp ratio to spin 0.71–1.03 over all 18 arm cells; no cell above 1.15. At
+c = 1 sleep and mixed equal spin on both platforms (0.996–1.033). (2) The cp share of container CPU
+rises as function CPU falls, every cell: spin 4.4–8.9 %, mixed 7.5–15.5 %, sleep 22.9–60.7 %.
+(3) Mixed function CPU sits on the spin–sleep midpoint (0.96–1.04). (4) Disk costs the function
+about what sleep does (difference −0.08 to +0.20 ms) but did not raise host CPU outside containers
+per request in 4 of 6 cells. Any cause for (1) and (4) (e.g. CPU contention in the spin arm at
+c ≥ 4, or the disk arm's 3–4× request rate) is untested here; post hoc, not claimed.
+Plain-Docker fee at c = 1 (descriptive): CPU 0.76 ms/req OpenFaaS, 0.48–0.50 Fn; latency 0.3–0.4 ms.
+
+**Tooling.** `run_final.sh` `wait_for_box` called `agents_running`, a name removed in the records
+cleanup (58754e7); bash printed "command not found" and the wait loop skipped the interactive-app
+check. Pre-flight check 6 (`interactive_apps_running`) still ran and passed, so no leg of any session
+was affected. Fixed 2026-10-20 before slot B (name corrected; no gate changed).
+
+**Do not repeat.** Slot B is judged with the same counting; do not re-run slot A legs to rescue P1 or
+P4b (rule 1). VERIFIED_RESULTS Part I is written after slot B, with the 12-cell verdicts.
+
+### 36.7 Slot B stopped by a power cut (io_b_, Knative + OpenWhisk, 2026-10-20): void, to repeat whole
+
+**Run.** A first start on 2026-10-19 19:59 UTC ended by signal after 38 s (the box was shutting
+down; no calibration, no leg). The real start was 2026-10-20 13:26 UTC: pre-flight passed (mains on,
+battery Charging/77 %, 3800 MHz under 4-core load), probe of disk and mixed OK on both platforms,
+`disk_excluded.txt` = none. 18 legs passed on attempt 1 (all of c = 1 and c = 4, and c = 8 Knative
+spin and sleep), every one with `ac_online=1` at its start. During leg 19, `io_b_c8_kn_disk`, the
+5 s power poll saw `ac_online=0` at 16:01:14 (battery Discharging/100 %); the leg ended, the session
+stopped with exit 8 at 16:06:47, handlers and desktop were restored. Not run: c = 8 Knative disk and
+mixed, all four c = 8 OpenWhisk legs, the plain-Docker target. Mains was still off when checked
+afterwards (battery 71 %, discharging). Cause of the mains loss not known from the box (charger
+unplugged or supply cut).
+
+**Verdict.** Per §36.2 (revision): "a slot stopped by a power cut is repeated whole under a new
+pre-registered amendment, never pooled with its partial run". Slot B is void. Its 18 finished legs
+are kept on disk and backed up as a record, are not adjudicated against §36.3, are not pooled with the
+repeat and are not cited. P1 mixed, P2, P3 and P4a stay open on the 12-cell count (§36.6 table).
+
+**Tooling.** None changed. The pre-flight refuses a prefix that already has results (`run_final.sh`
+"results for prefix ... already exist"), so `--block B` cannot rerun into `io_b_` and cannot mix the
+two runs; the repeat needs its own prefix, set by the amendment.
+
+**Do not repeat.** Do not run `io_analysis.py --prefix io_b_` output into VERIFIED_RESULTS, and do not
+fill the missing c = 8 legs alone: the repeat is the whole slot (24 legs, calibration, probe, plain
+target) in one sitting on mains.
+
+### 36.8 Slot B repeated whole (io_b2_): amendment (written 2026-10-20, before any io_b2_ data)
+
+Amendment io_b2: pre-registered
+
+The repeat that §36.2 (revision) requires after §36.7. `sudo bash tools/go.sh --workload io
+--block B2` runs slot B exactly as `--block B`: Knative + OpenWhisk, the same 24 legs in the same
+order, calibration of bare + the two platforms, probe of disk and mixed, plain-Docker target
+(spin, sleep, c = 1; skipped past 210 min), watchdog 4 h. Only the prefix differs: `io_b2_`
+(the pre-flight refuses `io_b_`, which holds the void run). Predictions, thresholds, gates and
+decision rules of §36.3–36.5 unchanged. Slot B's 6 cells come only from `io_b2_`; nothing from
+`io_b_` is used. The 12-cell verdicts = `io_a_` + `io_b2_`. A filling of only the unfinished cells
+was considered and rejected by the author (2026-10-20): the slot is repeated whole, as written.
+If `io_b2_` is also stopped by a power cut, the same rule applies again (a new whole repeat).
+
+### 36.9 Slot B outcome (io_b2_, Knative + OpenWhisk, 2026-10-20) and the 12-cell W5 verdicts
+
+**Run.** Started 17:05 UTC, done 20:05 UTC (3 h 00 min). 24 of 24 legs passed on attempt 1; usable
+runs 5 of 5 each (OpenWhisk: 6 with the warm-up discarded). Pre-flight: mains on, battery Charging/64 %,
+3401 MHz under 4-core load. All 1663 power polls during the legs `ac_online=1` (Charging, then Full);
+no leg with every run's clock in the 2350–2700 MHz cap band. Probe of disk and mixed OK on both
+platforms (overlay; disk wait median 0.71–0.73 ms at c = 1, 0.84–0.97 ms at c = 8), `disk_excluded.txt`
+= none. All 12 OpenWhisk legs log "activation log store = driver". Plain-Docker target ran (reached
+at 171 min, inside the 210 min limit): spin fn 5.31 ms/req p50 5.4 ms; sleep fn 0.46 ms/req p50 5.7 ms.
+Numbers: `python3 tools/io_analysis.py --prefix io_b2_`, copy in `../saqef-paper/results/io_b2_analysis/`;
+`io_a_` re-run reproduces the committed `io_a_analysis/io_a.json` exactly.
+
+**Verdicts (VERIFIED_RESULTS Part I, I-T1).** D1 holds in 12 of 12 cells.
+| prediction | slot A | slot B | 12 cells | need | verdict |
+|---|---|---|---|---|---|
+| P1 sleep | 3 / 6 | 4 / 6 | 7 | 10 | **fails** |
+| P1 disk | 2 / 6 | 5 / 6 | 7 | 10 | **fails** |
+| P1 mixed | 5 / 6 | 6 / 6 | 11 | 10 | holds |
+| P2 share sleep > mixed > spin | 6 / 6 | 6 / 6 | 12 | 11 | holds |
+| P3 mixed fn at midpoint ±15 % | 6 / 6 | 6 / 6 | 12 | 10 | holds |
+| P4a disk fn ≤ sleep + 0.3 ms | 6 / 6 | 6 / 6 | 12 | 10 | holds |
+| P4b disk host outside > sleep | 2 / 6 | 6 / 6 | 8 | 9 | **fails** |
+
+*Corrected in §36.10: P1 disk is 3 / 6 in slot A and 8 of 12 overall (still fails).*
+
+**What the data shows.** (1) cp per request barely depends on the function type in direction: over all
+36 arm cells the ratio to spin is 0.67–1.03, never above 1.15. Where P1 fails, the waiting arms cost the
+control plane less than spin (Knative sleep 0.80 at c = 4, 0.67 at c = 8; disk 0.84 at c = 8). OpenWhisk
+standalone's cp is 2.13–2.53 ms/req across all arms (ratios 0.89–0.99). (2) The cp share rises as
+function CPU falls in every cell: Knative spin 8.0–9.2 %, mixed 12.0–13.7 %, sleep 25.9–33.0 %;
+OpenWhisk 31.9–32.3 %, 44.0–45.2 %, 81.0–82.3 %. (3) Mixed function CPU sits on the spin–sleep midpoint
+(0.995–1.052). (4) Disk costs the function what sleep does (−0.04 to +0.22 ms); in slot B it raised host
+CPU outside containers in 6 of 6 cells, in slot A in 2 of 6. Post hoc, not claimed: the P4b split
+follows the slot (OpenFaaS/Fn vs Knative/OpenWhisk), so platform and slot are confounded; and the
+cp drop at c ≥ 4 in the waiting arms may be CPU contention in the spin arm; neither is tested here.
+OpenWhisk legs show one high cp run each (CV 14–31 %), as in the mem2_ and amend33_2 driver-store
+legs: a known pattern, the median is unaffected. Plain-Docker fee at c = 1 (descriptive): CPU
+1.39 / 1.24 ms/req Knative (spin / sleep), 2.55 / 2.18 OpenWhisk; latency 0.9 / 0.7 and 1.4 / 1.1 ms.
+
+**Tooling.** `../saqef-paper/scripts/make_io_tables.py` (new) writes VERIFIED_RESULTS Part I from the
+two analysis JSONs; INDEX rule split into `io_b_` (void) and `io_a_`/`io_b2_` (used). No measurement
+code changed.
+
+**Do not repeat.** W5 is closed: do not re-run any leg to rescue P1 sleep, P1 disk or P4b (rule 1);
+do not pool `io_b_`. The P4b platform-vs-slot question needs a new pre-registered design (both
+slots' platforms in one session), not a re-run.
+
+### 36.10 Correction: P1 disk is 8 of 12, not 7 (counting bug in io_analysis.py, 2026-10-22)
+
+**What was wrong.** `tools/io_analysis.py` counted P1 and P3 on ratios already rounded to 3 dp.
+Fn c = 8 disk / spin is 0.44605 / 0.52474 = 0.85004, inside ±15 %, but its rounding 0.850 gives
+abs(0.850 − 1) = 0.15000000000000002 in floating point, so the cell was counted outside. Reviewer R1 of v10
+(`../saqef-paper/reviews/v10-2026-10/`, 2026-10-21) found the mismatch with the paper's "26 of 36", which had been counted by hand from
+the unrounded values and was right.
+
+**Fix.** The counts now use the unrounded ratios; the JSON still stores 3 dp. New test
+`test_ratio_on_the_15pct_boundary_counts`. Re-run on both slots: `io_b2_analysis/io_b2.json` is
+unchanged byte-for-byte; `io_a_analysis/io_a.json` changes in one field only (P1 disk
+`within_15pct` 2 → 3). P3 is unaffected (no ratio near the boundary).
+
+**Effect.** P1 disk: slot A 3 of 6, 12 cells 8 of 12 (need 10): **still fails**. No other verdict
+moves. §36.6 and §36.9 tables keep the recorded 2 / 6 and 7; read them with this correction.
+VERIFIED_RESULTS I-T1 and the Part I summary are re-emitted.
+
+**Do not repeat.** Count against a threshold on unrounded values; round only for display.
+
+## 37. OpenWhisk with a 16-container pool: unmeasured smoke test (2026-10-19, not a measurement)
+
+Laptop on battery, desktop up; nothing here is citable. `SAQEF_OW_POOL_MB=4608` (new, unset by
+default: closed sessions unchanged) passes `-Dwhisk.container-pool.user-memory=4608m` (and the
+`whisk-config.` form) to the standalone's JVM: 16 python actions × 256 MB + the 512 MB prewarm.
+With `SAQEF_OW_LOGSTORE=driver`, CPU-bound hello action, hey (user build), 3000 requests each:
+
+| c | action containers (non-prewarm) | replies 204 | rps |
+|---|---|---|---|
+| 2 | 2 | 3000 / 3000 | 161 |
+| 16 | 16 | 2992 / 3000 | 385 |
+| 8 (pool already at 16) | 16 | 3000 / 3000 | 315 |
+| 16 (again) | 16 | 2992 / 3000 | 781 |
+
+Findings: (1) the pool setting works; the standalone grows to 16 action containers on demand.
+(2) At c = 8 with 16 containers ready, throughput stayed near the ~305 rps that §29.2 D
+attributed to the 2-container pool; so at c = 8 another limit (controller/invoker JVM, or this
+unmeasured box state) may bind. Not examined; the OpenWhisk-16 session (NEXT_STEPS step 3) is
+what answers it. (3) 8 of 3000 replies missing at c = 16 in both c = 16 runs; not examined.
+Next: pre-register the OpenWhisk-16 session (16 vs 2 within one session, beside the other three
+platforms), after W5 and W6.
+
+## 38. W6 failures, overload, half load and mixed traffic — pre-registration (written 2026-10-22, before any W6 data)
+
+Workload fail: pre-registered
+
+### 38.1 Question
+
+Real traffic is not a clean stream of successful requests at a fixed concurrency. W6 asks four
+things, each within one platform and one session: (F) does a function that fails on part of its
+calls change what the control plane costs per request, and does the platform pass failures
+through unchanged (no retries, no extra losses)? (O) what happens when far more requests are in
+flight than the box can serve (c = 64, 8 × the logical CPUs)? (H) does a request cost the same at
+half the platform's capacity, sent at a fixed rate, as at full speed? (A) does a mix of computing
+and waiting requests cost the control plane what the computing ones do? Slot B adds the
+OpenWhisk-16 sensitivity (§37, NEXT_STEPS step 3): does OpenWhisk standalone's 2-container pool
+change its control-plane CPU per request or its throughput at c = 4 and 8? Paper claims at stake:
+§6 Limitations "Load is limited ... overload, failing functions ... not tested" and "OpenWhisk
+standalone only, with 2 action containers"; §4.3 "the second limit: two containers".
+Not answered by data on disk: no session has designed failures, c > 8 closed loop, a fixed-rate
+arm, or more than 2 OpenWhisk action containers (§37 was unmeasured, on battery).
+
+### 38.2 Design (fixed)
+
+- Handlers `workloads/w6_<arm>` (four platforms each; arms differ in one line, tests check it):
+  **base** spins 5 ms and succeeds; **fail5** / **fail20** as base, but every 20th / 5th call of each
+  handler process answers HTTP 500 after doing its 5 ms (the function CPU per call is unchanged);
+  **alt** alternates per process: odd calls spin 5 ms, even calls wait 5 ms (`time.sleep`). Every
+  reply names the arm; OpenFaaS also gets its own upstream `index.py` that sends the status.
+- Legs per platform, in this order (all closed loop through hey, TOTAL = 3000):
+  base (c = 8); half (base handler, c = 8, `SAQEF_QPS` = 0.5 × the throughput of this platform's
+  base leg in this session, hey -q per worker); over (base handler, c = 64); then fail5, fail20 and
+  alt (c = 8) in an order rotated with the platform. OpenWhisk adds, right after base:
+  pool16_c8, pool16_c4 (`SAQEF_OW_POOL_MB=4608`, §37) and pool2_c4 (default pool); its base leg is
+  the 2-container c = 8 pair.
+- Two slots, one launch each (as W5, §36.2): **A** = OpenFaaS + Fn, prefix `w6_a_`, 12 legs, about
+  1.5 h; **B** = Knative + OpenWhisk standalone, prefix `w6_b_`, 15 legs, about 2.3 h.
+  `sudo bash tools/go.sh --workload fail --block A` (or `B`). Watchdog 4 h per slot. Each slot
+  calibrates bare + its two platforms (`SAQEF_CALIB_STATES`).
+- Protocol as Part A / W5: light legs `--repeat 5`; OpenWhisk legs `--repeat 6 --discard-warmup 1`,
+  driver log store, JVM thread sampler; over legs on every platform `--repeat 6 --discard-warmup 1`
+  and `SAQEF_SAMPLER_DEFER_NAMES=1` (Fn grows its pool in run 1, §31.12); `--cpu-probe 60`, one `_r2`
+  retry, settle after verify, `--hygiene` always.
+- Gates: Part A's, except the success floor, which a W6 leg sets with `SAQEF_MIN_SUCCESS_FRAC`
+  (new, unset = the 99 % rule, closed sessions unchanged): fail5 0.94, fail20 0.79, over 0 (failures
+  there are the measurement; a run with no success stays unusable). `saqef verify` uses the same
+  floor. A deployed-arm check (20 GETs, every 2xx reply names the arm, ≥ 10 of 20 are 2xx) runs before
+  each leg.
+- Before any leg, the slot probes w6_fail20 and w6_alt on its platforms (`tools/workload.sh
+  probe-w6`): 200 GETs at c = 1 and 200 at c = 8, every 2xx reply names the arm, the non-2xx share is
+  the design ±3 points. A failed probe stops the slot before anything is measured.
+- Metrics per **attempted** request (successes + errors; a failed call costs work too):
+  `tools/w6_analysis.py` (written before data, tests `TestW6Analysis`; on the W5 legs its per-leg
+  values equal `io_analysis.py`'s exactly). cp and host outside are idle-subtracted with the leg's
+  probe; energy probe basis.
+
+### 38.3 Predictions (numeric)
+
+Anchors (W5, same handler code path, c = 8, idle-subtracted): cp OpenFaaS 0.39, Fn 0.52, Knative
+0.62, OpenWhisk standalone (driver) 2.53 ms/req; function CPU 6.16 / 5.41 / 6.23 / 5.57 ms; rps 957 /
+1061 / 934 / 316; p50 7.2 / 6.9 / 7.9 / 24.7 ms. W5 mixed function CPU 3.76 / 3.06 / 3.91 / 3.05 ms.
+W3: bursts of 500 answered by all four; OpenFaaS cp +22–23 % under bursts.
+
+- **F1** (failures pass through): error share within ±1 point of the design (5 %, 20 %), in ≥ 7 of 8
+  platform × rate cells.
+- **F2** (no hidden retries): function CPU per attempted request in fail5 and fail20 within ±10 % of
+  base, in ≥ 7 of 8 cells. A retried call would add its 5 ms.
+- **F3** (a failure costs the control plane what a success costs): cp per attempted request in fail5
+  and fail20 within ±15 % of base, in ≥ 6 of 8 cells.
+- **O1** (overload is queued, not dropped): at c = 64, error share ≤ 1 % on 4 of 4 platforms.
+- **O2**: throughput at c = 64 within ±15 % of base on ≥ 3 of 4 (at c = 8 the light platforms are at or
+  near host saturation and OpenWhisk at its container limit).
+- **O3**: p50 at c = 64 is 4–12 × base p50 on ≥ 3 of 4 (8 × the requests in line at a flat throughput).
+- **O4a**: cp per request at c = 64 within ±15 % of base on ≥ 2 of 3 (Fn, Knative, OpenWhisk).
+  **O4b**: OpenFaaS cp at c = 64 ≥ 1.15 × base (its gateway, as under W3 bursts).
+- **H1** (design check): half-load throughput within ±10 % of its target rate on 4 of 4.
+- **H2**: cp per request at half load within ±15 % of base on ≥ 3 of 4.
+- **H3**: energy per request at half load above base on ≥ 3 of 4 (fewer requests share the package's
+  dynamic power, as energy per request falls from c = 1 to 8 in Part A).
+- **H4**: p50 at half load ≤ base p50 on ≥ 3 of 4 (less queueing).
+- **A1** (design check): alt function CPU 0.45–0.75 × base on 4 of 4.
+- **A2**: alt cp per request within ±15 % of base on ≥ 3 of 4.
+- **K0** (design check, slot B): the 16-pool legs run more than 2 action containers, at c = 4 and 8.
+- **K1**: OpenWhisk cp per request with 16 containers within ±15 % of 2 containers, at c = 4 and 8 (2 of 2).
+- **K2**: OpenWhisk throughput with 16 containers within ±15 % of 2 containers, at c = 4 and 8 (2 of 2).
+  §37's unmeasured hint (≈ 315 rps at c = 8 with 16 ready) is why K2 predicts no change; if K2 fails
+  upward, §4.3's "two containers" ceiling is the cause after all and the paper says so.
+
+Descriptive, no verdict: p99 per arm; host CPU outside containers per arm; Fn containers per leg;
+errors at c = 64 by kind (HTTP status vs transport).
+
+### 38.4 What is not compared
+
+Platforms against each other across slots; any W6 value against Part A or W5 (anchors above are
+context, n = 5 cannot size a day shift); slot A against slot B.
+
+### 38.5 Decision rules (frozen from here)
+
+1. A failed prediction is a finding; no leg is re-run to rescue one.
+2. A leg that fails twice is missing; a count's denominator shrinks with it (the tool lowers "need"
+   to the cells present, as written in `w6_analysis.py`).
+3. Every ratio is against the base leg of the same platform in the same slot. If base is missing,
+   that platform's half leg is skipped by the runner and its other ratios are not computed.
+4. half's rate comes from this slot's base leg only; it is never set by hand.
+5. A half leg off its target rate by more than 10 % (H1 fails for it) is not judged on H2–H4.
+6. A slot stopped by a power cut is void and repeated whole under a new prefix (as §36.7–36.8),
+   after an amendment line in this runbook; it is never pooled.
+7. Energy: within a slot only, probe basis.
+8. Results: outcome in §38.x, tables in VERIFIED_RESULTS (new Part J), backup to `../saqef-paper/results/`.
+9. Order of the two slots is free; each is complete on its own.
+
+### 38.6 Slot A outcome (w6_a_, OpenFaaS + Fn, 2026-10-21; interim, slot B still to run)
+
+**Run.** Session start 22:20 UTC, last leg done 23:37 UTC (1 h 17 min). Probe of w6_fail20 and w6_alt
+OK on both platforms (non-2xx 19–20 % for fail20, 0 % for alt; every 2xx reply named its arm). Mains
+on and battery Full/100 % before every leg; 3500 MHz under 4-core load at pre-flight. 10 of 12 legs
+passed on attempt 1, 5 of 5 usable runs each. **Both over legs (c = 64) failed twice** and are missing
+under rule 2. Numbers: `python3 tools/w6_analysis.py --prefix w6_a_`, copy in
+`../saqef-paper/results/w6_a_analysis/`.
+
+**Why over failed: a design error, not the platforms.** Every over run of both attempts on both
+platforms failed one gate only, `INCOMPLETE 2944/3000`. hey gives each of its c workers TOTAL / c
+requests and drops the remainder: 3000 // 64 × 64 = 2944. Of the 2944 sent per run, 0 to 26 failed
+(≤ 0.9 %; most runs 0), drift −4.2 to +0.6 %. At c = 1, 4 and 8, 3000 divides evenly, and the
+same count gate would have failed any earlier leg it hit (the only INCOMPLETE flags in the corpus are
+OpenWhisk's old duration cap, §6), so no cited leg is affected. Fixed for slot B and for a short repeat of slot A's over cells (§38.7).
+
+**Slot A verdicts (2 platforms; the final verdicts count 4, after slot B).**
+| prediction | slot A | effect on the 4-platform verdict |
+|---|---|---|
+| F1 error share as designed (±1 point) | 4 / 4 cells (5.00 %, 20.00 % on both) | open: needs ≥ 3 of 4 in slot B |
+| F2 fail fn within ±10 % of base | 4 / 4 (0.993–1.002) | open: needs ≥ 3 of 4 |
+| F3 fail cp within ±15 % of base | 4 / 4 (0.950–1.019) | open: needs ≥ 2 of 4 |
+| O1–O4 | no cell (over legs missing) | judged from slot B and the §38.7 repeat |
+| H1 half rps within ±10 % of target | 2 / 2 (0.991, 0.985) | open: needs 2 of 2 |
+| H2 half cp within ±15 % of base | 1 / 2: Fn 0.892 holds, **OpenFaaS 1.151 fails** | open: needs 2 of 2 in slot B |
+| H3 half energy per request above base | 2 / 2 (1.83 ×, 1.69 ×) | open: needs ≥ 1 of 2 |
+| H4 half p50 ≤ base | 2 / 2 (1.00, 0.93) | open: needs ≥ 1 of 2 |
+| A1 alt fn 0.45–0.75 × base | 2 / 2 (0.603, 0.563) | open: needs 2 of 2 |
+| A2 alt cp within ±15 % of base | 2 / 2 (0.868, 0.948) | open: needs ≥ 1 of 2 |
+
+**What the data shows.** (1) Both platforms pass failures through unchanged: error share exactly as
+designed, function CPU per attempted request within 0.7 % of base, so no hidden retries. A failed
+call costs the control plane what a success costs (cp 0.95–1.02 × base). (2) At half load the energy
+per request is 1.7–1.8 × base (OpenFaaS 41.8 against 22.8 mJ, Fn 36.2 against 21.4 mJ): the idle-
+subtracted package power is spread over half the requests. (3) OpenFaaS's cp per request at half load
+is 15.1 % above base, just past the ±15 % line. It is not one run: all five half runs (0.445–0.468 ms)
+sit above all five base runs (0.371–0.411 ms). Fn moves the other way (0.89 ×). Cause not tested.
+(4) Mixed traffic halves function CPU as designed and costs the control plane slightly less per request.
+
+**Post hoc, descriptive, not a verdict: the two over legs read anyway** (runs 2–6 of each attempt,
+gate bypassed only for the count; `w6_a_over_posthoc.json`). Ratios to base, attempt 1 / attempt 2:
+errors per run 0–26 of 2944 (median 0); rps OpenFaaS 0.985 / 1.011, Fn 1.030 / 1.093; p50 5.7 / 5.8 × and 6.7 / 6.4 ×;
+cp OpenFaaS 1.104 / 1.120, Fn 1.046 / 1.019. Function CPU per request falls at c = 64 (OpenFaaS 0.88 ×,
+Fn 0.70 ×): the handler spins until 5 ms of wall time pass, so a spin that is preempted on a saturated
+host (OpenFaaS 74–86 %, Fn 95–97 % busy) burns less CPU. Fn ran 73–74 containers. These numbers are seen before the §38.7
+repeat; its verdicts are judged by the frozen §38.3 thresholds only.
+
+**Tooling.** `w6_analysis.py`'s table prints "attempted" per run (median) beside "errors" summed over
+the runs; err % is right. Display only, left as written.
+
+**Do not repeat.** Never set TOTAL to a value that is not a multiple of c (hey drops the remainder).
+Do not re-run slot A's half leg to rescue H2 (rule 1).
+
+### 38.7 Amendment: over legs at 3008 requests; slot A's over cells repeated (written 2026-10-22, before any w6_a2_ or w6_b_ data)
+
+Amendment w6_a2: pre-registered
+
+1. Every W6 over leg (c = 64) sends `--total 3008` (47 × 64), so hey sends every request and the
+   count gate means what it says. Nothing else changes: same floor (0), repeat 6, discard 1, deferred
+   sampler names. Applies to slot B's kn_over and ow_over (no w6_b_ data exists).
+2. New slot `--block A2`, prefix `w6_a2_`: OpenFaaS and Fn, legs base then over, in that order
+   (`sudo bash tools/go.sh --workload fail --block A2`, about 30 min). Calibration, probe, hygiene,
+   gates and base protocol exactly as slot A.
+3. O1–O4 for OpenFaaS and Fn are judged from w6_a2_ only: over against w6_a2_'s own base (rule 3).
+   F, H and A stay judged from w6_a_; w6_a2_'s base is used for nothing else and never pooled.
+4. The w6_a_ over legs stay missing; their §38.6 numbers are post hoc and are not cited as verdicts.
+5. A w6_a2_ leg that fails twice is missing (rule 2); no further repeat.
+
+### 38.8 Slot A2 outcome (w6_a2_, OpenFaaS + Fn base and over at 3008 requests, 2026-10-22)
+
+**Run.** Session 10:56–11:12 UTC (about 16 min after calibration). Probe of w6_fail20 and w6_alt OK on
+both platforms. Mains on and charging before every leg (battery 7 % at pre-flight, rising to 34 %);
+3900 MHz under 4-core load at pre-flight, so no frequency cap (pre-flight check 8). 4 of 4 legs passed
+on attempt 1; base legs 5 of 5 usable runs, over legs runs 2–6 usable (run 1 discarded by design).
+Quiet gate 2.7–3.8 % on all legs. The count gate now holds: every over run sent 3008.
+Numbers: `python3 tools/w6_analysis.py --prefix w6_a2_`, copy in `../saqef-paper/results/w6_a2_analysis/`;
+tables in VERIFIED_RESULTS Part J (interim, slots A and A2; `scripts/make_w6_tables.py`).
+
+**Verdicts (O1–O4 for these two platforms, §38.7 item 3; the final verdicts count 4, after slot B).**
+| prediction | slot A2 | effect on the 4-platform verdict |
+|---|---|---|
+| O1 c = 64 error share ≤ 1 % | 2 / 2 (OpenFaaS 14 of 15 040 = 0.09 %, all HTTP 502, in runs 5–6; Fn 0) | open: needs 2 of 2 in slot B |
+| O2 c = 64 rps within ±15 % of base | 2 / 2 (OpenFaaS 1.068, Fn 1.061) | open: needs ≥ 1 of 2 |
+| O3 c = 64 p50 4–12 × base | 2 / 2 (OpenFaaS 5.69 ×, Fn 6.44 ×) | open: needs ≥ 1 of 2 |
+| O4a c = 64 cp within ±15 % (Fn) | 1 / 1 (Fn 1.036) | open: needs ≥ 1 of 2 (Knative, OpenWhisk) |
+| O4b OpenFaaS c = 64 cp ≥ 1.15 × base | **fails: 1.119** | **final: fails** (OpenFaaS only) |
+
+**What the data shows.** (1) At c = 64 both platforms queue the excess instead of dropping it:
+throughput stays at base (+6–7 %), the median wait grows about 6-fold, and nearly every request is
+answered. (2) OpenFaaS's control-plane cost per request rises by 12 % at c = 64 (0.430 against
+0.384 ms, idle-subtracted). Every over run (0.429–0.449 ms raw) sits above every base run
+(0.363–0.397 ms), so the rise is real, but it is below the 15 % that W3's bursts suggested; the
+prediction fails. Fn's cp is flat (+3.6 %). Slot A's post hoc over numbers (1.104 / 1.120) agree.
+(3) Descriptive: function CPU per request falls at c = 64 (OpenFaaS 0.885 ×, Fn 0.706 ×) and with it
+energy per request (OpenFaaS 0.805 ×, Fn 0.911 ×), as in §38.6: the 5 ms wall-time spin burns less CPU
+when preempted on a saturated host (host busy OpenFaaS about 86 %, Fn about 96 %). Fn's host CPU outside
+containers rises from 0.39 to 2.02 ms per request at c = 64 (slot A post hoc: 2.24). p99 OpenFaaS
+119.7 ms, Fn 202.1 ms.
+
+**Do not repeat.** Do not re-run OpenFaaS over to rescue O4b (rule 1); the A2 base is not pooled with
+slot A's base and is not used for F, H or A.
+
+### 38.9 Amendment: Knative probe at 2000 calls per phase (written 2026-10-22, before any w6_b_ leg data)
+
+Amendment w6_b probe: pre-registered
+
+**What happened.** The first slot B launch (2026-10-22, 12:28–12:35 UTC) passed pre-flight (mains on,
+charging, 95 %, 3500 MHz under 4-core load), then stopped at the w6_fail20 probe on Knative, exit code 7,
+with nothing measured; OpenWhisk was never probed. Knative answered HTTP 500 to 32 of 200 calls at
+c = 1 (16.0 %) and 48 of 200 at c = 8 (24.0 %), against 20 % ± 3. Every 2xx reply named the arm.
+Record: `results/aborted_20261022T1227Z_w6_b_session/` (probe.log, session.log); not used.
+
+**Cause: rounding across 16 pods, not the handler.** The handler fails every 5th call of each process
+(§38.2), and Knative runs 16 pods (minScale = maxScale = 16). With the calls spread evenly, the 10
+warm-up calls and the 200 c = 1 calls give each pod about 13 calls, of which 2 fail (15.4 %):
+16 × 2 = 32, the c = 1 count. By the end of the c = 8 phase each pod has had about 26 calls and 5
+failures, 80 in all; 80 − 32 = 48, the c = 8 count. Over the whole probe the share is 80 / 400 =
+20.0 %, as designed. With p pods each counting on its own, a phase of n calls can be off by up to
+p / n by rounding alone: ±8 points for 16 pods and 200 calls. OpenFaaS and Fn passed in slots A and A2
+(19–20 %, §38.6, §38.8). A measured leg is not affected in any way that matters: 3000 calls over 16 pods
+put the rounding at ±16 / 3000 ≈ ±0.5 point, inside F1's ±1 point.
+
+**Change.**
+1. The W6 probe sends 2000 GETs per phase (c = 1 and c = 8) on Knative (`SAQEF_PROBE_N=2000`, set in
+   `tools/run_final.sh`); rounding is then at most ±0.8 point. OpenWhisk keeps 200 (2 action
+   containers, at most ±1 point). The tolerance (design ± 3 points) and every other probe check are
+   unchanged. The probe log now prints the number of GETs per phase.
+2. Nothing else changes: legs, order, gates, success floors, predictions and decision rules of
+   §38.2–§38.5 and §38.7 item 1 stand. Slot B is launched again unchanged, prefix `w6_b_`:
+   `sudo bash tools/go.sh --workload fail --block B`.
+3. This is a check of the set-up, not a verdict gate, and no w6_b_ leg data exists, so no measured
+   result has been seen. Slots A and A2 keep their 200-call probes (passed; not re-run).
+
+### 38.10 Slot B outcome (w6_b_, Knative + OpenWhisk standalone, 2026-10-22) and the 4-platform W6 verdicts
+
+**Run.** Session 13:10–15:06 UTC. Pre-flight: mains on, battery Full/100 %, 3500 MHz under 4-core
+load. Probes passed with the §38.9 change: Knative w6_fail20 400 of 2000 non-2xx at c = 1 and at c = 8
+(20.0 %), w6_alt 0 %; OpenWhisk w6_fail20 20.0 % and 19.5 % (200 GETs), w6_alt 0 %; every 2xx reply named its arm. 15 of 15 legs passed
+on attempt 1; light legs 5 of 5 usable runs, OpenWhisk and over legs runs 2–6. Quiet gate 3.5–6.1 %.
+Every OpenWhisk leg log shows "activation log store = driver"; the three pool16 legs also "container
+pool 4608 MB", pool2_c4 the default. Over legs sent 3008 per run. Half-load targets from this slot's
+base legs: Knative 476.7, OpenWhisk 157.1 rps. Numbers: `python3 tools/w6_analysis.py --prefix w6_b_`,
+copy in `../saqef-paper/results/w6_b_analysis/` (reproduces byte for byte from the backup); tables in
+VERIFIED_RESULTS Part J (J-T1 now final).
+
+**Slot B cells (ratios to the same platform's base leg, idle-subtracted, per attempted request).**
+| prediction | Knative | OpenWhisk standalone (driver) |
+|---|---|---|
+| F1 error share | 4.80 %, 20.27 % | 5.00 %, 20.00 % |
+| F2 fn fail5 / fail20 | 0.991 / 0.997 | 1.000 / 1.001 |
+| F3 cp fail5 / fail20 | 1.000 / 1.011 | 1.049 / 1.020 |
+| O1 errors at c = 64 | 0 | 0 |
+| O2 rps at c = 64 | **1.340 (fails, upward)** | 0.992 |
+| O3 p50 at c = 64 | 5.55 × | 8.15 × |
+| O4a cp at c = 64 | 0.896 | 1.129 |
+| H1 half rps / target | 0.991 | 0.996 |
+| H2 half cp | **0.785 (fails)** | 0.877 |
+| H3 half energy per request | 1.47 × | 1.39 × |
+| H4 half p50 | 0.94 | 0.77 |
+| A1 alt fn | 0.608 | 0.546 |
+| A2 alt cp | 0.880 | 0.944 |
+
+**4-platform verdicts (slots A, A2 and B; §38.3 thresholds).** F1 8 of 8, F2 8 of 8, F3 8 of 8,
+O1 4 of 4, O2 3 of 4, O3 4 of 4, O4a 3 of 3, H1 4 of 4, H3 4 of 4, H4 4 of 4, A1 4 of 4, A2 4 of 4:
+**hold**. **H2 fails** (2 of 4, need 3: OpenFaaS 1.151, Knative 0.785; Fn 0.892 and OpenWhisk 0.877
+hold). **O4b fails** (OpenFaaS 1.119, §38.8).
+
+**OpenWhisk 16-container sensitivity.**
+| | c = 8 (pool16_c8 / base) | c = 4 (pool16_c4 / pool2_c4) |
+|---|---|---|
+| action containers (median per run) | 10 / 2 | 10 / 2 |
+| cp per request | 1.153 | 0.953 |
+| rps | 2.361 (745 / 316) | 1.645 (520 / 316) |
+| function CPU | 0.925 | 0.999 |
+| p50 | 0.39 (9.7 / 24.7 ms) | 0.59 (7.3 / 12.3 ms) |
+| energy per request | 0.54 | 0.71 |
+K0 holds (10 containers, not 16). Why 10 (found 2026-10-22, after §38.10 was first written): each pool16 leg
+redeploys OpenWhisk, and the pre-leg `saqef_harness.py --verify` sends its 100 calls at the harness's
+default concurrency, 10 (`run_final.sh` passes no `--concurrency` to verify). The fresh pool grows to 10
+action containers then (verify p50 150 ms, p99 1665 ms: container starts). Every run, run 1 included,
+shows the same 10 (`wsk0_3`–`wsk0_12_guest_hello`). The leg itself keeps at most 4 or 8 in flight, so
+the pool never needs more. 16 is the memory limit, not a cap that was hit: §37's smoke test reached 16
+at c = 16. With 10 ≥ c, every request in flight had a free container, so the container limit was
+fully lifted at c = 4 and 8; K1/K2 stand. **K1 fails** (1 of 2:
+c = 8 at 1.153, just past the line; c = 4 holds). **K2 fails, upward, on both cells.** As written in
+§38.3, a K2 failure upward means §4.3's "two containers" ceiling is the cause of OpenWhisk standalone's
+~315 rps after all, and the paper says so. §37's unmeasured ≈ 315 rps hint was wrong.
+
+**What the data shows.** (1) On all four platforms failures pass through unchanged: error share as
+designed, no hidden retries (function CPU within 1 % of base), and a failed call costs the control
+plane what a success costs. (2) At c = 64 nothing is dropped (OpenFaaS 14 errors in 15 040, the rest 0)
+and the median wait grows 5.5–8 ×. Knative's throughput rises 34 % at c = 64 (1278 against 953 rps), so
+at c = 8 Knative was not at its limit; cause not tested. Its cp per request falls slightly (0.90 ×).
+(3) At half load energy per request rises on all four (1.4–1.8 ×), but cp per request moves in
+different directions: up on OpenFaaS (1.15 ×), down on Knative (0.79 ×; all five half runs, raw
+0.467–0.510 ms, below all five base runs, 0.573–0.630 ms), Fn (0.89 ×) and OpenWhisk (0.88 ×). H2's
+"no change" is wrong; the direction depends on the platform. (4) Mixed traffic halves function CPU as
+designed and costs the control plane 0.87–0.95 × base. (5) OpenWhisk standalone with more action
+containers serves 1.6–2.4 × the requests at the same or similar cp per request, with a lower median
+latency and about half the energy per request at c = 8. The K1 failure at c = 8 is small and not clear
+run by run: raw cp per run pool16_c8 2.62–4.36 ms, base 2.51–4.24 ms (OpenWhisk's first usable run is
+high in most legs, §29.1 post hoc 2). (6) Descriptive: as in slots A and A2, function CPU per request
+falls at c = 64 on Knative (0.76 ×; wall-time spin preempted on a busy host), not on OpenWhisk (1.00 ×;
+not examined).
+
+**Corrections to earlier text.** §38.3's reason for K2 ("§37's hint ≈ 315 rps with 16 ready") is
+refuted. Paper claims "OpenWhisk standalone only, with 2 action containers" and §4.3 "the second limit:
+two containers" now have a measured size (queued in NEXT_STEPS).
+
+**Tooling.** `scripts/make_w6_tables.py` (paper repo) reads slot B, adds K0–K2 and the pool ratios to
+J-T1 and the pool legs to J-T3. No measurement code changed.
+
+**Do not repeat.** Do not re-run any slot B leg to rescue O2 (Knative), H2 or K1 (rule 1). Do not
+compare OpenWhisk's pool16 throughput with the light platforms' as a platform ranking: the pool legs
+are a sensitivity of one platform inside one slot (§38.4).
+
+## 39. Offline B: splitting package energy between platform and function (written 2026-10-22, before any fit)
+
+Analysis plan: pre-registered (offline, existing legs only; post hoc in the sense that every leg was
+seen before, but no fit of this model has been run)
+
+### 39.1 Question
+
+NEXT_STEPS idea B (after FaasMeter [23]): can the package's dynamic power be split into a part that
+follows the platform's CPU and a part that follows the function's CPU? If one linear model predicts
+energy per request on sessions it was not fitted on, its control-plane term gives energy per request
+for the platform alone. If it does not, that is further evidence for §34.2 / paper §4.4 ("no fixed
+watts per core"), now with the CPU split by role.
+
+### 39.2 Data (fixed)
+
+- Sessions the paper uses (`../saqef-paper/scripts/index_results.py`, groups marked "yes"): final_,
+  owlog29_ (+ amend33_2), payload_ (+ amend28_8, amend33_1), mem2_, burst_ (+ amend31_15), cold_,
+  io_a_, io_b2_, w6_a_, w6_a2_, w6_b_. Each group is one session for hold-out. No others.
+- Legs: passing legs only (`acceptance.json` `leg_gates_ok`, `usable_runs`; final_ predates
+  acceptance.json: runs after its discard, as `energy_linearity.py`). Usable runs only. A leg without its
+  own `idle_probe_<stamp>` or without RAPL energy is skipped and counted.
+- Per run, with the leg's own idle probe (rates per second of the 60 s probe):
+  `dyn_w = e_rapl_j / wall_s − probe W`;
+  `x_cp = (cp_sec − probe cp rate × host_window_s) / wall_s` (idle-subtracted control-plane busy cores);
+  `x_fn` the same for function CPU; `x_out` the same for host CPU outside all containers
+  (load generator, tool, Docker, kernel).
+
+### 39.3 Models (fixed)
+
+- **M1 (role split):** `dyn_w = a·x_cp + b·x_fn + d·x_out + c`, least squares over runs.
+- **M0 (one watt per core, the Kepler-style shortcut):** `dyn_w = k·(x_cp + x_fn + x_out) + c`.
+- Prediction target: energy per request of a leg, `e = dyn_w × wall_s / requests` (mJ), median over the
+  leg's usable runs; error = |predicted − measured| / measured.
+- Hold-out: leave one session out (fit on all other sessions, predict every leg of the left-out one).
+
+### 39.4 Decision rules (frozen from here)
+
+- **B1 (separable):** fitted on all sessions, a > 0 and b > 0, and the 95 % bootstrap interval of each
+  (1000 resamples of legs, seed 39) excludes 0. Fails → the roles cannot be told apart in this corpus
+  (they move together with throughput); no platform-only energy is reported.
+- **B2 (predicts):** M1's median leave-one-session-out error over all legs ≤ 10 %, and below M0's.
+- **B3 (useful):** if B1 and B2 hold, report platform-only energy per request `a × x_cp × wall_s /
+  requests` per platform for Part A (c = 1, 2, 4, 8), beside measured energy per request. If B1 or B2
+  fails, report the failure and the fitted values as descriptive only; nothing goes into the paper's
+  results beyond one sentence in §4.4.
+- Descriptive, no verdict: a / b (is a platform core-second as costly as a function core-second?);
+  per-session errors; correlation of x_cp with x_fn.
+- No model, term, data filter or threshold changes after the first fit. A coding error found later is
+  fixed, recorded here, and the fit re-run once.
+
+Tool: `tools/energy_split.py` (tests `TestEnergySplit`), output `../saqef-paper/results/energy_split_analysis/`.
+
+### 39.5 Outcome (2026-10-22)
+
+**Run.** `python3 tools/energy_split.py --res ../saqef-paper/results`: 890 usable runs, 178 passing legs,
+15 sessions; 18 legs skipped as failed attempts (each has a passing retry, or is one of slot A's two
+missing over legs), none for a missing probe or energy. Output in
+`../saqef-paper/results/energy_split_analysis/`, VERIFIED_RESULTS H-T4. Deterministic (two runs
+byte-identical). Coding fix before any output was seen: the first run stopped writing JSON on a numpy
+bool (`B1`/`B2` now cast to `bool`); model, data and thresholds unchanged.
+
+**Fit (all sessions).** M1: a = 2.19 W per control-plane busy core (95 % interval 1.07–3.49),
+b = 2.99 W per function busy core (2.66–3.34), d = 1.85 W per busy core outside containers
+(0.19–3.80), intercept c = 7.51 W (6.23–8.87). M0: k = 2.79 W per busy core, c = 7.08 W. Correlation
+of control-plane with function busy cores over runs: −0.11.
+
+**Verdicts.** **B1 holds**: both role terms are positive and their intervals exclude 0. **B2 fails**:
+M1's median error of energy per request, predicting each session from the others, is 19.0 %; M0's is
+17.5 %. Splitting the CPU by role does not predict better than one watt value per busy core, and
+neither is within 10 %. **B3**: not reported (rule).
+
+**What the data shows.** (1) A control-plane core-second and a function core-second cost about the same
+power: a's interval (1.07–3.49) contains b (2.99). (2) No linear watts-per-core model, split by role or
+not, carries from one session to another within 10 %. Errors are smallest in steady sessions (`w6_b_`
+8.7 %, `mem2_` 9.6 %, `w6_a_` 14.7 %, `final_` 21.1 %) and largest where runs pause or load changes
+shape (`cold_` 120 %, `burst_` 47 %, `owlog29_` 84 %). (3) The intercept of 7.5 W is the sublinear
+response of §34.2: the first busy core costs the most. So the paper's choice stands: energy per request
+measured with RAPL per leg, and the platform's part stated as CPU, not as energy. This adds the role
+split to §34.2's "no fixed watts per core"; it does not change any reported number.
+
+**Descriptive only, not cited** (`energy_split.md`): a × control-plane busy cores per request in Part A
+is 0.6–0.9 mJ on OpenFaaS, 1.1 on Fn, 1.4–1.6 on Knative, 38–40 on OpenWhisk standalone (default log
+collector), beside 20–113 mJ measured for the whole package.
+
+**Paper.** The one sentence §39.4 allows is in §4.4 (v10, 2026-10-22): a platform core and a function core cost about the same power (2.2 and 3.0 W); the left-out-session median error is 19 %.
+
+**Do not repeat.** Do not refit with other terms, sessions or filters to reach 10 % (§39.4).
+
+## 40. C, processor speed — DRAFT pre-registration (written 2026-10-22, before any data; not frozen)
+
+Status: **draft for the supervisor meeting.** It is frozen, and gets its marker line, only if the
+meeting picks it and step 1 (40.6) passes. Until then any part may change. No data for it exists.
+
+### 40.1 Question
+Does the control plane's CPU per request depend on the processor's clock as much as the function's
+does, and which clock gives the lowest energy per request? Every number in the paper comes from one
+clock policy on one machine (turbo up to 4.4 GHz). If the platform's work is less clock-bound than
+the function's (memory, system calls, network), its share of the CPU grows on slower processors, and
+the paper's shares do not carry over to slower servers as they stand.
+
+### 40.2 Anchors (existing numbers)
+- §31.14 C (not citable, a firmware cap, not a design): Fn with the clock held at ~2.5 GHz against
+  3.0–3.6 GHz: cp per request +20–32 % (the clock ratio predicts up to +36 %), function CPU +3–5 %.
+  The function was flat because the handler spins for 5 ms of *wall* time, so its CPU does not depend
+  on the clock by construction. Energy per request went down.
+- Part A, c = 4 (T2–T5): cp 0.39 / 0.52 / 0.66 / 17.70 ms per request (OpenFaaS / Fn / Knative /
+  OpenWhisk standalone), function 6.21 / 5.46 / 6.45 / 5.54 ms, energy 31.3 / 27.5 / 32.9 / 106.5 mJ,
+  throughput 573 / 651 / 566 / 111 rps.
+- From §31.14: cp's clock elasticity e (cp ∝ clock^−e) is about 0.6–0.9.
+
+### 40.3 Design
+- **Handler: fixed work, not fixed time** (new workload `workloads/clk_work`). The call runs a fixed
+  number of loop iterations, set in step 1 to take about 5 ms at 3.2 GHz, and returns the count. A
+  wall-time spin would make the function's CPU flat by construction (§31.14 C) and answer nothing.
+- **Clocks: 1.6, 2.4 and 3.2 GHz**, each pinned on all cores (`scaling_min_freq` =
+  `scaling_max_freq`) behind a new flag `SAQEF_CPU_PIN_MHZ`, default off. The pin is set before the
+  leg's deploy and idle probe and restored after the leg. 3.2 GHz is the clock the power gate already
+  requires under a 4-core load; 2.6 GHz is the base clock.
+- **Legs:** 4 platforms × 3 clocks = 12, c = 4, prefix `clk_`. Clock order alternates by platform:
+  OpenFaaS 3.2 → 2.4 → 1.6, Fn 1.6 → 2.4 → 3.2, Knative as OpenFaaS, OpenWhisk standalone as Fn.
+  OpenWhisk standalone with its default log collector, as in Part A.
+- Part A protocol otherwise: TOTAL = 3000, light `--repeat 5`, OpenWhisk `--repeat 6
+  --discard-warmup 1`, `--cpu-probe 60` (at the leg's pinned clock, so energy is probe basis at
+  the same clock), in-session idle-w calibration at the default clock (descriptive), `--hygiene`,
+  quiet gate 15 %, one `_r2` retry. Pre-flight check 8 runs before any pin, unchanged.
+- **New run gate, behind the flag:** the median clock of the busy cores during the run is within
+  ±5 % of the pin; else the run is not usable. Each run records `freq_pin_mhz` and that median.
+- Expected duration about 2–2.5 h, one session, one command (`go.sh --workload clk`).
+
+### 40.4 Predictions (ratios of medians over usable runs, 1.6 GHz over 3.2 GHz unless stated)
+- **C1** cp per request rises: ratio ≥ 1.40 on all 4 platforms (e ≥ 0.49; §31.14 gives 0.6–0.9).
+- **C2** function CPU per request rises: ratio ≥ 1.70 on all 4 (fixed work; OpenFaaS's watchdog and
+  Knative's queue-proxy are in the function bucket and may hold it below 2.0).
+- **C3** the control plane is less clock-bound than the function: cp ratio < function ratio on at
+  least 3 of 4 platforms. This is the question of 40.1.
+- **C4** energy: dynamic energy per request at 2.4 GHz is at least 10 % below 3.2 GHz on at least 3
+  of 4 platforms (above the base clock the voltage rises steeply).
+- Descriptive, no verdict: 2.4 GHz ratios; cp share of dynamic CPU per clock; the clock with the
+  lowest energy per request per platform; throughput and latency per clock.
+
+### 40.5 Decision rules (to freeze with the marker line)
+- A failed prediction is a finding, never a re-run. A leg failing twice is a missing cell; a ratio
+  with a missing end is not judged.
+- No clocks, concurrency or handler changes after the first leg's data.
+- Results: Part K of VERIFIED_RESULTS, tool `tools/clk_analysis.py`; not pooled with any other
+  session (the handler and clock policy differ).
+
+### 40.6 Step 1, before freezing (unmeasured, needs root)
+1. Pin each clock on all cores, spin 4 cores for 4 s, read every core's clock: each must hold within
+   ±5 % (HWP may not honour a pin; if 1.6 does not hold, use the lowest clock that does).
+2. At 3.2 GHz pinned, time the loop and fix its iteration count to 5.0 ms; write the count here.
+3. Wire `SAQEF_CPU_PIN_MHZ`, the clock gate, `--workload clk` and tests; dry-run; then the marker
+   line `Workload C: pre-registered`.
