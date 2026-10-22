@@ -1,6 +1,6 @@
 # SAQEF: a Sustainability-Aware QoS Evaluation Framework for serverless platforms
 
-[![License: CC BY-NC 4.0](https://img.shields.io/badge/license-CC%20BY--NC%204.0-lightgrey.svg)](LICENSE)
+![Status: research in progress](https://img.shields.io/badge/status-research%20in%20progress-yellow.svg)
 ![Python 3](https://img.shields.io/badge/python-3-blue.svg)
 ![Platforms](https://img.shields.io/badge/platforms-OpenFaaS%20%7C%20Fn%20%7C%20Knative%20%7C%20OpenWhisk-orange.svg)
 ![Tests](https://img.shields.io/badge/unit%20tests-272-brightgreen.svg)
@@ -225,10 +225,9 @@ The paper, the raw results and the table scripts are in the `saqef-paper` reposi
 the paper is in preparation and available from the author on request. Commit IDs quoted in the
 runbook refer to the development history in which each session ran.
 
-## Citation
+## Status and use
 
-See [`CITATION.cff`](CITATION.cff); GitHub shows it as "Cite this repository".
-
-## License
-
-[CC BY-NC 4.0](LICENSE): free to share and adapt for non-commercial use, with attribution.
+This is research work in progress. The repository is visible so that the work can be followed and
+checked by the author's supervisors; it is **not released for public use**. All rights are reserved
+(see [`LICENSE`](LICENSE)): please do not copy, reuse or redistribute any part of it without the
+author's written permission. A licence for reuse will be added when the work is published.

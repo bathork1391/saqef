@@ -1,5 +1,5 @@
 cff-version: 1.2.0
-message: "If you use SAQEF, please cite it as below."
+message: "Research work in progress, not released for public use; all rights reserved. Cite only with the author's permission."
 title: "SAQEF: a Sustainability-Aware QoS Evaluation Framework for serverless platforms"
 type: software
 authors:
@@ -7,7 +7,6 @@ authors:
     given-names: "Mohammad Imran"
     affiliation: "Green Cloud Continuum project"
 repository-code: "https://github.com/bathork1391/saqef"
-license: CC-BY-NC-4.0
 date-released: 2026-10-23
 keywords:
   - serverless
