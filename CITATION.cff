@@ -1,0 +1,21 @@
+cff-version: 1.2.0
+message: "If you use SAQEF, please cite it as below."
+title: "SAQEF: a Sustainability-Aware QoS Evaluation Framework for serverless platforms"
+type: software
+authors:
+  - family-names: "Ali"
+    given-names: "Mohammad Imran"
+    affiliation: "Green Cloud Continuum project"
+repository-code: "https://github.com/bathork1391/saqef"
+license: CC-BY-NC-4.0
+date-released: 2026-10-23
+keywords:
+  - serverless
+  - function-as-a-service
+  - control-plane overhead
+  - energy measurement
+  - RAPL
+  - OpenFaaS
+  - Fn
+  - Knative
+  - OpenWhisk
