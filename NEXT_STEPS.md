@@ -19,7 +19,7 @@ I/O-bound and mixed functions (W5, done), then failures and losses as in real tr
 - Open question for the next meeting: is a second machine coming? It decides what follows W6.
 - **Revised 2026-10-23 after reviews R2 and R3** (runbook §41, `../saqef-paper/reviews/v10-2026-10-23/`):
   platform fee (OpenFaaS and Fn swap on the broad boundary), Table 1 related work, Appendix B, abstract.
-  Open: deposit the raw results with restricted access at submission (DOI), or keep "on request".
+  Data deposit (restricted, DOI) deferred until submission (user, 2026-10-23); supervisors get every file now.
 
 ## To run, in this order (each one command, all pre-registered, code committed)
 1. **W6 failures, overload, half load and mixed traffic (runbook §38, pre-registered 2026-10-22):**

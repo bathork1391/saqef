@@ -1,8 +1,10 @@
-# SAQEF: Serverless Platform Overhead and Carbon Measurement
+# SAQEF: a Sustainability-Aware QoS Evaluation Framework for serverless platforms
 
 SAQEF measures what a serverless (FaaS) platform itself costs per request: the CPU time, energy and
 carbon used by its **control plane** (gateway, controller, autoscaler, invoker, log collector),
-separated from the CPU time of the **function** it runs. It was built for a pre-registered study of
+separated from the CPU time of the **function** it runs. *Sustainability-aware*: CPU time, energy and
+carbon per request. *QoS*: the same runs record latency (median and p99), throughput and the share of
+requests answered, so cost is never read without the service it bought. It was built for a pre-registered study of
 four open-source platforms on one machine:
 
 | Platform | Deployment | Control plane | Function |
