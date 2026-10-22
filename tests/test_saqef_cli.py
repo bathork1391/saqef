@@ -2636,7 +2636,8 @@ class TestLegacyReattribution(unittest.TestCase):
 
         The value is only defensible if it sits above what correct legs actually
         produce and below what a wrong split would produce. Measured over the
-        264 reconstructable committed legs: max 0.0060 cpu-s. So the threshold
+        178 reconstructable committed legs (2026-10-22, after unused sessions were
+        removed from the results repo): max 0.0098 cpu-s. So the threshold
         is asserted against that number rather than left as a bare literal.
         """
         import glob
@@ -2654,7 +2655,7 @@ class TestLegacyReattribution(unittest.TestCase):
             r = lr.reconstruct(leg, tol=lr.RECON_TOL)
             if r and r["status"] == "ok" and r.get("unclass_abs_err") is not None:
                 errs.append(r["unclass_abs_err"])
-        self.assertGreater(len(errs), 200, "expected most legs to reconstruct")
+        self.assertGreater(len(errs), 150, "expected most legs to reconstruct")
         self.assertLess(max(errs), lr.UNCLASS_ABS_TOL,
                         "UNCLASS_ABS_TOL would reject a correct leg")
         # And it must still be tight enough to matter: a split wrong by more
