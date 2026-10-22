@@ -17,6 +17,9 @@ I/O-bound and mixed functions (W5, done), then failures and losses as in real tr
   its outcome). About 31 pages in Word, 33 in the PDF, with W6 (Section 4.10, Tables 16–17, A3).
 - Meeting brief for the supervisor: `../saqef-paper/versions/v10/meeting/MEETING_BRIEF.md`.
 - Open question for the next meeting: is a second machine coming? It decides what follows W6.
+- **Revised 2026-10-23 after reviews R2 and R3** (runbook §41, `../saqef-paper/reviews/v10-2026-10-23/`):
+  platform fee (OpenFaaS and Fn swap on the broad boundary), Table 1 related work, Appendix B, abstract.
+  Open: deposit the raw results with restricted access at submission (DOI), or keep "on request".
 
 ## To run, in this order (each one command, all pre-registered, code committed)
 1. **W6 failures, overload, half load and mixed traffic (runbook §38, pre-registered 2026-10-22):**

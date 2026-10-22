@@ -5165,3 +5165,28 @@ the paper's shares do not carry over to slower servers as they stand.
 2. At 3.2 GHz pinned, time the loop and fix its iteration count to 5.0 ms; write the count here.
 3. Wire `SAQEF_CPU_PIN_MHZ`, the clock gate, `--workload clk` and tests; dry-run; then the marker
    line `Workload C: pre-registered`.
+
+## 41. Post hoc checks after reviews R2 and R3 (2026-10-23; no new data)
+
+Two outside reviews of v10 (R2, R3; response `../saqef-paper/reviews/v10-2026-10-23/RESPONSE.md`).
+All checks below use data already on disk; they are post hoc and labelled so in the paper (Appendix B).
+Tables: VERIFIED_RESULTS H-T5 to H-T7 (`scripts/make_posthoc_tables.py`); each recomputed median was
+checked against the published one before use (e.g. W3 OpenFaaS b100 0.477, W6 K1 1.153, W4 Fn 5.5 ms).
+
+- **H-T5, platform fee.** The fee (platform cp + function − plain-container function, W5 I-T4) at c = 1:
+  OpenFaaS 0.76 / 0.76 ms (spin / sleep), Fn 0.48 / 0.50; narrow cp 0.26 vs 0.50. Upper bound at
+  c = 4 / 8 (cp + function, sleep, no floor taken out): OpenFaaS 1.48 / 1.41, Fn 0.85 / 0.96.
+  **OpenFaaS and Fn swap under the broad boundary at every c.** Knative and OpenWhisk (other slot)
+  keep their order. Not ranked across slots.
+- **H-T6, recorded vs idle-subtracted.** W3, W4, W5, W6 recomputed on recorded cp: no verdict changes.
+  One reading changes: OpenWhisk 10 vs 2 containers at c = 8, 1.153 → 1.126 (K1 sits at the 15 %
+  threshold either way). Largest shifts: W3 OpenWhisk b100 1.16 → 1.31 (a change either way),
+  W4 Knative 10.9 → 16.9 ms per container (within noise either way).
+- **H-T7, run spread.** Steady-load order, log collector, W2 Fn and Knative c = 1, W3 OpenFaaS,
+  W6 half on OpenFaaS and Knative: every run separated. W6 K1: runs overlap.
+- Paper v10 revised: platform fee (§3.4, §4.1, §4.9), Table 1 (related work; later tables renumbered
+  +1), Appendix B, abstract (21 → 3 ms within one session), denominators defined, "lever" →
+  candidate mitigation, carbon called an estimate.
+
+**Do not repeat:** ranking Knative or OpenWhisk against OpenFaaS or Fn on the fee (different slots);
+calling the fee "control-plane CPU".
