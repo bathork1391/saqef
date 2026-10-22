@@ -15,7 +15,7 @@ I/O-bound and mixed functions (W5, done), then failures and losses as in real tr
 - Paper: `../saqef-paper/versions/v10/` revised 2026-10-22 after review R1
   (`../saqef-paper/reviews/v10-2026-10/`): shortened, corrected, Appendix A (every prediction and
   its outcome). About 31 pages in Word, 33 in the PDF, with W6 (Section 4.10, Tables 16–17, A3).
-- Meeting brief for the supervisor: `../saqef-paper/versions/v10/MEETING_BRIEF.md`.
+- Meeting brief for the supervisor: `../saqef-paper/versions/v10/meeting/MEETING_BRIEF.md`.
 - Open question for the next meeting: is a second machine coming? It decides what follows W6.
 
 ## To run, in this order (each one command, all pre-registered, code committed)
@@ -45,7 +45,7 @@ I/O-bound and mixed functions (W5, done), then failures and losses as in real tr
    **Paper pass done 2026-10-22** (v10 now 33 PDF pages; meeting brief updated). It was: W6 as v10 Section 4.10 and Appendix A Table A3
    (F1–F3, O1–O4, H1–H4, A1–A2, K0–K2); rewrite Limitations "Load is limited ... not tested" and
    "OpenWhisk standalone only, with 2 action containers" (K1/K2), and drop Future Work item 1
-   (failures and overload); refresh `versions/v10/MEETING_BRIEF.md` (Sections 1, 4.10, 6).
+   (failures and overload); refresh `versions/v10/meeting/MEETING_BRIEF.md` (Sections 1, 4.10, 6).
    **K2 changes the paper's OpenWhisk story (§38.10):** say in §4.3, Limitations and every OW
    throughput/latency/energy comparison that the ~315 rps ceiling is the standalone's 2-container
    pool, measured: 16-container pool (10 started by the 10-concurrent pre-leg check, §38.10) gives 745 rps at c = 8, cp per request 1.15 ×.
